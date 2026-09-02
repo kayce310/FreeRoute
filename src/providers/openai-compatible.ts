@@ -130,6 +130,8 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
   const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1_000 : undefined;
   const kind = response.status === 401 || response.status === 403
     ? 'authentication'
+    : response.status === 402
+      ? 'quota_exhausted'
     : response.status === 429
       ? 'rate_limit'
       : response.status === 408 || response.status >= 500

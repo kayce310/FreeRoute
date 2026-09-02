@@ -72,3 +72,11 @@ test('classifies an upstream 401 as an authentication error', async () => {
   const adapter = new OpenAICompatibleAdapter({ providerId: 'openrouter', baseUrl: 'https://example.test/v1', getCredential: async () => undefined });
   await assert.rejects(adapter.discoverModels('missing'), (error: unknown) => error instanceof ProviderInvocationError && error.failure.kind === 'authentication');
 });
+
+test('classifies an upstream 402 as quota exhaustion so routing can fall back', async () => {
+  const adapter = new OpenAICompatibleAdapter({
+    providerId: 'openrouter', baseUrl: 'https://example.test/v1', getCredential: async () => 'test-secret',
+    fetch: async () => new Response(null, { status: 402 }),
+  });
+  await assert.rejects(adapter.discoverModels('personal'), (error: unknown) => error instanceof ProviderInvocationError && error.failure.kind === 'quota_exhausted');
+});
