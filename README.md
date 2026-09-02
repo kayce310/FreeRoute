@@ -19,6 +19,7 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | OpenAI-compatible API | In progress | Authenticated `/health` and `/v1/models` endpoints are implemented; inference endpoints follow provider adapters. |
+| Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely. |
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
