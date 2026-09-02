@@ -2,12 +2,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { CatalogStore } from './catalog.js';
 import { ChatService, ProviderInvocationError, type ChatMessage } from './inference.js';
 import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
+import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
   apiToken?: string;
   chat?: ChatService;
   events?: SqliteRoutingEventStore;
+  quotas?: SqliteQuotaObservationStore;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -48,6 +50,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
         const events = await options.events.list();
         sendJson(response, 200, { object: 'list', data: events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/quota-observations') {
+        if (!options.quotas) { sendJson(response, 503, { error: { message: 'quota observation storage is not configured', type: 'server_error' } }); return; }
+        const observations = await options.quotas.list();
+        sendJson(response, 200, { object: 'list', data: observations.map((item) => ({ ...item, observedAt: item.observedAt.toISOString(), resetAt: item.resetAt?.toISOString() })) });
         return;
       }
 

@@ -5,6 +5,7 @@ import { createFreeRouteServer } from './server.js';
 import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
 import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
 import { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
+import { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 
 export interface OpenRouterRuntimeOptions {
   databasePath: string;
@@ -19,14 +20,15 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   const catalog = new SqliteCatalogStore(options.databasePath);
   const credentials = new SqliteCredentialStore(options.databasePath, options.masterSecret);
   const events = new SqliteRoutingEventStore(options.databasePath);
+  const quotas = new SqliteQuotaObservationStore(options.databasePath);
   const adapter = new OpenAICompatibleAdapter({
     providerId: 'openrouter',
     baseUrl: options.baseUrl ?? 'https://openrouter.ai/api/v1',
     getCredential: (credentialId) => credentials.get('openrouter', credentialId),
     fetch: options.fetch,
   });
-  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState(), onEvent: (event) => events.record(event) });
-  const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events });
+  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation) });
+  const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events, quotas });
   const discovery = new CatalogService(catalog, [adapter]);
 
   return {
@@ -41,6 +43,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       catalog.close();
       credentials.close();
       events.close();
+      quotas.close();
     },
   };
 }

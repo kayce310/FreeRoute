@@ -19,6 +19,13 @@ export interface NormalizedChatResponse {
   content: string;
   providerId: string;
   modelId: string;
+  quota?: QuotaObservation;
+}
+
+export interface QuotaObservation {
+  remainingRequests?: number;
+  remainingTokens?: number;
+  resetAt?: Date;
 }
 
 export interface NormalizedChatStreamEvent {
@@ -54,6 +61,7 @@ export interface ChatServiceOptions {
   now?: () => Date;
   routeState?: RouteState;
   onEvent?: (event: RoutingEvent) => void | Promise<void>;
+  onQuota?: (observation: QuotaObservation & { providerId: string; modelId: string; credentialRef: string; observedAt: Date }) => void | Promise<void>;
 }
 
 export interface RoutingEvent {
@@ -131,6 +139,7 @@ export class ChatService {
           fallbackCount,
         };
         await this.emitEvent(request, decision.candidate, fallbackCount, 'success');
+        if (result.quota) await this.options.onQuota?.({ ...result.quota, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId, credentialRef: redactCredential(decision.candidate.credentialId), observedAt: this.now() });
         return completed;
       } catch (error) {
         if (!(error instanceof ProviderInvocationError)) throw error;
@@ -187,6 +196,7 @@ export function createCatalogChatService(options: {
   adapters: Iterable<ChatProviderAdapter>;
   routeState?: RouteState;
   onEvent?: ChatServiceOptions['onEvent'];
+  onQuota?: ChatServiceOptions['onQuota'];
 }): ChatService {
   return new ChatService({
     candidates: async () => {
@@ -205,6 +215,7 @@ export function createCatalogChatService(options: {
     adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
     routeState: options.routeState,
     onEvent: options.onEvent,
+    onQuota: options.onQuota,
   });
 }
 

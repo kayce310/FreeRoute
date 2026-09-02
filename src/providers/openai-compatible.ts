@@ -74,7 +74,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const body = await response.json() as OpenAIChatCompletion;
     const content = contentToText(body.choices?.[0]?.message?.content);
     if (!content) throw new ProviderInvocationError('upstream returned no assistant content', { kind: 'temporary' });
-    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content };
+    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content, quota: quotaFromHeaders(response.headers) };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -113,6 +113,25 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     if (!secret) throw new ProviderInvocationError('credential not found', { kind: 'authentication' });
     return { authorization: `Bearer ${secret}` };
   }
+}
+
+function quotaFromHeaders(headers: Headers): import('../inference.js').QuotaObservation | undefined {
+  const remainingRequests = positiveNumber(headers.get('x-ratelimit-remaining-requests'));
+  const remainingTokens = positiveNumber(headers.get('x-ratelimit-remaining-tokens'));
+  const resetAt = resetTime(headers.get('x-ratelimit-reset-requests') ?? headers.get('retry-after'));
+  return remainingRequests === undefined && remainingTokens === undefined && !resetAt ? undefined : { remainingRequests, remainingTokens, resetAt };
+}
+
+function positiveNumber(value: string | null): number | undefined {
+  if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
+  return Number(value);
+}
+
+function resetTime(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return new Date(Date.now() + Number(value) * 1_000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function isZeroPrice(pricing: OpenAIModel['pricing']): boolean {

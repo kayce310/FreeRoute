@@ -27,7 +27,7 @@ async function withUpstream<T>(callback: (baseUrl: string) => Promise<T>): Promi
           response.end('data: {"id":"chat-stream","model":"free-model","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}\n\ndata: {"id":"chat-stream","model":"free-model","choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
           return;
         }
-        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        response.writeHead(200, { 'content-type': 'application/json', 'x-ratelimit-remaining-requests': '12', 'x-ratelimit-remaining-tokens': '9000' }).end(JSON.stringify({
           id: 'chat-1', model: 'free-model', choices: [{ message: { content: 'hello from upstream' } }],
         }));
       });
@@ -56,6 +56,7 @@ test('discovers zero-priced models and translates chat completions', async () =>
       request: { profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] },
     });
     assert.equal(response.content, 'hello from upstream');
+    assert.deepEqual(response.quota, { remainingRequests: 12, remainingTokens: 9000, resetAt: undefined });
   });
 });
 
