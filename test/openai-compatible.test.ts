@@ -19,9 +19,18 @@ async function withUpstream<T>(callback: (baseUrl: string) => Promise<T>): Promi
       return;
     }
     if (request.url === '/v1/chat/completions') {
-      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-        id: 'chat-1', model: 'free-model', choices: [{ message: { content: 'hello from upstream' } }],
-      }));
+      let body = '';
+      request.on('data', (chunk: Buffer) => { body += chunk; });
+      request.on('end', () => {
+        if (JSON.parse(body).stream === true) {
+          response.writeHead(200, { 'content-type': 'text/event-stream' });
+          response.end('data: {"id":"chat-stream","model":"free-model","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}\n\ndata: {"id":"chat-stream","model":"free-model","choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+          return;
+        }
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+          id: 'chat-1', model: 'free-model', choices: [{ message: { content: 'hello from upstream' } }],
+        }));
+      });
       return;
     }
     response.writeHead(404).end();
@@ -47,6 +56,15 @@ test('discovers zero-priced models and translates chat completions', async () =>
       request: { profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] },
     });
     assert.equal(response.content, 'hello from upstream');
+  });
+});
+
+test('translates OpenAI-compatible SSE chat chunks', async () => {
+  await withUpstream(async (baseUrl) => {
+    const adapter = new OpenAICompatibleAdapter({ providerId: 'openrouter', baseUrl, getCredential: async () => 'test-secret' });
+    const events = [];
+    for await (const event of adapter.streamChat!({ credentialId: 'personal', modelId: 'free-model', request: { profile: 'auto:free', requiredCapabilities: ['chat', 'streaming'], messages: [{ role: 'user', content: 'hello' }] } })) events.push(event);
+    assert.deepEqual(events.map((event) => [event.delta, event.finishReason]), [['hello', null], [' world', 'stop']]);
   });
 });
 

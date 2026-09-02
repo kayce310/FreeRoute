@@ -32,12 +32,12 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
-| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
+| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and streaming/non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely. |
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
-| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
+| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
 
 ## Why FreeRoute
 
@@ -216,7 +216,7 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 ### Milestone 1 — usable routing core
 
 - SQLite migrations and encrypted credential store.
-- `/v1/models`, non-streaming `/v1/chat/completions`; SSE streaming remains pending.
+- `/v1/models`, non-streaming and SSE `/v1/chat/completions` are implemented.
 - `auto:free` and named-model routing are implemented.
 - OpenRouter Free adapter is wired; Gemini and Groq adapters remain pending.
 - Basic retry, cooldown, request trace and local dashboard.

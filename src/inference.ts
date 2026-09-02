@@ -20,6 +20,13 @@ export interface NormalizedChatResponse {
   modelId: string;
 }
 
+export interface NormalizedChatStreamEvent {
+  id: string;
+  model: string;
+  delta?: string;
+  finishReason?: string | null;
+}
+
 export class ProviderInvocationError extends Error {
   constructor(message: string, readonly failure: AdapterFailure) {
     super(message);
@@ -33,6 +40,11 @@ export interface ChatProviderAdapter {
     modelId: string;
     request: NormalizedChatRequest;
   }): Promise<Omit<NormalizedChatResponse, 'providerId' | 'modelId'>>;
+  streamChat?(input: {
+    credentialId: string;
+    modelId: string;
+    request: NormalizedChatRequest;
+  }): AsyncIterable<NormalizedChatStreamEvent>;
 }
 
 export interface ChatServiceOptions {
@@ -95,6 +107,21 @@ export class ChatService {
         fallbackCount += 1;
       }
     }
+  }
+
+  async stream(request: NormalizedChatRequest): Promise<{ decision: RouteDecision; events: AsyncIterable<NormalizedChatStreamEvent> }> {
+    const decision = chooseRoute(request, await this.options.candidates(), this.now());
+    if (!decision) throw new Error('no eligible route candidates');
+    const adapter = this.options.adapters.get(decision.candidate.providerId);
+    if (!adapter?.streamChat) throw new ProviderInvocationError('streaming is not supported by the selected provider', { kind: 'unsupported' });
+    return {
+      decision,
+      events: adapter.streamChat({
+        credentialId: decision.candidate.credentialId,
+        modelId: decision.candidate.modelId,
+        request,
+      }),
+    };
   }
 }
 

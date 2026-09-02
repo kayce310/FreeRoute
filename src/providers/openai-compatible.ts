@@ -18,6 +18,12 @@ interface OpenAIChatCompletion {
   choices?: Array<{ message?: { content?: OpenAIMessageContent } }>;
 }
 
+interface OpenAIChatChunk {
+  id?: string;
+  model?: string;
+  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+}
+
 export interface OpenAICompatibleAdapterOptions {
   providerId: string;
   baseUrl: string;
@@ -69,6 +75,37 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const content = contentToText(body.choices?.[0]?.message?.content);
     if (!content) throw new ProviderInvocationError('upstream returned no assistant content', { kind: 'temporary' });
     return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content };
+  }
+
+  async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
+    const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
+      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true }),
+    });
+    if (!response.ok) throw await providerError(response);
+    if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });
+    const decoder = new TextDecoder();
+    let pending = '';
+    for await (const bytes of response.body) {
+      pending += decoder.decode(bytes, { stream: true });
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        const data = line.startsWith('data:') ? line.slice(5).trim() : undefined;
+        if (!data || data === '[DONE]') continue;
+        let chunk: OpenAIChatChunk;
+        try { chunk = JSON.parse(data) as OpenAIChatChunk; } catch { continue; }
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+        yield {
+          id: chunk.id ?? crypto.randomUUID(),
+          model: chunk.model ?? input.modelId,
+          delta: choice.delta?.content,
+          finishReason: choice.finish_reason,
+        };
+      }
+    }
   }
 
   private async headers(credentialId: string): Promise<Record<string, string>> {

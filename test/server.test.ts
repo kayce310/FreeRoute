@@ -56,6 +56,24 @@ test('routes OpenAI-compatible chat requests and reports the selected upstream',
   }
 });
 
+test('streams OpenAI-compatible chat chunks as SSE', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'groq', async chat() { return { id: 'unused', model: 'llama-free', content: 'unused' }; },
+    async *streamChat() { yield { id: 'chunk-1', model: 'llama-free', delta: 'hello' }; yield { id: 'chunk-1', model: 'llama-free', finishReason: 'stop' }; },
+  };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', stream: true, messages: [{ role: 'user', content: 'hi' }] }) });
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    const body = await response.text();
+    assert.match(body, /"content":"hello"/);
+    assert.match(body, /data: \[DONE\]/);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
 test('rejects requests without the unified local API token', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/models`);
