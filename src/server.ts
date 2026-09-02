@@ -24,6 +24,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
 
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+      if (request.method === 'GET' && path === '/') {
+        sendHtml(response, dashboardHtml());
+        return;
+      }
       if (request.method === 'GET' && path === '/health') {
         sendJson(response, 200, { status: 'ok' });
         return;
@@ -60,6 +64,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!options.quotas) { sendJson(response, 503, { error: { message: 'quota observation storage is not configured', type: 'server_error' } }); return; }
         const observations = await options.quotas.list();
         sendJson(response, 200, { object: 'list', data: observations.map((item) => ({ ...item, observedAt: item.observedAt.toISOString(), resetAt: item.resetAt?.toISOString() })) });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/provider-health') {
+        if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
+        const health = summarizeProviderHealth(await options.events.list(10_000));
+        sendJson(response, 200, { object: 'list', data: health });
         return;
       }
 
@@ -131,6 +142,28 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const target = parseRequestedModel(input.model);
         const requestId = crypto.randomUUID();
         response.setHeader('x-freeroute-request-id', requestId);
+        if (input.stream) {
+          const result = await options.chat.stream({
+            profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+          });
+          const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
+          const responseId = `resp_${requestId}`;
+          response.writeHead(200, {
+            'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
+            'x-freeroute-provider': result.decision.candidate.providerId,
+            'x-freeroute-model': result.decision.candidate.modelId,
+          });
+          writeResponseEvent(response, 'response.created', { type: 'response.created', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'in_progress', model } });
+          let outputIndex = 0;
+          for await (const event of result.events) {
+            if (event.delta) writeResponseEvent(response, 'response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, item_id: `msg_${responseId}`, output_index: outputIndex, content_index: 0, delta: event.delta });
+            if (event.finishReason) outputIndex += 1;
+          }
+          writeResponseEvent(response, 'response.completed', { type: 'response.completed', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed', model } });
+          response.end('data: [DONE]\n\n');
+          return;
+        }
         const result = await options.chat.complete({
           profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
           requestedModel: target.modelId, messages: input.messages, traceId: requestId,
@@ -153,6 +186,29 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const target = parseRequestedModel(input.model);
         const requestId = crypto.randomUUID();
         response.setHeader('x-freeroute-request-id', requestId);
+        if (input.stream) {
+          const result = await options.chat.stream({
+            profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+          });
+          const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
+          const messageId = `msg_${requestId}`;
+          response.writeHead(200, {
+            'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
+            'x-freeroute-provider': result.decision.candidate.providerId,
+            'x-freeroute-model': result.decision.candidate.modelId,
+          });
+          writeAnthropicEvent(response, 'message_start', { type: 'message_start', message: { id: messageId, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
+          writeAnthropicEvent(response, 'content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+          for await (const event of result.events) {
+            if (event.delta) writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: event.delta } });
+          }
+          writeAnthropicEvent(response, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+          writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });
+          writeAnthropicEvent(response, 'message_stop', { type: 'message_stop' });
+          response.end();
+          return;
+        }
         const result = await options.chat.complete({
           profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
           requestedModel: target.modelId, messages: input.messages, traceId: requestId,
@@ -205,28 +261,30 @@ async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequ
   return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream };
 }
 
-async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[] }> {
+async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; input?: unknown };
+  const value = body as { model?: unknown; input?: unknown; stream?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
-  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }] };
+  if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
+  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream };
   if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
-    return { model: value.model, messages: value.input.map((message) => ({ role: message.role, content: message.content })) };
+    return { model: value.model, messages: value.input.map((message) => ({ role: message.role, content: message.content })), stream: value.stream };
   }
   throw new InvalidChatRequestError('input must be a string or messages with role and string content');
 }
 
-async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[] }> {
+async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; system?: unknown; messages?: unknown };
+  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.system !== undefined && typeof value.system !== 'string') throw new InvalidChatRequestError('system must be a string');
+  if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (!Array.isArray(value.messages) || !value.messages.every(isAnthropicMessage)) throw new InvalidChatRequestError('messages must contain user or assistant roles and string content');
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
-  return { model: value.model, messages };
+  return { model: value.model, messages, stream: value.stream };
 }
 
 async function readPreferenceRequest(request: IncomingMessage): Promise<{ providerId: string; modelId: string; preference: Preference }> {
@@ -283,4 +341,33 @@ function isAuthorized(request: IncomingMessage, expectedToken: string | undefine
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
+}
+
+function sendHtml(response: ServerResponse, body: string): void {
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  response.end(body);
+}
+
+function writeResponseEvent(response: ServerResponse, event: string, body: unknown): void {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
+}
+
+function writeAnthropicEvent(response: ServerResponse, event: string, body: unknown): void {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
+}
+
+function dashboardHtml(): string {
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FreeRoute</title><style>body{font:14px system-ui;max-width:1100px;margin:32px auto;padding:0 16px}input,button,select{padding:7px;margin:3px}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border-bottom:1px solid #ddd;padding:7px;text-align:left}.muted{color:#666}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}</style><h1>FreeRoute</h1><p class="muted">Local catalog and redacted route history. Prompts and provider secrets are never shown.</p><label>Local API token <input id="token" type="password" autocomplete="off"><button onclick="load()">Load</button></label><p id="status"></p><div class="grid"><section><h2>Provider health</h2><table><thead><tr><th>Provider</th><th>Success</th><th>Recent requests</th></tr></thead><tbody id="health"></tbody></table></section><section><h2>Quota observations</h2><table><thead><tr><th>Route</th><th>Requests</th><th>Tokens</th><th>Reset</th></tr></thead><tbody id="quota"></tbody></table></section></div><h2>Models</h2><table><thead><tr><th>Model</th><th>Tier</th><th>Capabilities</th><th>Preference</th></tr></thead><tbody id="models"></tbody></table><h2>Recent routing</h2><table><thead><tr><th>Time</th><th>Route</th><th>Outcome</th><th>Fallbacks</th></tr></thead><tbody id="events"></tbody></table><script>const e=s=>document.querySelector(s),cell=(r,v)=>{let d=document.createElement('td');d.textContent=String(v??'');r.append(d);return d},row=(id,vs)=>{let r=document.createElement('tr');vs.forEach(v=>cell(r,v));e(id).append(r);return r};function token(){return e('#token').value}async function api(p,o={}){let r=await fetch(p,{...o,headers:{...o.headers,authorization:'Bearer '+token()}});if(!r.ok){let b=await r.json().catch(()=>({}));throw Error(b.error?.message||r.statusText)}return r.json()}function preference(model,items){return items.find(x=>x.providerId===model.owned_by&&x.modelId===model.id.slice(model.owned_by.length+1))?.preference||'neutral'}async function setPreference(select,provider,model){try{select.disabled=true;await api('/v1/preferences',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({provider_id:provider,model_id:model,preference:select.value})});e('#status').textContent='Preference saved.'}catch(x){e('#status').textContent='Error: '+x.message}finally{select.disabled=false}}async function load(){try{e('#status').textContent='Loading…';let[m,h,q,p,ph]=await Promise.all([api('/v1/models'),api('/v1/routing-events'),api('/v1/quota-observations'),api('/v1/preferences'),api('/v1/provider-health')]);e('#models').replaceChildren();e('#events').replaceChildren();e('#quota').replaceChildren();e('#health').replaceChildren();m.data.forEach(x=>{let r=row('#models',[x.id,x.freeroute.free_tier,x.freeroute.capabilities.join(', ')]),s=document.createElement('select');['prefer','neutral','limit','block'].forEach(v=>{let o=document.createElement('option');o.value=o.textContent=v;o.selected=v===preference(x,p.data);s.append(o)});s.onchange=()=>setPreference(s,x.owned_by,x.id.slice(x.owned_by.length+1));cell(r,'').append(s)});h.data.forEach(x=>row('#events',[new Date(x.occurredAt).toLocaleString(),x.providerId+'/'+x.modelId,x.outcome,x.fallbackCount]));q.data.forEach(x=>row('#quota',[x.providerId+'/'+x.modelId,x.remainingRequests??'unknown',x.remainingTokens??'unknown',x.resetAt?new Date(x.resetAt).toLocaleString():'unknown']));ph.data.forEach(x=>row('#health',[x.providerId,(x.successRate*100).toFixed(0)+'%',x.requestCount]));e('#status').textContent='Loaded.'}catch(x){e('#status').textContent='Error: '+x.message}}</script>`;
+}
+
+function summarizeProviderHealth(events: Array<{ providerId: string; outcome: 'success' | 'failure' }>): Array<{ providerId: string; requestCount: number; successRate: number }> {
+  const totals = new Map<string, { requestCount: number; successes: number }>();
+  for (const event of events) {
+    const total = totals.get(event.providerId) ?? { requestCount: 0, successes: 0 };
+    total.requestCount += 1;
+    if (event.outcome === 'success') total.successes += 1;
+    totals.set(event.providerId, total);
+  }
+  return [...totals].map(([providerId, total]) => ({ providerId, requestCount: total.requestCount, successRate: total.successes / total.requestCount }))
+    .sort((left, right) => right.successRate - left.successRate || right.requestCount - left.requestCount || left.providerId.localeCompare(right.providerId));
 }

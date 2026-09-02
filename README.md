@@ -21,6 +21,8 @@ npm start
 
 The import command is opt-in and prints only connection metadata. After startup, use the configured client token against `http://127.0.0.1:8787/v1`; send `model: "auto:free"` or a listed `openrouter/model-id`. The cached catalog is served immediately, then refreshed in the background every 30 minutes (set `FREEROUTE_REFRESH_MINUTES` to adjust). Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override their defaults.
 
+Open `http://127.0.0.1:8787/` for the local dashboard and enter the same client token to view the catalog and redacted route history.
+
 ### Progress
 
 | Area | Status | Notes |
@@ -32,11 +34,11 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
-| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, and non-streaming `/v1/responses` are implemented; responses expose the selected upstream in headers. |
+| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, and streaming/non-streaming `/v1/responses` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries rate-limit, explicit quota exhaustion (including HTTP 402), and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
 | Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
 | Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, provider-reported quota observations with soft scoring, and persistent Prefer/Neutral/Limit/Block rules are implemented. |
-| Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
+| Dashboard | Complete | Dependency-free local explorer shows catalog, redacted route history, provider health, quota observations, and persistent preference controls. |
 | Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
 
 ## Why FreeRoute
@@ -231,8 +233,8 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 
 ### Milestone 3 — broader compatibility
 
-- Non-streaming `/v1/responses` for Codex-oriented clients is implemented; SSE and full feature parity remain pending.
-- Non-streaming Anthropic Messages compatibility for Claude-oriented clients is implemented; streaming and tool-use parity remain pending.
+- Streaming and non-streaming `/v1/responses` for Codex-oriented clients are implemented; full feature parity remains pending.
+- Streaming and non-streaming Anthropic Messages compatibility for Claude-oriented clients are implemented; tool-use parity remains pending.
 - Native Gemini compatibility where required.
 - Tool calls, vision and structured output parity.
 - CLI setup commands and safe config backup.
