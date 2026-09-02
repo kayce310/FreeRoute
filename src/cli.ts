@@ -42,9 +42,11 @@ async function serve(): Promise<void> {
     if (refreshing) return;
     refreshing = true;
     try {
-      const result = await runtime.refreshOpenRouter();
-      if (result.status === 'updated') console.log(`OpenRouter catalog refreshed (${result.modelCount} models).`);
-      else console.error(`OpenRouter catalog refresh failed: ${result.error}`);
+      const results = await runtime.refreshProviders();
+      for (const result of results) {
+        if (result.status === 'updated') console.log(`${result.providerId} catalog refreshed (${result.modelCount} models).`);
+        else if (result.error !== 'credential not configured') console.error(`${result.providerId} catalog refresh failed: ${result.error}`);
+      }
     } finally {
       refreshing = false;
     }

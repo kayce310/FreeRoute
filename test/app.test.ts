@@ -45,3 +45,25 @@ test('refreshes a local OpenRouter catalog and serves a direct chat request', as
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('wires an imported Groq credential through the reusable compatible adapter', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'freeroute-groq-'));
+  const databasePath = join(directory, 'freeroute.sqlite');
+  const credentials = new SqliteCredentialStore(databasePath, 'test-master-secret-that-is-long-enough');
+  await credentials.put('groq', 'imported-groq', 'groq-secret');
+  credentials.close();
+  const runtime = createOpenRouterRuntime({
+    databasePath, masterSecret: 'test-master-secret-that-is-long-enough', apiToken: 'local-client-token', groqBaseUrl: 'https://groq.test/openai/v1',
+    fetch: async (input, init) => {
+      assert.equal(input, 'https://groq.test/openai/v1/models');
+      assert.equal((init?.headers as Record<string, string>).authorization, 'Bearer groq-secret');
+      return new Response(JSON.stringify({ data: [{ id: 'llama-free' }] }), { status: 200 });
+    },
+  });
+  try {
+    assert.deepEqual(await runtime.refreshProviders(), [
+      { providerId: 'openrouter', status: 'failed', error: 'credential not configured' },
+      { providerId: 'groq', status: 'updated', modelCount: 1 },
+    ]);
+  } finally { runtime.close(); await rm(directory, { recursive: true, force: true }); }
+});

@@ -1,4 +1,5 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
+import type { FreeTierClass } from '../contracts.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest } from '../inference.js';
 
 interface OpenAIModel {
@@ -29,6 +30,8 @@ export interface OpenAICompatibleAdapterOptions {
   baseUrl: string;
   getCredential: (credentialId: string) => Promise<string | undefined>;
   fetch?: typeof globalThis.fetch;
+  /** Use when an official catalog has no price metadata but the tier is known separately. */
+  classifyModel?: (model: OpenAIModel) => FreeTierClass;
 }
 
 /**
@@ -40,12 +43,14 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
   private readonly baseUrl: string;
   private readonly getCredential: OpenAICompatibleAdapterOptions['getCredential'];
   private readonly fetcher: typeof globalThis.fetch;
+  private readonly classifyModel: (model: OpenAIModel) => FreeTierClass;
 
   constructor(options: OpenAICompatibleAdapterOptions) {
     this.providerId = options.providerId;
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.getCredential = options.getCredential;
     this.fetcher = options.fetch ?? globalThis.fetch;
+    this.classifyModel = options.classifyModel ?? ((model) => isZeroPrice(model.pricing) ? 'free_verified' : 'paid');
   }
 
   async discoverModels(credentialId: string): Promise<DiscoveredModel[]> {
@@ -55,7 +60,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     return (body.data ?? []).map((model) => ({
       modelId: model.id,
       capabilities: ['chat', 'streaming'],
-      freeTier: isZeroPrice(model.pricing) ? 'free_verified' : 'paid',
+      freeTier: this.classifyModel(model),
     }));
   }
 

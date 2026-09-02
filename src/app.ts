@@ -13,6 +13,7 @@ export interface OpenRouterRuntimeOptions {
   masterSecret: string;
   apiToken: string;
   baseUrl?: string;
+  groqBaseUrl?: string;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -23,15 +24,21 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   const events = new SqliteRoutingEventStore(options.databasePath);
   const quotas = new SqliteQuotaObservationStore(options.databasePath);
   const preferences = new SqlitePreferenceStore(options.databasePath);
-  const adapter = new OpenAICompatibleAdapter({
+  const openRouter = new OpenAICompatibleAdapter({
     providerId: 'openrouter',
     baseUrl: options.baseUrl ?? 'https://openrouter.ai/api/v1',
     getCredential: (credentialId) => credentials.get('openrouter', credentialId),
     fetch: options.fetch,
   });
-  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores(), healthScores: () => events.scores(), preferences: () => preferences.map() });
+  const groq = new OpenAICompatibleAdapter({
+    providerId: 'groq', baseUrl: options.groqBaseUrl ?? 'https://api.groq.com/openai/v1',
+    getCredential: (credentialId) => credentials.get('groq', credentialId), fetch: options.fetch,
+    classifyModel: () => 'free_unverified',
+  });
+  const adapters = [openRouter, groq];
+  const chat = createCatalogChatService({ catalog, credentials, adapters, routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores(), healthScores: () => events.scores(), preferences: () => preferences.map() });
   const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events, quotas, preferences });
-  const discovery = new CatalogService(catalog, [adapter]);
+  const discovery = new CatalogService(catalog, adapters);
 
   return {
     server,
@@ -40,6 +47,10 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       const credential = (await credentials.list()).find((item) => item.providerId === 'openrouter');
       const [result] = await discovery.refresh({ openrouter: credential?.credentialId ?? '' });
       return result!;
+    },
+    async refreshProviders() {
+      const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
+      return discovery.refresh(credentialIds);
     },
     close(): void {
       catalog.close();
