@@ -23,7 +23,7 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
-| Provider adapters | In progress | A reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes chat failures. |
+| Provider adapters | In progress | A reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes chat failures. OpenRouter live smoke test passed on 2026-09-03. |
 
 ## Why FreeRoute
 
@@ -232,6 +232,12 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 ## Initial provider strategy
 
 Start with providers that offer official APIs, documented developer access and relatively stable free-tier information. The initial adapter targets are Gemini AI Studio, Groq and OpenRouter's explicitly free models. The next wave will be chosen based on API stability, terms, actual model discovery support, and user demand — not simply marketing claims.
+
+### Verified integration evidence
+
+On 2026-09-03, the OpenAI-compatible adapter was tested against an active, user-owned OpenRouter connection from the local 9Router installation. The live `/models` response contained 423 catalog models, including 21 entries with both prompt and completion price reported as zero. A one-token-style smoke prompt completed successfully through `inclusionai/ling-3.0-flash-fin:free`.
+
+The imported credential existed only in the test process: it was neither printed, committed, nor persisted to the FreeRoute database. A dedicated opt-in import/setup command is required before a regular FreeRoute server can use an existing 9Router credential.
 
 ## Data model outline
 
