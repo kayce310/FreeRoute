@@ -232,7 +232,7 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 ### Milestone 3 — broader compatibility
 
 - Non-streaming `/v1/responses` for Codex-oriented clients is implemented; SSE and full feature parity remain pending.
-- Anthropic Messages compatibility for Claude-oriented clients.
+- Non-streaming Anthropic Messages compatibility for Claude-oriented clients is implemented; streaming and tool-use parity remain pending.
 - Native Gemini compatibility where required.
 - Tool calls, vision and structured output parity.
 - CLI setup commands and safe config backup.

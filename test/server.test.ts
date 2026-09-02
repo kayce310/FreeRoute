@@ -107,6 +107,21 @@ test('translates a Responses API request into routed chat output', async () => {
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
 
+test('translates an Anthropic Messages request into routed chat output', async () => {
+  const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat(input) { assert.deepEqual(input.request.messages, [{ role: 'system', content: 'be concise' }, { role: 'user', content: 'hello anthropic' }]); return { id: 'claude-1', model: 'free-model', content: 'anthropic-compatible answer' }; } };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'openrouter', modelId: 'free-model', credentialId: 'local', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['openrouter', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'openrouter/free-model', system: 'be concise', max_tokens: 100, messages: [{ role: 'user', content: 'hello anthropic' }] }) });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { type: string; content: Array<{ text: string }> };
+    assert.equal(body.type, 'message');
+    assert.equal(body.content[0]?.text, 'anthropic-compatible answer');
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
 test('rejects requests without the unified local API token', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/models`);

@@ -129,6 +129,27 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/messages') {
+        if (!options.chat) { sendJson(response, 503, { error: { message: 'chat routing is not configured', type: 'server_error' } }); return; }
+        const input = await readAnthropicMessagesRequest(request);
+        const target = parseRequestedModel(input.model);
+        const requestId = crypto.randomUUID();
+        response.setHeader('x-freeroute-request-id', requestId);
+        const result = await options.chat.complete({
+          profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+        });
+        response.setHeader('x-freeroute-provider', result.response.providerId);
+        response.setHeader('x-freeroute-model', result.response.modelId);
+        response.setHeader('x-freeroute-fallback-count', String(result.fallbackCount));
+        sendJson(response, 200, {
+          id: `msg_${result.response.id}`, type: 'message', role: 'assistant', model: `${result.response.providerId}/${result.response.modelId}`,
+          content: [{ type: 'text', text: result.response.content }], stop_reason: 'end_turn', stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        });
+        return;
+      }
+
       sendJson(response, 404, { error: { message: 'not found', type: 'invalid_request_error' } });
     } catch (error) {
       if (error instanceof ProviderInvocationError) {
@@ -178,6 +199,18 @@ async function readResponsesRequest(request: IncomingMessage): Promise<{ model: 
   throw new InvalidChatRequestError('input must be a string or messages with role and string content');
 }
 
+async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[] }> {
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
+  const value = body as { model?: unknown; system?: unknown; messages?: unknown };
+  if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
+  if (value.system !== undefined && typeof value.system !== 'string') throw new InvalidChatRequestError('system must be a string');
+  if (!Array.isArray(value.messages) || !value.messages.every(isAnthropicMessage)) throw new InvalidChatRequestError('messages must contain user or assistant roles and string content');
+  const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
+  messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
+  return { model: value.model, messages };
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let length = 0;
@@ -192,6 +225,11 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 
 function isResponsesMessage(value: unknown): value is ChatMessage {
   return isChatMessage(value);
+}
+
+function isAnthropicMessage(value: unknown): value is ChatMessage {
+  if (!isChatMessage(value)) return false;
+  return value.role === 'user' || value.role === 'assistant';
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
