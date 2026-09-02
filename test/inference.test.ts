@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatService, ProviderInvocationError, type ChatProviderAdapter } from '../src/inference.js';
+import { ChatService, createCatalogChatService, ProviderInvocationError, type ChatProviderAdapter } from '../src/inference.js';
 import type { RouteCandidate } from '../src/contracts.js';
+import { InMemoryCatalogStore } from '../src/catalog.js';
 
 const now = new Date('2026-09-03T00:00:00.000Z');
 
@@ -63,4 +64,22 @@ test('does not hide authentication errors behind fallback', async () => {
     service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] }),
     ProviderInvocationError,
   );
+});
+
+test('wires cached models to matching encrypted-store credential metadata', async () => {
+  const catalog = new InMemoryCatalogStore([{ ...candidate('openrouter', 'free-model', 0), checkedAt: now }]);
+  const adapter: ChatProviderAdapter = {
+    providerId: 'openrouter',
+    async chat(input) {
+      assert.equal(input.credentialId, 'imported-key');
+      return { id: 'response-2', model: input.modelId, content: 'wired answer' };
+    },
+  };
+  const service = createCatalogChatService({
+    catalog,
+    credentials: { async list() { return [{ providerId: 'openrouter', credentialId: 'imported-key' }]; } },
+    adapters: [adapter],
+  });
+  const result = await service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] });
+  assert.equal(result.response.content, 'wired answer');
 });

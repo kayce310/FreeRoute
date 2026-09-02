@@ -1,4 +1,5 @@
 import type { AdapterFailure, RouteCandidate, RouteDecision, RouteRequest } from './contracts.js';
+import type { CatalogStore } from './catalog.js';
 import { applyFailureCooldown, chooseRoute } from './router.js';
 
 export interface ChatMessage {
@@ -95,4 +96,31 @@ export class ChatService {
       }
     }
   }
+}
+
+/**
+ * Wires cached catalog models to the encrypted credential metadata store.
+ * Secrets remain inside each adapter's `getCredential` callback.
+ */
+export function createCatalogChatService(options: {
+  catalog: CatalogStore;
+  credentials: { list(): Promise<Array<{ providerId: string; credentialId: string }>> };
+  adapters: Iterable<ChatProviderAdapter>;
+}): ChatService {
+  return new ChatService({
+    candidates: async () => {
+      const [models, credentials] = await Promise.all([options.catalog.list(), options.credentials.list()]);
+      return models.flatMap((model) => credentials
+        .filter((credential) => credential.providerId === model.providerId)
+        .map((credential): RouteCandidate => ({
+          ...model,
+          credentialId: credential.credentialId,
+          preference: 'neutral',
+          healthScore: 0,
+          latencyScore: 0,
+          quotaScore: 0,
+        })));
+    },
+    adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
+  });
 }

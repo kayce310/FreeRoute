@@ -28,6 +28,8 @@ export interface ModelRecord {
 export interface RouteRequest {
   profile: string;
   requiredCapabilities: Capability[];
+  /** Restricts a named `provider/model` request to its advertised provider. */
+  requestedProviderId?: string;
   requestedModel?: string;
 }
 

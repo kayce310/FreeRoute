@@ -18,7 +18,8 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown behavior are covered by 3 unit tests. |
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
-| OpenAI-compatible API | In progress | Authenticated `/health` and `/v1/models` endpoints are implemented; inference endpoints follow provider adapters. |
+| Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
+| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely. |
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |

@@ -37,6 +37,7 @@ export function scoreCandidate(candidate: RouteCandidate): number {
 
 export function chooseRoute(request: RouteRequest, candidates: RouteCandidate[], now = new Date()): RouteDecision | undefined {
   const eligible = candidates
+    .filter((candidate) => !request.requestedProviderId || candidate.providerId === request.requestedProviderId)
     .filter((candidate) => !request.requestedModel || candidate.modelId === request.requestedModel)
     .filter((candidate) => supports(candidate, request.requiredCapabilities))
     .filter((candidate) => isAvailable(candidate, now))
