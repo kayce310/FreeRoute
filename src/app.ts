@@ -1,5 +1,5 @@
 import { CatalogService } from './catalog.js';
-import { createCatalogChatService } from './inference.js';
+import { createCatalogChatService, RouteState } from './inference.js';
 import { OpenAICompatibleAdapter } from './providers/openai-compatible.js';
 import { createFreeRouteServer } from './server.js';
 import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
@@ -23,7 +23,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     getCredential: (credentialId) => credentials.get('openrouter', credentialId),
     fetch: options.fetch,
   });
-  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter] });
+  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState() });
   const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat });
   const discovery = new CatalogService(catalog, [adapter]);
 

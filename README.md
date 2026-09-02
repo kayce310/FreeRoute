@@ -33,7 +33,7 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
 | OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and streaming/non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
-| Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely. |
+| Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |

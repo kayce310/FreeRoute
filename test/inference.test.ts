@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatService, createCatalogChatService, ProviderInvocationError, type ChatProviderAdapter } from '../src/inference.js';
+import { ChatService, createCatalogChatService, ProviderInvocationError, RouteState, type ChatProviderAdapter } from '../src/inference.js';
 import type { RouteCandidate } from '../src/contracts.js';
 import { InMemoryCatalogStore } from '../src/catalog.js';
 
@@ -82,4 +82,18 @@ test('wires cached models to matching encrypted-store credential metadata', asyn
   });
   const result = await service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] });
   assert.equal(result.response.content, 'wired answer');
+});
+
+test('keeps a transient cooldown scoped to the failed route across requests', async () => {
+  let firstCalls = 0;
+  const first: ChatProviderAdapter = { providerId: 'first', async chat() { firstCalls += 1; throw new ProviderInvocationError('busy', { kind: 'rate_limit' }); } };
+  const second: ChatProviderAdapter = { providerId: 'second', async chat() { return { id: 'response-3', model: 'model-b', content: 'healthy answer' }; } };
+  const service = new ChatService({
+    candidates: async () => [candidate('first', 'model-a', 20), candidate('second', 'model-b', 10)],
+    adapters: new Map([['first', first], ['second', second]]), now: () => now, routeState: new RouteState(),
+  });
+  await service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'one' }] });
+  const next = await service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'two' }] });
+  assert.equal(firstCalls, 1);
+  assert.equal(next.response.providerId, 'second');
 });

@@ -51,12 +51,31 @@ export interface ChatServiceOptions {
   candidates: () => Promise<RouteCandidate[]>;
   adapters: Map<string, ChatProviderAdapter>;
   now?: () => Date;
+  routeState?: RouteState;
 }
 
 export interface ChatResult {
   response: NormalizedChatResponse;
   decision: RouteDecision;
   fallbackCount: number;
+}
+
+/** Runtime-only health state. It deliberately contains no credentials or request content. */
+export class RouteState {
+  private readonly cooldowns = new Map<string, Date>();
+
+  apply(candidates: RouteCandidate[], now: Date): RouteCandidate[] {
+    return candidates.map((candidate) => {
+      const cooldownUntil = this.cooldowns.get(routeKey(candidate));
+      if (cooldownUntil && cooldownUntil <= now) this.cooldowns.delete(routeKey(candidate));
+      return cooldownUntil && cooldownUntil > now ? { ...candidate, cooldownUntil } : candidate;
+    });
+  }
+
+  recordFailure(candidate: RouteCandidate, failure: AdapterFailure, now: Date): void {
+    const updated = applyFailureCooldown(candidate, failure, now);
+    if (updated.cooldownUntil) this.cooldowns.set(routeKey(candidate), updated.cooldownUntil);
+  }
 }
 
 /**
@@ -71,7 +90,7 @@ export class ChatService {
   }
 
   async complete(request: NormalizedChatRequest): Promise<ChatResult> {
-    let candidates = await this.options.candidates();
+    let candidates = this.withRouteState(await this.options.candidates());
     let fallbackCount = 0;
 
     while (true) {
@@ -104,13 +123,14 @@ export class ChatService {
         candidates = candidates.map((candidate) => candidate === decision.candidate
           ? applyFailureCooldown(candidate, error.failure, this.now())
           : candidate);
+        this.options.routeState?.recordFailure(decision.candidate, error.failure, this.now());
         fallbackCount += 1;
       }
     }
   }
 
   async stream(request: NormalizedChatRequest): Promise<{ decision: RouteDecision; events: AsyncIterable<NormalizedChatStreamEvent> }> {
-    const decision = chooseRoute(request, await this.options.candidates(), this.now());
+    const decision = chooseRoute(request, this.withRouteState(await this.options.candidates()), this.now());
     if (!decision) throw new Error('no eligible route candidates');
     const adapter = this.options.adapters.get(decision.candidate.providerId);
     if (!adapter?.streamChat) throw new ProviderInvocationError('streaming is not supported by the selected provider', { kind: 'unsupported' });
@@ -123,6 +143,10 @@ export class ChatService {
       }),
     };
   }
+
+  private withRouteState(candidates: RouteCandidate[]): RouteCandidate[] {
+    return this.options.routeState?.apply(candidates, this.now()) ?? candidates;
+  }
 }
 
 /**
@@ -133,6 +157,7 @@ export function createCatalogChatService(options: {
   catalog: CatalogStore;
   credentials: { list(): Promise<Array<{ providerId: string; credentialId: string }>> };
   adapters: Iterable<ChatProviderAdapter>;
+  routeState?: RouteState;
 }): ChatService {
   return new ChatService({
     candidates: async () => {
@@ -149,5 +174,10 @@ export function createCatalogChatService(options: {
         })));
     },
     adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
+    routeState: options.routeState,
   });
+}
+
+function routeKey(candidate: Pick<RouteCandidate, 'providerId' | 'credentialId' | 'modelId'>): string {
+  return `${candidate.providerId}\u0000${candidate.credentialId}\u0000${candidate.modelId}`;
 }
