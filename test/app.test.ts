@@ -64,6 +64,7 @@ test('wires an imported Groq credential through the reusable compatible adapter'
     assert.deepEqual(await runtime.refreshProviders(), [
       { providerId: 'openrouter', status: 'failed', error: 'credential not configured' },
       { providerId: 'groq', status: 'updated', modelCount: 1 },
+      { providerId: 'gemini', status: 'failed', error: 'credential not configured' },
     ]);
   } finally { runtime.close(); await rm(directory, { recursive: true, force: true }); }
 });

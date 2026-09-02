@@ -30,6 +30,8 @@ async function serve(): Promise<void> {
     masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'),
     apiToken: requiredEnv('FREEROUTE_API_TOKEN'),
     baseUrl: process.env.OPENROUTER_BASE_URL,
+    groqBaseUrl: process.env.GROQ_BASE_URL,
+    geminiBaseUrl: process.env.GEMINI_BASE_URL,
   });
   const port = Number(process.env.FREEROUTE_PORT ?? '8787');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('FREEROUTE_PORT must be a valid TCP port');

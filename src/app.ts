@@ -1,6 +1,7 @@
 import { CatalogService } from './catalog.js';
 import { createCatalogChatService, RouteState } from './inference.js';
 import { OpenAICompatibleAdapter } from './providers/openai-compatible.js';
+import { GeminiAdapter } from './providers/gemini.js';
 import { createFreeRouteServer } from './server.js';
 import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
 import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
@@ -14,6 +15,7 @@ export interface OpenRouterRuntimeOptions {
   apiToken: string;
   baseUrl?: string;
   groqBaseUrl?: string;
+  geminiBaseUrl?: string;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -35,7 +37,11 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     getCredential: (credentialId) => credentials.get('groq', credentialId), fetch: options.fetch,
     classifyModel: () => 'free_unverified',
   });
-  const adapters = [openRouter, groq];
+  const gemini = new GeminiAdapter({
+    baseUrl: options.geminiBaseUrl,
+    getCredential: (credentialId) => credentials.get('gemini', credentialId), fetch: options.fetch,
+  });
+  const adapters = [openRouter, groq, gemini];
   const chat = createCatalogChatService({ catalog, credentials, adapters, routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores(), healthScores: () => events.scores(), preferences: () => preferences.map() });
   const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events, quotas, preferences });
   const discovery = new CatalogService(catalog, adapters);

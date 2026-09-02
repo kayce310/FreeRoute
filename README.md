@@ -39,7 +39,7 @@ Open `http://127.0.0.1:8787/` for the local dashboard and enter the same client 
 | Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
 | Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, provider-reported quota observations, latency/reliability-aware `auto:fast` scoring, and persistent Prefer/Neutral/Limit/Block rules are implemented. |
 | Dashboard | Complete | Dependency-free local explorer shows catalog, redacted route history, provider health, quota observations, and persistent preference controls. |
-| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime wires OpenRouter and Groq; Gemini remains planned. Groq models are classified `free_unverified` unless official catalog pricing proves otherwise. |
+| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime wires OpenRouter, Groq, and native Gemini; catalog entries without official pricing are classified `free_unverified`. |
 
 ## Why FreeRoute
 
@@ -220,7 +220,7 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 - SQLite migrations and encrypted credential store.
 - `/v1/models`, non-streaming and SSE `/v1/chat/completions` are implemented.
 - `auto:free` and named-model routing are implemented.
-- OpenRouter Free and Groq adapters are wired; Gemini remains pending.
+- OpenRouter Free, Groq, and native Gemini adapters are wired.
 - Basic retry, cooldown, request trace and local dashboard.
 
 ### Milestone 2 — reliable catalog and decision quality
@@ -235,7 +235,7 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 
 - Streaming and non-streaming `/v1/responses` for Codex-oriented clients are implemented; full feature parity remains pending.
 - Streaming and non-streaming Anthropic Messages compatibility for Claude-oriented clients are implemented; tool-use parity remains pending.
-- Native Gemini compatibility where required.
+- Native Gemini compatibility is implemented for text chat and SSE; tool/vision parity remains pending.
 - Tool calls, vision and structured output parity.
 - CLI setup commands and safe config backup.
 
