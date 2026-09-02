@@ -17,6 +17,7 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Repository bootstrap | Complete | Git repository, project README and secret-safe ignore rules are present. |
 | Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown behavior are covered by 3 unit tests. |
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
+| Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | OpenAI-compatible API | Planned | Start with `/v1/chat/completions`, `/v1/responses`, `/v1/models`. |
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
