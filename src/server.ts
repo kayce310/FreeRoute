@@ -1,11 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { CatalogStore } from './catalog.js';
 import { ChatService, ProviderInvocationError, type ChatMessage } from './inference.js';
+import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
   apiToken?: string;
   chat?: ChatService;
+  events?: SqliteRoutingEventStore;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -42,6 +44,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'GET' && path === '/v1/routing-events') {
+        if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
+        const events = await options.events.list();
+        sendJson(response, 200, { object: 'list', data: events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/chat/completions') {
         if (!options.chat) {
           sendJson(response, 503, { error: { message: 'chat routing is not configured', type: 'server_error' } });
@@ -49,10 +58,12 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const input = await readChatRequest(request);
         const target = parseRequestedModel(input.model);
+        const requestId = crypto.randomUUID();
+        response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
             profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, temperature: input.temperature,
+            requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, traceId: requestId,
           });
           response.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
@@ -72,6 +83,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           requestedModel: target.modelId,
           messages: input.messages,
           temperature: input.temperature,
+          traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);

@@ -10,6 +10,7 @@ export interface ChatMessage {
 export interface NormalizedChatRequest extends RouteRequest {
   messages: ChatMessage[];
   temperature?: number;
+  traceId?: string;
 }
 
 export interface NormalizedChatResponse {
@@ -52,6 +53,19 @@ export interface ChatServiceOptions {
   adapters: Map<string, ChatProviderAdapter>;
   now?: () => Date;
   routeState?: RouteState;
+  onEvent?: (event: RoutingEvent) => void | Promise<void>;
+}
+
+export interface RoutingEvent {
+  requestId: string;
+  occurredAt: Date;
+  profile: string;
+  providerId: string;
+  modelId: string;
+  credentialRef: string;
+  fallbackCount: number;
+  outcome: 'success' | 'failure';
+  failureKind?: AdapterFailure['kind'];
 }
 
 export interface ChatResult {
@@ -111,15 +125,20 @@ export class ChatService {
           modelId: decision.candidate.modelId,
           request,
         });
-        return {
+        const completed = {
           response: { ...result, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId },
           decision,
           fallbackCount,
         };
+        await this.emitEvent(request, decision.candidate, fallbackCount, 'success');
+        return completed;
       } catch (error) {
         if (!(error instanceof ProviderInvocationError)) throw error;
         const { kind } = error.failure;
-        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary') throw error;
+        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary') {
+          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
+          throw error;
+        }
         candidates = candidates.map((candidate) => candidate === decision.candidate
           ? applyFailureCooldown(candidate, error.failure, this.now())
           : candidate);
@@ -147,6 +166,15 @@ export class ChatService {
   private withRouteState(candidates: RouteCandidate[]): RouteCandidate[] {
     return this.options.routeState?.apply(candidates, this.now()) ?? candidates;
   }
+
+  private async emitEvent(request: NormalizedChatRequest, candidate: RouteCandidate, fallbackCount: number, outcome: RoutingEvent['outcome'], failureKind?: AdapterFailure['kind']): Promise<void> {
+    if (!this.options.onEvent) return;
+    await this.options.onEvent({
+      requestId: request.traceId ?? crypto.randomUUID(), occurredAt: this.now(), profile: request.profile,
+      providerId: candidate.providerId, modelId: candidate.modelId,
+      credentialRef: redactCredential(candidate.credentialId), fallbackCount, outcome, failureKind,
+    });
+  }
 }
 
 /**
@@ -158,6 +186,7 @@ export function createCatalogChatService(options: {
   credentials: { list(): Promise<Array<{ providerId: string; credentialId: string }>> };
   adapters: Iterable<ChatProviderAdapter>;
   routeState?: RouteState;
+  onEvent?: ChatServiceOptions['onEvent'];
 }): ChatService {
   return new ChatService({
     candidates: async () => {
@@ -175,7 +204,12 @@ export function createCatalogChatService(options: {
     },
     adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
     routeState: options.routeState,
+    onEvent: options.onEvent,
   });
+}
+
+function redactCredential(credentialId: string): string {
+  return credentialId.length <= 6 ? '***' : `***${credentialId.slice(-6)}`;
 }
 
 function routeKey(candidate: Pick<RouteCandidate, 'providerId' | 'credentialId' | 'modelId'>): string {
