@@ -2,6 +2,7 @@ export * from './contracts.js';
 export * from './app.js';
 export * from './storage/sqlite-routing-event-store.js';
 export * from './storage/sqlite-quota-observation-store.js';
+export * from './storage/sqlite-preference-store.js';
 export * from './catalog.js';
 export * from './inference.js';
 export * from './importers/9router.js';

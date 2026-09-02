@@ -198,16 +198,17 @@ export function createCatalogChatService(options: {
   onEvent?: ChatServiceOptions['onEvent'];
   onQuota?: ChatServiceOptions['onQuota'];
   quotaScores?: () => Promise<Map<string, number>>;
+  preferences?: () => Promise<Map<string, import('./contracts.js').Preference>>;
 }): ChatService {
   return new ChatService({
     candidates: async () => {
-      const [models, credentials, quotaScores] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>())]);
+      const [models, credentials, quotaScores, preferences] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>()), options.preferences?.() ?? Promise.resolve(new Map<string, import('./contracts.js').Preference>())]);
       return models.flatMap((model) => credentials
         .filter((credential) => credential.providerId === model.providerId)
         .map((credential): RouteCandidate => ({
           ...model,
           credentialId: credential.credentialId,
-          preference: 'neutral',
+          preference: preferences.get(`${model.providerId}\u0000${model.modelId}`) ?? 'neutral',
           healthScore: 0,
           latencyScore: 0,
           quotaScore: quotaScores.get(quotaKey(model.providerId, model.modelId, redactCredential(credential.credentialId))) ?? 0,

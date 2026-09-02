@@ -3,6 +3,8 @@ import type { CatalogStore } from './catalog.js';
 import { ChatService, ProviderInvocationError, type ChatMessage } from './inference.js';
 import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
 import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
+import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
+import type { Preference } from './contracts.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -10,6 +12,7 @@ export interface FreeRouteServerOptions {
   chat?: ChatService;
   events?: SqliteRoutingEventStore;
   quotas?: SqliteQuotaObservationStore;
+  preferences?: SqlitePreferenceStore;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -57,6 +60,21 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!options.quotas) { sendJson(response, 503, { error: { message: 'quota observation storage is not configured', type: 'server_error' } }); return; }
         const observations = await options.quotas.list();
         sendJson(response, 200, { object: 'list', data: observations.map((item) => ({ ...item, observedAt: item.observedAt.toISOString(), resetAt: item.resetAt?.toISOString() })) });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/preferences') {
+        if (!options.preferences) { sendJson(response, 503, { error: { message: 'preference storage is not configured', type: 'server_error' } }); return; }
+        const preferences = await options.preferences.list();
+        sendJson(response, 200, { object: 'list', data: preferences.map((item) => ({ ...item, updatedAt: item.updatedAt.toISOString() })) });
+        return;
+      }
+
+      if (request.method === 'PUT' && path === '/v1/preferences') {
+        if (!options.preferences) { sendJson(response, 503, { error: { message: 'preference storage is not configured', type: 'server_error' } }); return; }
+        const input = await readPreferenceRequest(request);
+        await options.preferences.set(input.providerId, input.modelId, input.preference);
+        sendJson(response, 200, { provider_id: input.providerId, model_id: input.modelId, preference: input.preference });
         return;
       }
 
@@ -209,6 +227,15 @@ async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
   return { model: value.model, messages };
+}
+
+async function readPreferenceRequest(request: IncomingMessage): Promise<{ providerId: string; modelId: string; preference: Preference }> {
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
+  const value = body as { provider_id?: unknown; model_id?: unknown; preference?: unknown };
+  if (typeof value.provider_id !== 'string' || !value.provider_id || typeof value.model_id !== 'string' || !value.model_id) throw new InvalidChatRequestError('provider_id and model_id are required');
+  if (value.preference !== 'prefer' && value.preference !== 'neutral' && value.preference !== 'limit' && value.preference !== 'block') throw new InvalidChatRequestError('preference must be prefer, neutral, limit, or block');
+  return { providerId: value.provider_id, modelId: value.model_id, preference: value.preference };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

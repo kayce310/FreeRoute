@@ -95,6 +95,13 @@ test('uses observed quota only as a route scoring preference', async () => {
   assert.equal(result.decision.candidate.quotaScore, 25);
 });
 
+test('applies persisted block preferences before route selection', async () => {
+  const catalog = new InMemoryCatalogStore([{ ...candidate('openrouter', 'free-model', 0), checkedAt: now }]);
+  const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat() { throw new Error('blocked route should not be invoked'); } };
+  const service = createCatalogChatService({ catalog, credentials: { async list() { return [{ providerId: 'openrouter', credentialId: 'imported-key' }]; } }, adapters: [adapter], preferences: async () => new Map([['openrouter\u0000free-model', 'block']]) });
+  await assert.rejects(service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] }), /no eligible route candidates/);
+});
+
 test('keeps a transient cooldown scoped to the failed route across requests', async () => {
   let firstCalls = 0;
   const first: ChatProviderAdapter = { providerId: 'first', async chat() { firstCalls += 1; throw new ProviderInvocationError('busy', { kind: 'rate_limit' }); } };
