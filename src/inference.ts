@@ -197,10 +197,11 @@ export function createCatalogChatService(options: {
   routeState?: RouteState;
   onEvent?: ChatServiceOptions['onEvent'];
   onQuota?: ChatServiceOptions['onQuota'];
+  quotaScores?: () => Promise<Map<string, number>>;
 }): ChatService {
   return new ChatService({
     candidates: async () => {
-      const [models, credentials] = await Promise.all([options.catalog.list(), options.credentials.list()]);
+      const [models, credentials, quotaScores] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>())]);
       return models.flatMap((model) => credentials
         .filter((credential) => credential.providerId === model.providerId)
         .map((credential): RouteCandidate => ({
@@ -209,7 +210,7 @@ export function createCatalogChatService(options: {
           preference: 'neutral',
           healthScore: 0,
           latencyScore: 0,
-          quotaScore: 0,
+          quotaScore: quotaScores.get(quotaKey(model.providerId, model.modelId, redactCredential(credential.credentialId))) ?? 0,
         })));
     },
     adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
@@ -221,6 +222,10 @@ export function createCatalogChatService(options: {
 
 function redactCredential(credentialId: string): string {
   return credentialId.length <= 6 ? '***' : `***${credentialId.slice(-6)}`;
+}
+
+function quotaKey(providerId: string, modelId: string, credentialRef: string): string {
+  return `${providerId}\u0000${modelId}\u0000${credentialRef}`;
 }
 
 function routeKey(candidate: Pick<RouteCandidate, 'providerId' | 'credentialId' | 'modelId'>): string {

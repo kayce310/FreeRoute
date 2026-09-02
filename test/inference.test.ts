@@ -84,6 +84,17 @@ test('wires cached models to matching encrypted-store credential metadata', asyn
   assert.equal(result.response.content, 'wired answer');
 });
 
+test('uses observed quota only as a route scoring preference', async () => {
+  const catalog = new InMemoryCatalogStore([{ ...candidate('openrouter', 'free-model', 0), checkedAt: now }]);
+  const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat() { return { id: 'response-4', model: 'free-model', content: 'quota-aware answer' }; } };
+  const service = createCatalogChatService({
+    catalog, credentials: { async list() { return [{ providerId: 'openrouter', credentialId: 'imported-key' }]; } }, adapters: [adapter],
+    quotaScores: async () => new Map([['openrouter\u0000free-model\u0000***ed-key', 25]]),
+  });
+  const result = await service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] });
+  assert.equal(result.decision.candidate.quotaScore, 25);
+});
+
 test('keeps a transient cooldown scoped to the failed route across requests', async () => {
   let firstCalls = 0;
   const first: ChatProviderAdapter = { providerId: 'first', async chat() { firstCalls += 1; throw new ProviderInvocationError('busy', { kind: 'rate_limit' }); } };

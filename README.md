@@ -35,7 +35,7 @@ The import command is opt-in and prints only connection metadata. After startup,
 | OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and streaming/non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries rate-limit, explicit quota exhaustion (including HTTP 402), and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
 | Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
-| Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, and provider-reported quota observations are implemented; quota-aware scoring remains pending. |
+| Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, and provider-reported quota observations with soft quota-aware scoring are implemented. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
 | Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
 

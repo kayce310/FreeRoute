@@ -27,7 +27,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     getCredential: (credentialId) => credentials.get('openrouter', credentialId),
     fetch: options.fetch,
   });
-  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation) });
+  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter], routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores() });
   const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events, quotas });
   const discovery = new CatalogService(catalog, [adapter]);
 
