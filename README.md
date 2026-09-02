@@ -4,9 +4,9 @@
 
 ## Project status
 
-**Current phase: 0 — architecture and repository bootstrap.**
+**Current phase: 1 — usable OpenRouter routing core.**
 
-FreeRoute is not yet runnable. This README is intentionally the source of truth for the product direction, technical decisions, and current work state so another contributor or account can continue without reconstructing context.
+FreeRoute can run locally with an explicitly imported OpenRouter credential. This README remains the source of truth for product direction, technical decisions, and current work state so another contributor or account can continue without reconstructing context.
 
 ### Quick start (OpenRouter)
 
@@ -37,7 +37,7 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
-| Provider adapters | In progress | A reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes chat failures. OpenRouter live smoke test passed on 2026-09-03. |
+| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
 
 ## Why FreeRoute
 
@@ -216,9 +216,9 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 ### Milestone 1 — usable routing core
 
 - SQLite migrations and encrypted credential store.
-- `/v1/models`, `/v1/chat/completions`, SSE streaming.
-- `auto:free` and named-model routing.
-- Gemini, Groq and OpenRouter Free adapters.
+- `/v1/models`, non-streaming `/v1/chat/completions`; SSE streaming remains pending.
+- `auto:free` and named-model routing are implemented.
+- OpenRouter Free adapter is wired; Gemini and Groq adapters remain pending.
 - Basic retry, cooldown, request trace and local dashboard.
 
 ### Milestone 2 — reliable catalog and decision quality
