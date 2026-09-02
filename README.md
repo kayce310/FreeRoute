@@ -32,7 +32,7 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
 | Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
 | Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
-| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and streaming/non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
+| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, and non-streaming `/v1/responses` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries rate-limit, explicit quota exhaustion (including HTTP 402), and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
 | Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
 | Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, and provider-reported quota observations with soft quota-aware scoring are implemented. |
@@ -231,7 +231,7 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 
 ### Milestone 3 — broader compatibility
 
-- `/v1/responses` for Codex-oriented clients.
+- Non-streaming `/v1/responses` for Codex-oriented clients is implemented; SSE and full feature parity remain pending.
 - Anthropic Messages compatibility for Claude-oriented clients.
 - Native Gemini compatibility where required.
 - Tool calls, vision and structured output parity.

@@ -107,6 +107,28 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/responses') {
+        if (!options.chat) { sendJson(response, 503, { error: { message: 'chat routing is not configured', type: 'server_error' } }); return; }
+        const input = await readResponsesRequest(request);
+        const target = parseRequestedModel(input.model);
+        const requestId = crypto.randomUUID();
+        response.setHeader('x-freeroute-request-id', requestId);
+        const result = await options.chat.complete({
+          profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+        });
+        response.setHeader('x-freeroute-provider', result.response.providerId);
+        response.setHeader('x-freeroute-model', result.response.modelId);
+        response.setHeader('x-freeroute-fallback-count', String(result.fallbackCount));
+        sendJson(response, 200, {
+          id: result.response.id, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed',
+          model: `${result.response.providerId}/${result.response.modelId}`,
+          output: [{ type: 'message', id: `msg_${result.response.id}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: result.response.content, annotations: [] }] }],
+          output_text: result.response.content,
+        });
+        return;
+      }
+
       sendJson(response, 404, { error: { message: 'not found', type: 'invalid_request_error' } });
     } catch (error) {
       if (error instanceof ProviderInvocationError) {
@@ -134,6 +156,29 @@ interface OpenAIChatRequest {
 class InvalidChatRequestError extends Error {}
 
 async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequest> {
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
+  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown };
+  if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
+  if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) throw new InvalidChatRequestError('messages must contain role and string content');
+  if (value.temperature !== undefined && typeof value.temperature !== 'number') throw new InvalidChatRequestError('temperature must be a number');
+  if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
+  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream };
+}
+
+async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[] }> {
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
+  const value = body as { model?: unknown; input?: unknown };
+  if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
+  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }] };
+  if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
+    return { model: value.model, messages: value.input.map((message) => ({ role: message.role, content: message.content })) };
+  }
+  throw new InvalidChatRequestError('input must be a string or messages with role and string content');
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let length = 0;
   for await (const chunk of request) {
@@ -142,15 +187,11 @@ async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequ
     if (length > 1_000_000) throw new InvalidChatRequestError('request body exceeds 1 MB');
     chunks.push(value);
   }
-  let body: unknown;
-  try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new InvalidChatRequestError('request body must be valid JSON'); }
-  if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown };
-  if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
-  if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) throw new InvalidChatRequestError('messages must contain role and string content');
-  if (value.temperature !== undefined && typeof value.temperature !== 'number') throw new InvalidChatRequestError('temperature must be a number');
-  if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
-  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream };
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new InvalidChatRequestError('request body must be valid JSON'); }
+}
+
+function isResponsesMessage(value: unknown): value is ChatMessage {
+  return isChatMessage(value);
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {

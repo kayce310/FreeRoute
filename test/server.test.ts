@@ -91,6 +91,22 @@ test('includes a request ID and exposes only redacted routing events', async () 
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); events.close(); }
 });
 
+test('translates a Responses API request into routed chat output', async () => {
+  const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat(input) { assert.deepEqual(input.request.messages, [{ role: 'user', content: 'hello responses' }]); return { id: 'resp-1', model: 'free-model', content: 'response API answer' }; } };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'openrouter', modelId: 'free-model', credentialId: 'local', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['openrouter', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'openrouter/free-model', input: 'hello responses' }) });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { object: string; output_text: string; output: Array<{ content: Array<{ text: string }> }> };
+    assert.equal(body.object, 'response');
+    assert.equal(body.output_text, 'response API answer');
+    assert.equal(body.output[0]?.content[0]?.text, 'response API answer');
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
 test('rejects requests without the unified local API token', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/models`);
