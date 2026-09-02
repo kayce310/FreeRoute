@@ -6,6 +6,7 @@
     "strict": true,
     "declaration": true,
     "sourceMap": true,
+    "noEmitOnError": true,
     "outDir": "dist",
     "rootDir": ".",
     "skipLibCheck": true
