@@ -103,7 +103,7 @@ test('includes a request ID and exposes only redacted routing events', async () 
 
 test('summarizes redacted routing outcomes as provider health', async () => {
   const events = new SqliteRoutingEventStore(':memory:');
-  await events.record({ requestId: 'success', occurredAt: new Date(), profile: 'auto:free', providerId: 'groq', modelId: 'fast', credentialRef: '***local', fallbackCount: 0, outcome: 'success' });
+  await events.record({ requestId: 'success', occurredAt: new Date(), profile: 'auto:free', providerId: 'groq', modelId: 'fast', credentialRef: '***local', fallbackCount: 0, outcome: 'success', latencyMs: 100 });
   await events.record({ requestId: 'failure', occurredAt: new Date(), profile: 'auto:free', providerId: 'groq', modelId: 'fast', credentialRef: '***local', fallbackCount: 0, outcome: 'failure', failureKind: 'rate_limit' });
   const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', events });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -111,8 +111,8 @@ test('summarizes redacted routing outcomes as provider health', async () => {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/v1/provider-health`, { headers: { authorization: 'Bearer local-token' } });
     assert.equal(response.status, 200);
-    const body = await response.json() as { data: Array<{ providerId: string; requestCount: number; successRate: number }> };
-    assert.deepEqual(body.data, [{ providerId: 'groq', requestCount: 2, successRate: 0.5 }]);
+    const body = await response.json() as { data: Array<{ providerId: string; requestCount: number; successRate: number; latencyP50Ms?: number; latencyP95Ms?: number }> };
+    assert.deepEqual(body.data, [{ providerId: 'groq', requestCount: 2, successRate: 0.5, latencyP50Ms: 100, latencyP95Ms: 100 }]);
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); events.close(); }
 });
 

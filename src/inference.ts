@@ -74,6 +74,8 @@ export interface RoutingEvent {
   fallbackCount: number;
   outcome: 'success' | 'failure';
   failureKind?: AdapterFailure['kind'];
+  /** Elapsed time for the upstream attempt; no request content is retained. */
+  latencyMs?: number;
 }
 
 export interface ChatResult {
@@ -128,6 +130,7 @@ export class ChatService {
       }
 
       try {
+        const startedAt = this.now();
         const result = await adapter.chat({
           credentialId: decision.candidate.credentialId,
           modelId: decision.candidate.modelId,
@@ -138,7 +141,7 @@ export class ChatService {
           decision,
           fallbackCount,
         };
-        await this.emitEvent(request, decision.candidate, fallbackCount, 'success');
+        await this.emitEvent(request, decision.candidate, fallbackCount, 'success', undefined, Math.max(0, this.now().getTime() - startedAt.getTime()));
         if (result.quota) await this.options.onQuota?.({ ...result.quota, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId, credentialRef: redactCredential(decision.candidate.credentialId), observedAt: this.now() });
         return completed;
       } catch (error) {
@@ -176,12 +179,13 @@ export class ChatService {
     return this.options.routeState?.apply(candidates, this.now()) ?? candidates;
   }
 
-  private async emitEvent(request: NormalizedChatRequest, candidate: RouteCandidate, fallbackCount: number, outcome: RoutingEvent['outcome'], failureKind?: AdapterFailure['kind']): Promise<void> {
+  private async emitEvent(request: NormalizedChatRequest, candidate: RouteCandidate, fallbackCount: number, outcome: RoutingEvent['outcome'], failureKind?: AdapterFailure['kind'], latencyMs?: number): Promise<void> {
     if (!this.options.onEvent) return;
     await this.options.onEvent({
       requestId: request.traceId ?? crypto.randomUUID(), occurredAt: this.now(), profile: request.profile,
       providerId: candidate.providerId, modelId: candidate.modelId,
       credentialRef: redactCredential(candidate.credentialId), fallbackCount, outcome, failureKind,
+      ...(latencyMs === undefined ? {} : { latencyMs }),
     });
   }
 }
