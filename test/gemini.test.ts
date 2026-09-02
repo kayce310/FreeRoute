@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GeminiAdapter } from '../src/providers/gemini.js';
+import { ProviderInvocationError } from '../src/inference.js';
 
 test('discovers Gemini text-generation models and translates a chat request', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -31,4 +32,14 @@ test('translates Gemini native SSE chunks', async () => {
   const events = [];
   for await (const event of adapter.streamChat({ credentialId: 'key', modelId: 'gemini-text', request: { profile: 'auto:free', requiredCapabilities: ['chat', 'streaming'], messages: [{ role: 'user', content: 'hello' }] } })) events.push(event.delta);
   assert.deepEqual(events, ['hel', 'lo']);
+});
+
+test('classifies Gemini retryable and unsupported failures for router fallback', async () => {
+  for (const [status, kind] of [[429, 'rate_limit'], [503, 'temporary'], [400, 'unsupported']] as const) {
+    const adapter = new GeminiAdapter({ baseUrl: 'https://gemini.test/v1beta', getCredential: async () => 'secret', fetch: async () => new Response('{}', { status }) });
+    await assert.rejects(
+      adapter.chat({ credentialId: 'key', modelId: 'gemini-text', request: { profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] } }),
+      (error: unknown) => error instanceof ProviderInvocationError && error.failure.kind === kind,
+    );
+  }
 });
