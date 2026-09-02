@@ -15,6 +15,7 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Product scope | Complete | Personal/local-first router for user-supplied provider credentials. |
 | Architecture | Complete | Core is provider-independent; providers load as adapters. |
 | Repository bootstrap | Complete | Git repository, project README and secret-safe ignore rules are present. |
+| Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown behavior are covered by 3 unit tests. |
 | OpenAI-compatible API | Planned | Start with `/v1/chat/completions`, `/v1/responses`, `/v1/models`. |
 | Provider discovery | Planned | Cached catalog first, parallel refresh after startup. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
