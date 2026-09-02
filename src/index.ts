@@ -1,4 +1,5 @@
 export * from './contracts.js';
+export * from './app.js';
 export * from './catalog.js';
 export * from './inference.js';
 export * from './importers/9router.js';

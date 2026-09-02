@@ -1,0 +1,43 @@
+import { CatalogService } from './catalog.js';
+import { createCatalogChatService } from './inference.js';
+import { OpenAICompatibleAdapter } from './providers/openai-compatible.js';
+import { createFreeRouteServer } from './server.js';
+import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
+import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
+
+export interface OpenRouterRuntimeOptions {
+  databasePath: string;
+  masterSecret: string;
+  apiToken: string;
+  baseUrl?: string;
+  fetch?: typeof globalThis.fetch;
+}
+
+/** Creates the local OpenRouter runtime without exposing provider credentials. */
+export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
+  const catalog = new SqliteCatalogStore(options.databasePath);
+  const credentials = new SqliteCredentialStore(options.databasePath, options.masterSecret);
+  const adapter = new OpenAICompatibleAdapter({
+    providerId: 'openrouter',
+    baseUrl: options.baseUrl ?? 'https://openrouter.ai/api/v1',
+    getCredential: (credentialId) => credentials.get('openrouter', credentialId),
+    fetch: options.fetch,
+  });
+  const chat = createCatalogChatService({ catalog, credentials, adapters: [adapter] });
+  const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat });
+  const discovery = new CatalogService(catalog, [adapter]);
+
+  return {
+    server,
+    /** Refresh is safe to run after the server starts because cached catalog data remains available. */
+    async refreshOpenRouter(): Promise<{ status: 'updated' | 'failed'; modelCount?: number; error?: string }> {
+      const credential = (await credentials.list()).find((item) => item.providerId === 'openrouter');
+      const [result] = await discovery.refresh({ openrouter: credential?.credentialId ?? '' });
+      return result!;
+    },
+    close(): void {
+      catalog.close();
+      credentials.close();
+    },
+  };
+}

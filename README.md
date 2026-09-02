@@ -8,6 +8,19 @@
 
 FreeRoute is not yet runnable. This README is intentionally the source of truth for the product direction, technical decisions, and current work state so another contributor or account can continue without reconstructing context.
 
+### Quick start (OpenRouter)
+
+FreeRoute now has a small local OpenRouter runtime. It binds only to `127.0.0.1`; its database lives under `data/` and is ignored by Git.
+
+```powershell
+$env:FREEROUTE_MASTER_SECRET = '<at-least-16-character local secret>'
+$env:FREEROUTE_API_TOKEN = '<local client token>'
+npm run import:9router -- 'C:\path\to\9router.sqlite' openrouter
+npm start
+```
+
+The import command is opt-in and prints only connection metadata. After startup, use the configured client token against `http://127.0.0.1:8787/v1`; send `model: "auto:free"` or a listed `openrouter/model-id`. The cached catalog is served immediately and refreshed in the background. Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override their defaults.
+
 ### Progress
 
 | Area | Status | Notes |

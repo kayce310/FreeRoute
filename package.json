@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/**/*.test.js",
-    "check": "tsc --noEmit -p tsconfig.json"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "start": "npm run build && node dist/src/cli.js serve",
+    "import:9router": "npm run build && node dist/src/cli.js import-9router"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
