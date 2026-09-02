@@ -1,6 +1,6 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import type { FreeTierClass } from '../contracts.js';
-import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest } from '../inference.js';
+import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
 
 interface OpenAIModel {
   id: string;
@@ -16,7 +16,7 @@ type OpenAIMessageContent = string | Array<{ text?: string }> | undefined;
 interface OpenAIChatCompletion {
   id?: string;
   model?: string;
-  choices?: Array<{ message?: { content?: OpenAIMessageContent } }>;
+  choices?: Array<{ message?: { content?: OpenAIMessageContent; tool_calls?: ToolCall[] } }>;
 }
 
 interface OpenAIChatChunk {
@@ -59,7 +59,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const body = await response.json() as OpenAIModelList;
     return (body.data ?? []).map((model) => ({
       modelId: model.id,
-      capabilities: ['chat', 'streaming'],
+      capabilities: ['chat', 'streaming', 'tools'],
       freeTier: this.classifyModel(model),
     }));
   }
@@ -72,14 +72,16 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
         model: input.modelId,
         messages: input.request.messages,
         temperature: input.request.temperature,
+        ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
         stream: false,
       }),
     });
     if (!response.ok) throw await providerError(response);
     const body = await response.json() as OpenAIChatCompletion;
     const content = contentToText(body.choices?.[0]?.message?.content);
-    if (!content) throw new ProviderInvocationError('upstream returned no assistant content', { kind: 'temporary' });
-    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content, quota: quotaFromHeaders(response.headers) };
+    const toolCalls = body.choices?.[0]?.message?.tool_calls;
+    if (!content && !toolCalls?.length) throw new ProviderInvocationError('upstream returned no assistant content', { kind: 'temporary' });
+    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content: content ?? '', ...(toolCalls?.length ? { toolCalls } : {}), quota: quotaFromHeaders(response.headers) };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {

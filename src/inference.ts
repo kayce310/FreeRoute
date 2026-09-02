@@ -7,9 +7,14 @@ export interface ChatMessage {
   content: string;
 }
 
+/** OpenAI-compatible function declaration; schemas stay opaque to the router. */
+export interface ToolDefinition { type: 'function'; function: { name: string; description?: string; parameters?: unknown }; }
+export interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string }; }
+
 export interface NormalizedChatRequest extends RouteRequest {
   messages: ChatMessage[];
   temperature?: number;
+  tools?: ToolDefinition[];
   traceId?: string;
 }
 
@@ -20,6 +25,7 @@ export interface NormalizedChatResponse {
   providerId: string;
   modelId: string;
   quota?: QuotaObservation;
+  toolCalls?: ToolCall[];
 }
 
 export interface QuotaObservation {
