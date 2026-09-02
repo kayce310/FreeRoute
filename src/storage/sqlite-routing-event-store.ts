@@ -34,5 +34,24 @@ export class SqliteRoutingEventStore {
     return rows.map((row) => ({ requestId: row.request_id, occurredAt: new Date(row.occurred_at), profile: row.profile, providerId: row.provider_id, modelId: row.model_id, credentialRef: row.credential_ref, fallbackCount: row.fallback_count, outcome: row.outcome, failureKind: row.failure_kind ?? undefined, ...(row.latency_ms === null ? {} : { latencyMs: row.latency_ms }) }));
   }
 
+  /** Scores are deliberately bounded and derived only from redacted outcome/timing facts. */
+  async scores(): Promise<Map<string, { healthScore: number; latencyScore: number }>> {
+    const totals = new Map<string, { requests: number; successes: number; latencies: number[] }>();
+    for (const event of await this.list(10_000)) {
+      const key = `${event.providerId}\u0000${event.modelId}`;
+      const total = totals.get(key) ?? { requests: 0, successes: 0, latencies: [] };
+      total.requests += 1;
+      if (event.outcome === 'success') total.successes += 1;
+      if (event.latencyMs !== undefined) total.latencies.push(event.latencyMs);
+      totals.set(key, total);
+    }
+    return new Map([...totals].map(([key, total]) => {
+      const healthScore = Math.round((total.successes / total.requests - 0.5) * 20);
+      const p50 = total.latencies.sort((left, right) => left - right)[Math.ceil(total.latencies.length / 2) - 1];
+      const latencyScore = p50 === undefined ? 0 : p50 <= 500 ? 20 : p50 <= 1_500 ? 10 : p50 <= 4_000 ? 0 : -10;
+      return [key, { healthScore, latencyScore }];
+    }));
+  }
+
   close(): void { this.database.close(); }
 }

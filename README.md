@@ -37,7 +37,7 @@ Open `http://127.0.0.1:8787/` for the local dashboard and enter the same client 
 | OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, and streaming/non-streaming `/v1/responses` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries rate-limit, explicit quota exhaustion (including HTTP 402), and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
 | Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
-| Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, provider-reported quota observations with soft scoring, and persistent Prefer/Neutral/Limit/Block rules are implemented. |
+| Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, provider-reported quota observations, latency/reliability-aware `auto:fast` scoring, and persistent Prefer/Neutral/Limit/Block rules are implemented. |
 | Dashboard | Complete | Dependency-free local explorer shows catalog, redacted route history, provider health, quota observations, and persistent preference controls. |
 | Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |
 

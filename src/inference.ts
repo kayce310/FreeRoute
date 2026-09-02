@@ -56,7 +56,7 @@ export interface ChatProviderAdapter {
 }
 
 export interface ChatServiceOptions {
-  candidates: () => Promise<RouteCandidate[]>;
+  candidates: (request: RouteRequest) => Promise<RouteCandidate[]>;
   adapters: Map<string, ChatProviderAdapter>;
   now?: () => Date;
   routeState?: RouteState;
@@ -114,7 +114,7 @@ export class ChatService {
   }
 
   async complete(request: NormalizedChatRequest): Promise<ChatResult> {
-    let candidates = this.withRouteState(await this.options.candidates());
+    let candidates = this.withRouteState(await this.options.candidates(request));
     let fallbackCount = 0;
 
     while (true) {
@@ -161,7 +161,7 @@ export class ChatService {
   }
 
   async stream(request: NormalizedChatRequest): Promise<{ decision: RouteDecision; events: AsyncIterable<NormalizedChatStreamEvent> }> {
-    const decision = chooseRoute(request, this.withRouteState(await this.options.candidates()), this.now());
+    const decision = chooseRoute(request, this.withRouteState(await this.options.candidates(request)), this.now());
     if (!decision) throw new Error('no eligible route candidates');
     const adapter = this.options.adapters.get(decision.candidate.providerId);
     if (!adapter?.streamChat) throw new ProviderInvocationError('streaming is not supported by the selected provider', { kind: 'unsupported' });
@@ -202,21 +202,25 @@ export function createCatalogChatService(options: {
   onEvent?: ChatServiceOptions['onEvent'];
   onQuota?: ChatServiceOptions['onQuota'];
   quotaScores?: () => Promise<Map<string, number>>;
+  healthScores?: () => Promise<Map<string, { healthScore: number; latencyScore: number }>>;
   preferences?: () => Promise<Map<string, import('./contracts.js').Preference>>;
 }): ChatService {
   return new ChatService({
-    candidates: async () => {
-      const [models, credentials, quotaScores, preferences] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>()), options.preferences?.() ?? Promise.resolve(new Map<string, import('./contracts.js').Preference>())]);
+    candidates: async (request) => {
+      const [models, credentials, quotaScores, preferences, healthScores] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>()), options.preferences?.() ?? Promise.resolve(new Map<string, import('./contracts.js').Preference>()), options.healthScores?.() ?? Promise.resolve(new Map<string, { healthScore: number; latencyScore: number }>())]);
       return models.flatMap((model) => credentials
         .filter((credential) => credential.providerId === model.providerId)
-        .map((credential): RouteCandidate => ({
+        .map((credential): RouteCandidate => {
+          const health = healthScores.get(`${model.providerId}\u0000${model.modelId}`);
+          return {
           ...model,
           credentialId: credential.credentialId,
           preference: preferences.get(`${model.providerId}\u0000${model.modelId}`) ?? 'neutral',
-          healthScore: 0,
-          latencyScore: 0,
+          healthScore: health?.healthScore ?? 0,
+          latencyScore: request.profile === 'auto:fast' ? (health?.latencyScore ?? 0) * 3 : health?.latencyScore ?? 0,
           quotaScore: quotaScores.get(quotaKey(model.providerId, model.modelId, redactCredential(credential.credentialId))) ?? 0,
-        })));
+          };
+        }));
     },
     adapters: new Map([...options.adapters].map((adapter) => [adapter.providerId, adapter])),
     routeState: options.routeState,

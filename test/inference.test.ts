@@ -95,6 +95,21 @@ test('uses observed quota only as a route scoring preference', async () => {
   assert.equal(result.decision.candidate.quotaScore, 25);
 });
 
+test('uses observed latency with extra weight for the auto:fast profile', async () => {
+  const catalog = new InMemoryCatalogStore([
+    { ...candidate('openrouter', 'steady-model', 0), checkedAt: now },
+    { ...candidate('openrouter', 'fast-model', 0), checkedAt: now },
+  ]);
+  const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat(input) { return { id: 'response-fast', model: input.modelId, content: input.modelId }; } };
+  const service = createCatalogChatService({
+    catalog, credentials: { async list() { return [{ providerId: 'openrouter', credentialId: 'imported-key' }]; } }, adapters: [adapter],
+    healthScores: async () => new Map([['openrouter\u0000steady-model', { healthScore: 8, latencyScore: 0 }], ['openrouter\u0000fast-model', { healthScore: 0, latencyScore: 20 }]]),
+  });
+  const result = await service.complete({ profile: 'auto:fast', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] });
+  assert.equal(result.response.modelId, 'fast-model');
+  assert.equal(result.decision.candidate.latencyScore, 60);
+});
+
 test('applies persisted block preferences before route selection', async () => {
   const catalog = new InMemoryCatalogStore([{ ...candidate('openrouter', 'free-model', 0), checkedAt: now }]);
   const adapter: ChatProviderAdapter = { providerId: 'openrouter', async chat() { throw new Error('blocked route should not be invoked'); } };
