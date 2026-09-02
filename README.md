@@ -19,7 +19,7 @@ npm run import:9router -- 'C:\path\to\9router.sqlite' openrouter
 npm start
 ```
 
-The import command is opt-in and prints only connection metadata. After startup, use the configured client token against `http://127.0.0.1:8787/v1`; send `model: "auto:free"` or a listed `openrouter/model-id`. The cached catalog is served immediately and refreshed in the background. Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override their defaults.
+The import command is opt-in and prints only connection metadata. After startup, use the configured client token against `http://127.0.0.1:8787/v1`; send `model: "auto:free"` or a listed `openrouter/model-id`. The cached catalog is served immediately, then refreshed in the background every 30 minutes (set `FREEROUTE_REFRESH_MINUTES` to adjust). Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override their defaults.
 
 ### Progress
 
@@ -34,7 +34,7 @@ The import command is opt-in and prints only connection metadata. After startup,
 | Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
 | OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, and streaming/non-streaming `/v1/chat/completions` are implemented; responses expose the selected upstream in headers. |
 | Inference fallback | In progress | Provider-neutral chat invocation retries only rate-limit, quota, and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
-| Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
+| Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
 | Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime currently wires OpenRouter; Gemini and Groq remain planned. |

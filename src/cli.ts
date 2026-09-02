@@ -33,13 +33,28 @@ async function serve(): Promise<void> {
   });
   const port = Number(process.env.FREEROUTE_PORT ?? '8787');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('FREEROUTE_PORT must be a valid TCP port');
+  const refreshMinutes = Number(process.env.FREEROUTE_REFRESH_MINUTES ?? '30');
+  if (!Number.isFinite(refreshMinutes) || refreshMinutes <= 0) throw new Error('FREEROUTE_REFRESH_MINUTES must be greater than zero');
   await new Promise<void>((resolveListen) => runtime.server.listen(port, '127.0.0.1', resolveListen));
   console.log(`FreeRoute listening on http://127.0.0.1:${port}`);
-  void runtime.refreshOpenRouter().then((result) => {
-    if (result.status === 'updated') console.log(`OpenRouter catalog refreshed (${result.modelCount} models).`);
-    else console.error(`OpenRouter catalog refresh failed: ${result.error}`);
-  });
-  const shutdown = () => runtime.server.close(() => { runtime.close(); process.exitCode = 0; });
+  let refreshing = false;
+  const refresh = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const result = await runtime.refreshOpenRouter();
+      if (result.status === 'updated') console.log(`OpenRouter catalog refreshed (${result.modelCount} models).`);
+      else console.error(`OpenRouter catalog refresh failed: ${result.error}`);
+    } finally {
+      refreshing = false;
+    }
+  };
+  void refresh();
+  const refreshTimer = setInterval(() => { void refresh(); }, refreshMinutes * 60_000);
+  const shutdown = () => {
+    clearInterval(refreshTimer);
+    runtime.server.close(() => { runtime.close(); process.exitCode = 0; });
+  };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 }
