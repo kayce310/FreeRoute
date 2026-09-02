@@ -1,0 +1,268 @@
+# FreeRoute
+
+> Local-first, quota-aware routing for officially available LLM free tiers — one endpoint for every supported client.
+
+## Project status
+
+**Current phase: 0 — architecture and repository bootstrap.**
+
+FreeRoute is not yet runnable. This README is intentionally the source of truth for the product direction, technical decisions, and current work state so another contributor or account can continue without reconstructing context.
+
+### Progress
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Product scope | Complete | Personal/local-first router for user-supplied provider credentials. |
+| Architecture | Complete | Core is provider-independent; providers load as adapters. |
+| Repository bootstrap | Complete | Git repository, project README and secret-safe ignore rules are present. |
+| OpenAI-compatible API | Planned | Start with `/v1/chat/completions`, `/v1/responses`, `/v1/models`. |
+| Provider discovery | Planned | Cached catalog first, parallel refresh after startup. |
+| Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
+| Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
+| Provider adapters | Planned | Gemini, Groq and OpenRouter Free first. |
+
+## Why FreeRoute
+
+Free tiers are fragmented: each provider has a different key, model catalog, rate limit, response format and availability profile. A capable model can be unusable at one moment because its quota is exhausted or the service is rate-limited, while another free provider is healthy.
+
+FreeRoute gives applications a single local endpoint. The router selects a compatible, healthy model from keys the user has explicitly configured, tracks observed limits, and fails over safely. It is designed for coding agents and ordinary OpenAI-compatible applications.
+
+The project will not bypass provider authentication, scrape protected services, or disguise traffic. Provider credentials are supplied and owned by the user, and each provider's terms continue to apply.
+
+## Product goals
+
+- One local OpenAI-compatible endpoint for many free-tier providers.
+- Automatic catalog refresh without making startup slow or fragile.
+- Useful defaults: `auto:free`, `auto:code`, `auto:fast`, `auto:best`.
+- Transparent decisions: expose the actual provider/model, fallback path and reason.
+- Personal quality controls: prefer, limit, or block models based on real usage.
+- Modular providers: adding an OpenAI-compatible upstream should be mostly configuration; a native provider should be a small adapter plus tests.
+- Local-first secrets and telemetry.
+
+## Non-goals
+
+- A hosted multi-tenant API gateway in the first releases.
+- Claims that all free tiers are unlimited or production-SLA reliable.
+- Circumvention of authentication, billing, rate limits or provider terms.
+- Starting with every modality and every provider before the chat/router core is reliable.
+
+## User experience
+
+1. Start FreeRoute and open the local dashboard.
+2. Add official provider API keys; keys are encrypted at rest.
+3. FreeRoute validates the key, imports models and records known free-tier metadata.
+4. Copy one base URL and one FreeRoute bearer key into Codex, Claude Code-compatible configuration, Cursor, Cline, or an SDK.
+5. Request `model: "auto:code"` or a named model. The dashboard shows exactly which upstream served it.
+
+```text
+Client
+  │  OpenAI-compatible request
+  ▼
+FreeRoute /v1
+  │
+  ├─ API normalization and capability check
+  ├─ router ranking + quota/health gate
+  ├─ provider adapter
+  └─ normalized streaming response
+        │
+        ▼
+   Provider API selected for this request
+```
+
+## Architecture
+
+The project will be a TypeScript monorepo on Node.js 20+ with SQLite for a single-user local deployment.
+
+```text
+apps/
+  server/                 HTTP API, SSE, auth, scheduler
+  dashboard/              Local web UI
+  cli/                    setup helpers for coding clients
+packages/
+  core/                   normalized request/response contracts
+  router/                 candidate selection, retry and sticky sessions
+  catalog/                model catalog, discovery and freshness rules
+  quota/                  declared and observed rate-limit accounting
+  storage/                SQLite schema, migrations, encrypted secrets
+  telemetry/              privacy-conscious request facts and aggregates
+  provider-sdk/           adapter interface and conformance test kit
+  providers/
+    gemini/
+    groq/
+    openrouter/
+    openai-compatible/
+```
+
+### Startup and catalog refresh
+
+The server must not block on dozens of remote calls at startup.
+
+1. Open SQLite and load the last known catalog, enabled keys and routing profiles.
+2. Start serving requests immediately from that cache.
+3. Run adapter discovery jobs concurrently with bounded concurrency and timeouts.
+4. Upsert changed models/capabilities/free-tier metadata; retain the last good record if discovery fails.
+5. Run a scheduled refresh afterwards, with jitter and per-provider backoff.
+
+Every catalog entry carries `source`, `checkedAt`, `expiresAt`, and a confidence classification:
+
+- `free_verified` — free status and quota are documented or returned by the official API.
+- `free_unverified` — advertised as free, but quota cannot be reliably verified.
+- `credits_only` — a signup/promo credit, not a recurring pool.
+- `paid` — discoverable but excluded from `auto:free` by default.
+- `retired` — previously known and retained for history, never auto-routed.
+
+## Provider adapter contract
+
+Each adapter owns protocol conversion and provider-specific discovery, not routing policy.
+
+```ts
+export interface ProviderAdapter {
+  manifest: ProviderManifest;
+  validateCredential(credential: Credential): Promise<CredentialHealth>;
+  discoverModels(context: DiscoveryContext): Promise<DiscoveredModel[]>;
+  discoverQuota?(context: DiscoveryContext): Promise<QuotaSnapshot[]>;
+  invoke(request: NormalizedRequest, target: RouteTarget): AsyncIterable<NormalizedEvent>;
+}
+```
+
+An adapter must declare capabilities such as chat, streaming, tools, structured output, vision, embeddings and audio. It must also map upstream failures into normalized classes: authentication, quota, rate limit, temporary upstream error, unsupported feature and permanent request error.
+
+## Routing
+
+Routes are candidates, not a fixed global list. A candidate is eligible only when it has an enabled credential, supports the request's capabilities, is not in cooldown, and has not exceeded a known quota.
+
+```text
+effective score =
+  profile priority
+  + personal preference
+  + observed reliability
+  + remaining quota estimate
+  + latency score
+  - recent error penalty
+  - limit/unknown-quota penalty
+```
+
+Profiles initially include:
+
+- `auto:free`: recurring free tiers only, with verified models preferred.
+- `auto:code`: tool calling and user-rated coding models first.
+- `auto:fast`: low observed latency and high success rate.
+- `auto:best`: balanced quality, health, quota and user preference.
+- `auto:long-context`: eligible models with the largest usable context.
+
+On `429`, transient `5xx`, connection failure, or known exhausted quota, the router records a scoped cooldown and tries the next safe candidate. It never retries permanent validation/authentication errors as a fallback loop.
+
+## Personal feedback and live visibility
+
+Each completed request records an immutable routing event:
+
+```text
+timestamp, profile, requested model, selected provider/model,
+credential reference (redacted), latency, TTFT, token counts,
+outcome, fallback chain and normalized error reason
+```
+
+The dashboard will let the user mark a provider/model as:
+
+- **Prefer** — boosts it when it meets the request requirements.
+- **Neutral** — no manual adjustment.
+- **Limit** — retains it as a later fallback.
+- **Block** — excludes it from automatic profiles.
+
+Optional 1–5 ratings and tags (`good-code`, `fast`, `bad-tools`, `unstable`) provide a separate personal score. No prompt or output is stored by default.
+
+## Dashboard roadmap
+
+### Free Tier Explorer
+
+A searchable table of provider/model records, free-tier classification, known limits, freshness, capability, health and remaining observed quota. It includes rankings for available free capacity, reliability, latency, tool support and user score.
+
+### Live Routing
+
+Shows the actual model/provider per request in near real time, including the complete fallback path. Example:
+
+```text
+auto:code → Groq/model-a (429, cooldown 60s) → Gemini/model-b (success, 1.2s)
+```
+
+### Provider Health
+
+Ranks enabled providers by success rate, latency p50/p95, recent 429 rate, cooldown state and observed available capacity.
+
+### Preferences
+
+Lets users reorder profiles and assign Prefer/Limit/Block rules without needing to edit provider code.
+
+## API delivery order
+
+### Milestone 1 — usable routing core
+
+- SQLite migrations and encrypted credential store.
+- `/v1/models`, `/v1/chat/completions`, SSE streaming.
+- `auto:free` and named-model routing.
+- Gemini, Groq and OpenRouter Free adapters.
+- Basic retry, cooldown, request trace and local dashboard.
+
+### Milestone 2 — reliable catalog and decision quality
+
+- Background discovery and catalog freshness states.
+- Quota observations from headers/responses.
+- `auto:code`, `auto:fast`, `auto:best` profiles.
+- Health ranking, feedback controls and live routing screen.
+- Provider adapter conformance tests.
+
+### Milestone 3 — broader compatibility
+
+- `/v1/responses` for Codex-oriented clients.
+- Anthropic Messages compatibility for Claude-oriented clients.
+- Native Gemini compatibility where required.
+- Tool calls, vision and structured output parity.
+- CLI setup commands and safe config backup.
+
+### Milestone 4 — additional modalities and ecosystem
+
+- Embeddings, images, speech/transcription where official free tiers permit.
+- Custom OpenAI-compatible provider configuration.
+- Signed/updatable catalog format, import/export and an adapter SDK.
+
+## Initial provider strategy
+
+Start with providers that offer official APIs, documented developer access and relatively stable free-tier information. The initial adapter targets are Gemini AI Studio, Groq and OpenRouter's explicitly free models. The next wave will be chosen based on API stability, terms, actual model discovery support, and user demand — not simply marketing claims.
+
+## Data model outline
+
+```text
+providers           provider metadata and adapter version
+credentials         encrypted secret material, enabled state, health
+models              provider model metadata and capabilities
+catalog_observations source, freshness, limits and confidence
+route_profiles      profile constraints and ordered preferences
+preferences         provider/model ratings and routing modifiers
+quota_windows       per credential/model rate-limit observations
+routing_events      redacted outcome, timing and fallback trace
+```
+
+## Decisions already made
+
+| Decision | Rationale |
+| --- | --- |
+| Local-first and single-user first | Keeps secrets and prompts on the user's machine; minimizes operations. |
+| Cache-first startup | A temporary upstream/catalog outage must not stop the router. |
+| Adapter modules, not a giant provider switch | Provider additions and repairs remain isolated and testable. |
+| Quota as observed data plus documented metadata | Providers often omit precise quota APIs; the router must not pretend certainty. |
+| Feedback influences routing but does not override hard capability/limit gates | A preferred model cannot be selected when it cannot serve the request. |
+| Official/provider-authorized access only | Long-term maintainability and account safety. |
+
+## Handoff notes
+
+When continuing this project, read this README first, then update the **Project status** table and the milestone checklist as work is completed. Preserve these constraints:
+
+1. Do not put provider secrets, prompt text, or raw responses in logs by default.
+2. A discovery failure must preserve the last known good catalog.
+3. A provider adapter must have mock tests for streaming, `429`, temporary failure and unsupported features.
+4. Routing decisions must be observable from a request ID and must name the actual upstream in a response header.
+5. Free-tier status must carry provenance and freshness; do not convert unclear marketing claims into a verified quota.
+
+## References informing the design
+
+The local repositories `9router`, `OmniRoute`, `CLIProxyAPI`, and `freellmapi` were reviewed for their public architecture and feature sets. FreeRoute adopts the useful patterns — unified endpoint, provider adapters, fallback, quota visibility and a dashboard — while keeping the initial codebase smaller, local-first and explicitly modular.

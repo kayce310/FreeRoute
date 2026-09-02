@@ -1,0 +1,22 @@
+# Dependencies and generated bundles
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs and editor files
+*.log
+.DS_Store
+.idea/
+.vscode/
+
