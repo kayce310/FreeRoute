@@ -23,7 +23,7 @@ FreeRoute is not yet runnable. This README is intentionally the source of truth 
 | Provider discovery | In progress | Provider-neutral discovery and a cache-safe catalog service are implemented with unit tests. |
 | Routing, quota and fallback | Planned | Capability- and health-aware with per-key cooldown. |
 | Dashboard | Planned | Free-tier explorer, live routing and personal ranking. |
-| Provider adapters | Planned | Gemini, Groq and OpenRouter Free first. |
+| Provider adapters | In progress | A reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes chat failures. |
 
 ## Why FreeRoute
 

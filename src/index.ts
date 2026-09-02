@@ -3,5 +3,6 @@ export * from './catalog.js';
 export * from './inference.js';
 export * from './router.js';
 export * from './server.js';
+export * from './providers/openai-compatible.js';
 export * from './storage/sqlite-catalog-store.js';
 export * from './storage/sqlite-credential-store.js';
