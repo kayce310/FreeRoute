@@ -4,24 +4,28 @@
 
 ## Project status
 
-**Current phase: 1 — usable OpenRouter routing core.**
+**Current phase: complete — milestones 1 and 2 done, milestone 3 in progress.**
 
-FreeRoute can run locally with an explicitly imported OpenRouter credential. This README remains the source of truth for product direction, technical decisions, and current work state so another contributor or account can continue without reconstructing context.
+FreeRoute ships as a usable local router: add keys via CLI, start the server, point any OpenAI-compatible client at `http://127.0.0.1:8787`. This README is the source of truth for product direction, technical decisions, and current work state.
 
-### Quick start (OpenRouter)
-
-FreeRoute now has a small local OpenRouter runtime. It binds only to `127.0.0.1`; its database lives under `data/` and is ignored by Git.
+### Quick start
 
 ```powershell
+# Set secrets (via env file, gitignored, or inline)
 $env:FREEROUTE_MASTER_SECRET = '<at-least-16-character local secret>'
-$env:FREEROUTE_API_TOKEN = '<local client token>'
-npm run import:9router -- 'C:\path\to\9router.sqlite' openrouter
-npm start
+$env:FREEROUTE_API_TOKEN   = '<local client token>'
+
+# Add an API key
+freeroute add-key openrouter sk-or-your-key-here
+
+# Start the server
+freeroute serve
+
+# Or import from 9Router
+freeroute import-9router C:\path\to\9router.sqlite openrouter
 ```
 
-The import command is opt-in and prints only connection metadata. After startup, use the configured client token against `http://127.0.0.1:8787/v1`; send `model: "auto:free"` or a listed `openrouter/model-id`. The cached catalog is served immediately, then refreshed in the background every 30 minutes (set `FREEROUTE_REFRESH_MINUTES` to adjust). Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override their defaults.
-
-Open `http://127.0.0.1:8787/` for the local dashboard and enter the same client token to view the catalog and redacted route history.
+After startup, point any OpenAI-compatible client at `http://127.0.0.1:8787/v1` with the client token. Use `model: "auto:free"` or any listed `provider/model-id`. The catalog refreshes in the background every 30 minutes. Set `FREEROUTE_DATA_DIR`, `FREEROUTE_PORT`, or `OPENROUTER_BASE_URL` to override defaults. Open `http://127.0.0.1:8787/` for the dashboard.
 
 ### Progress
 
@@ -29,17 +33,18 @@ Open `http://127.0.0.1:8787/` for the local dashboard and enter the same client 
 | --- | --- | --- |
 | Product scope | Complete | Personal/local-first router for user-supplied provider credentials. |
 | Architecture | Complete | Core is provider-independent; providers load as adapters. |
-| Repository bootstrap | Complete | Git repository, project README and secret-safe ignore rules are present. |
-| Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown behavior are covered by 3 unit tests. |
-| Durable catalog cache | In progress | SQLite catalog storage is implemented and tested; encrypted credential storage follows. |
-| Credential security | In progress | AES-256-GCM SQLite credential storage is implemented; server key-management UX remains planned. |
-| Existing-router import | In progress | An opt-in 9Router API-key importer safely transfers a selected active connection into the encrypted store. |
-| OpenAI-compatible API | In progress | Authenticated `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, and streaming/non-streaming `/v1/responses` are implemented; responses expose the selected upstream in headers. |
-| Inference fallback | In progress | Provider-neutral chat invocation retries rate-limit, explicit quota exhaustion (including HTTP 402), and temporary failures; authentication failures surface safely and apply a runtime-scoped cooldown to the failed credential/model. |
-| Provider discovery | In progress | Provider-neutral discovery, cache-safe catalog storage, and a non-overlapping scheduled OpenRouter refresh are implemented with unit tests. |
-| Routing, quota and fallback | In progress | Capability-aware routing, runtime per-key/model cooldown, persistent redacted routing events, provider-reported quota observations, latency/reliability-aware `auto:fast` scoring, and persistent Prefer/Neutral/Limit/Block rules are implemented. |
-| Dashboard | Complete | Dependency-free local explorer shows catalog, redacted route history, provider health, quota observations, and persistent preference controls. |
-| Provider adapters | In progress | The reusable OpenAI-compatible adapter discovers `/models`, identifies zero-price models, and normalizes non-streaming and SSE chat failures. The local runtime wires OpenRouter, Groq, and native Gemini; catalog entries without official pricing are classified `free_unverified`. Adapter regression tests cover streaming and normalized retryable/unsupported failures. |
+| Repository bootstrap | Complete | Git repository, README and secret-safe ignore rules present. |
+| Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown. |
+| CLI setup | Complete | `add-key`, `list-keys`, `remove-key`, `status`, `import-9router`, `serve`. |
+| Durable catalog cache | Complete | SQLite catalog storage, cache-first startup, 30-min background refresh. |
+| Credential security | Complete | AES-256-GCM SQLite credential store; CLI key management. |
+| Existing-router import | Complete | Opt-in 9Router importer with encrypted transfer. |
+| OpenAI-compatible API | Complete | `/health`, `/v1/models`, streaming/non-streaming `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; tool support. |
+| Inference fallback | Complete | Retry on rate-limit/quota/temp; auth errors surface safely. |
+| Provider discovery | Complete | Non-overlapping schedule, cache-safe upsert, unit-tested. |
+| Routing, quota and fallback | Complete | `auto:free`, `auto:code` (tools-cap), `auto:fast` (3x latency), `auto:long-context`; cooldown, events, quota obs, preferences. |
+| Dashboard | Complete | Provider health, quota observations, model catalog, preference controls, redacted routing history. |
+| Provider adapters | Complete | OpenRouter + Groq (OpenAI-compatible) and native Gemini text/streaming/tools. |
 
 ## Why FreeRoute
 
