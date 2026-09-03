@@ -2,9 +2,10 @@ import type { AdapterFailure, RouteCandidate, RouteDecision, RouteRequest } from
 import type { CatalogStore } from './catalog.js';
 import { applyFailureCooldown, chooseRoute } from './router.js';
 
+export type ChatContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: ChatContent;
 }
 
 /** OpenAI-compatible function declaration; schemas stay opaque to the router. */
@@ -15,6 +16,7 @@ export interface NormalizedChatRequest extends RouteRequest {
   messages: ChatMessage[];
   temperature?: number;
   tools?: ToolDefinition[];
+  responseFormat?: { type: 'json_object' };
   traceId?: string;
 }
 
@@ -141,7 +143,7 @@ export class ChatService {
         const result = await adapter.chat({
           credentialId: decision.candidate.credentialId,
           modelId: decision.candidate.modelId,
-          request,
+          request: { ...request, responseFormat: request.responseFormat },
         });
         const completed = {
           response: { ...result, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId },
@@ -177,7 +179,7 @@ export class ChatService {
       events: adapter.streamChat({
         credentialId: decision.candidate.credentialId,
         modelId: decision.candidate.modelId,
-        request,
+        request: { ...request, responseFormat: request.responseFormat },
       }),
     };
   }

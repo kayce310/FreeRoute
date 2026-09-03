@@ -100,8 +100,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, tools: input.tools, traceId: requestId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat, input.hasVision), requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
           });
           response.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
@@ -116,12 +116,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const result = await options.chat.complete({
           profile: target.profile,
-          requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)),
+          requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), false, input.responseFormat, input.hasVision),
           requestedProviderId: target.providerId,
           requestedModel: target.modelId,
           messages: input.messages,
           temperature: input.temperature,
           tools: input.tools,
+          responseFormat: input.responseFormat,
           traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
@@ -145,8 +146,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat), requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
           const responseId = `resp_${requestId}`;
@@ -166,8 +167,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), false, input.responseFormat), requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -189,8 +190,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat), requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
           const messageId = `msg_${requestId}`;
@@ -211,8 +212,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), false, input.responseFormat), requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -246,43 +247,54 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
   });
 }
 
-interface OpenAIChatRequest {
+export interface OpenAIChatRequest {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
   stream?: boolean;
   tools?: import('./inference.js').ToolDefinition[];
+  responseFormat?: { type: 'json_object' };
+  hasVision?: boolean;
 }
 
 class InvalidChatRequestError extends Error {}
 
-function capabilitiesForProfile(profile: string, hasTools: boolean, streaming = false): import('./contracts.js').Capability[] {
+function capabilitiesForProfile(profile: string, hasTools: boolean, streaming = false, responseFormat?: { type: 'json_object' }, hasVision = false): import('./contracts.js').Capability[] {
   const caps: import('./contracts.js').Capability[] = ['chat'];
   if (streaming) caps.push('streaming');
   if (hasTools || profile === 'auto:code') caps.push('tools');
+  if (responseFormat) caps.push('structured-output');
+  if (hasVision) caps.push('vision');
   return caps;
 }
 
 async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequest> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown; tools?: unknown };
+  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
-  if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) throw new InvalidChatRequestError('messages must contain role and string content');
+  if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) throw new InvalidChatRequestError('messages must contain role and valid content');
   if (value.temperature !== undefined && typeof value.temperature !== 'number') throw new InvalidChatRequestError('temperature must be a number');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isToolDefinition))) throw new InvalidChatRequestError('tools must be OpenAI function definitions');
-  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools };
+  if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
+  const hasVision = (value.messages as unknown[]).some(msg => {
+    if (!msg || typeof msg !== 'object') return false;
+    const m = msg as { content?: unknown };
+    return Array.isArray(m.content);
+  });
+  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, hasVision };
 }
 
-async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[] }> {
+async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' } }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; input?: unknown; stream?: unknown; tools?: unknown };
+  const value = body as { model?: unknown; input?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isToolDefinition))) throw new InvalidChatRequestError('tools must be OpenAI function definitions');
-  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools };
+  if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
+  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined };
   if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
     return {
       model: value.model,
@@ -293,23 +305,25 @@ async function readResponsesRequest(request: IncomingMessage): Promise<{ model: 
       }),
       stream: value.stream,
       tools: value.tools,
+      responseFormat: value.response_format as { type: 'json_object' } | undefined,
     };
   }
   throw new InvalidChatRequestError('input must be a string or messages with role and string content');
 }
 
-async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[] }> {
+async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' } }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown; tools?: unknown };
+  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.system !== undefined && typeof value.system !== 'string') throw new InvalidChatRequestError('system must be a string');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (!Array.isArray(value.messages) || !value.messages.every(isAnthropicMessage)) throw new InvalidChatRequestError('messages must contain user or assistant roles and string content');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isAnthropicToolDefinition))) throw new InvalidChatRequestError('tools must be Anthropic tool definitions');
+  if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
-  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined };
+  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined, responseFormat: value.response_format as { type: 'json_object' } | undefined };
 }
 
 function isAnthropicToolDefinition(value: unknown): boolean {
@@ -385,14 +399,25 @@ function extractResponsesText(content: unknown): string {
 
 function isAnthropicMessage(value: unknown): value is ChatMessage {
   if (!isChatMessage(value)) return false;
-  return value.role === 'user' || value.role === 'assistant';
+  if (value.role !== 'user' && value.role !== 'assistant') return false;
+  // ponytail: vision content parts not yet supported for Anthropic Messages API
+  return typeof value.content === 'string';
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as { role?: unknown; content?: unknown };
-  return (message.role === 'system' || message.role === 'user' || message.role === 'assistant' || message.role === 'tool')
-    && typeof message.content === 'string';
+  if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant' && message.role !== 'tool') return false;
+  if (typeof message.content === 'string') return true;
+  if (Array.isArray(message.content)) {
+    return message.content.every(part => {
+      if (!part || typeof part !== 'object') return false;
+      if (part.type === 'text') return typeof (part as { text?: unknown }).text === 'string';
+      if (part.type === 'image_url') return typeof (part as { image_url?: unknown }).image_url === 'object';
+      return false;
+    });
+  }
+  return false;
 }
 
 function isToolDefinition(value: unknown): value is import('./inference.js').ToolDefinition {

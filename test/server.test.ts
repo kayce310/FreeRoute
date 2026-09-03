@@ -188,9 +188,59 @@ test('streams Anthropic Messages events for Claude-oriented clients', async () =
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
 
+test('accepts vision content parts in chat messages', async () => {
+  const adapter: ChatProviderAdapter = { providerId: 'groq', async chat(input) {
+    assert.ok(Array.isArray(input.request.messages[0].content));
+    return { id: 'vision-1', model: 'llama-free', content: 'seen image' };
+  }};
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'vision'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://example.com/image.png' } }] }] }) });
+    assert.equal(response.status, 200);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
 test('rejects requests without the unified local API token', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/models`);
     assert.equal(response.status, 401);
   });
+});
+
+test('routes a request with response_format through a structured-output-capable adapter', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'groq',
+    async chat(input) {
+      assert.ok(input.request.responseFormat, 'responseFormat should be forwarded to adapter');
+      return { id: 'chat-json', model: 'llama-free', content: '{"key":"value"}' };
+    },
+  };
+  const chat = new ChatService({
+    candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'structured-output'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }],
+    adapters: new Map([['groq', adapter]]),
+  });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', messages: [{ role: 'user', content: 'return json' }], response_format: { type: 'json_object' } }) });
+    assert.equal(response.status, 200);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+test('rejects a request with an invalid response_format type', async () => {
+  const adapter: ChatProviderAdapter = { providerId: 'groq', async chat() { return { id: 'unused', model: 'llama-free', content: 'ignored' }; } };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'structured-output'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', messages: [{ role: 'user', content: 'hi' }], response_format: { type: 'text' } }) });
+    assert.equal(response.status, 400);
+    const body = await response.json() as { error: { message: string } };
+    assert.match(body.error.message, /response_format/);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });

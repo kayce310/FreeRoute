@@ -59,7 +59,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const body = await response.json() as OpenAIModelList;
     return (body.data ?? []).map((model) => ({
       modelId: model.id,
-      capabilities: ['chat', 'streaming', 'tools'],
+      capabilities: ['chat', 'streaming', 'tools', 'structured-output', 'vision'],
       freeTier: this.classifyModel(model),
     }));
   }
@@ -74,6 +74,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
         temperature: input.request.temperature,
         ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
         stream: false,
+        ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}),
       }),
     });
     if (!response.ok) throw await providerError(response);
@@ -88,7 +89,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools }),
+      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
     });
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });

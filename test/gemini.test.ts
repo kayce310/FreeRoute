@@ -16,7 +16,7 @@ test('discovers Gemini text-generation models and translates a chat request', as
       return new Response(JSON.stringify({ responseId: 'gemini-response', modelVersion: 'gemini-text', candidates: [{ content: { parts: [{ text: 'Gemini answer' }] } }] }), { status: 200 });
     },
   });
-  assert.deepEqual(await adapter.discoverModels('key'), [{ modelId: 'gemini-text', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_unverified' }]);
+  assert.deepEqual(await adapter.discoverModels('key'), [{ modelId: 'gemini-text', capabilities: ['chat', 'streaming', 'tools', 'structured-output', 'vision'], freeTier: 'free_unverified' }]);
   const result = await adapter.chat({ credentialId: 'key', modelId: 'gemini-text', request: { profile: 'auto:free', requiredCapabilities: ['chat'], temperature: 0.2, messages: [{ role: 'system', content: 'be brief' }, { role: 'user', content: 'hello' }] } });
   assert.equal(result.content, 'Gemini answer');
   assert.equal(requests[1]?.url, 'https://gemini.test/v1beta/models/gemini-text:generateContent');

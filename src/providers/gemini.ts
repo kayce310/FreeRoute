@@ -44,7 +44,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     } while (pageToken);
     return models
       .filter((model) => model.name && model.supportedGenerationMethods?.includes('generateContent'))
-      .map((model) => ({ modelId: model.name!.replace(/^models\//, ''), capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_unverified' as const }));
+      .map((model) => ({ modelId: model.name!.replace(/^models\//, ''), capabilities: ['chat', 'streaming', 'tools', 'structured-output', 'vision'], freeTier: 'free_unverified' as const }));
   }
 
   async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -106,12 +106,32 @@ function toGeminiRequest(request: NormalizedChatRequest): object {
   const system = request.messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n');
   const contents = request.messages.filter((message) => message.role !== 'system').map((message) => ({
     role: message.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: message.content }],
+    parts: convertContentToGeminiParts(message.content),
   }));
   const extra: Record<string, unknown> = {};
   if (request.tools) extra.tools = request.tools;
   if (request.temperature !== undefined) extra.generationConfig = { temperature: request.temperature };
   return { contents, ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), ...extra };
+}
+
+function convertContentToGeminiParts(content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  if (typeof content === 'string') return [{ text: content }];
+  return content.map(part => {
+    if (part.type === 'text') return { text: part.text };
+    if (part.type === 'image_url') {
+      const url = part.image_url.url;
+      const isBase64 = url.startsWith('data:');
+      if (isBase64) {
+        const match = url.match(/^data:([^;]+);base64,/);
+        const mimeType = match ? match[1] : 'image/jpeg';
+        const base64 = url.replace(/^data:[^;]+;base64,/, '');
+        return { inlineData: { mimeType, data: base64 } };
+      }
+      // ponytail: URL-based images as text reference; Gemini inlineData requires base64
+      return { text: `[image](${url})` };
+    }
+    return { text: '' };
+  });
 }
 
 function textFrom(response: GeminiResponse): string | undefined {

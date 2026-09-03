@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createOpenRouterRuntime } from './app.js';
@@ -15,6 +15,10 @@ async function main(): Promise<void> {
   else if (command === 'list-keys') await listKeys();
   else if (command === 'remove-key') await removeKey(args);
   else if (command === 'status') await status();
+  else if (command === 'backup') await backup(args);
+  else if (command === 'restore') await restore(args);
+  else if (command === 'refresh') await refreshCatalog();
+  else if (command === 'key-validate') await keyValidate(args);
   else printUsage();
 }
 
@@ -78,6 +82,80 @@ async function importFromNineRouter(args: string[]): Promise<void> {
   try {
     const result = await importNineRouterApiKey({ sourceDatabasePath: resolve(sourceDatabasePath), providerId, credentials: store });
     console.log(`Imported ${result.providerId} connection ${result.sourceConnectionId} as credential ${result.credentialId}.`);
+  } finally { store.close(); }
+}
+
+async function backup(args: string[]): Promise<void> {
+  const outputPath = args[0];
+  if (!outputPath) { console.error('usage: freeroute backup <output-file>'); process.exitCode = 1; return; }
+  const dbPath = await localDatabasePath();
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  const models = db.prepare('SELECT * FROM catalog_models').all();
+  const prefs = db.prepare('SELECT * FROM model_preferences').all();
+  const events = db.prepare('SELECT * FROM routing_events').all();
+  const quotas = db.prepare('SELECT * FROM quota_observations').all();
+  db.close();
+  const backup = { version: 1, createdAt: new Date().toISOString(), catalog_models: models, preferences: prefs, routing_events: events, quota_observations: quotas };
+  await writeFile(outputPath, JSON.stringify(backup, null, 2));
+  console.log(`Backup written to '${outputPath}' (${(models as unknown[]).length} models, ${(prefs as unknown[]).length} prefs).`);
+}
+
+async function restore(args: string[]): Promise<void> {
+  const inputPath = args[0];
+  if (!inputPath) { console.error('usage: freeroute restore <input-file>'); process.exitCode = 1; return; }
+  const dbPath = await localDatabasePath();
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  try {
+    const content = await readFile(inputPath, 'utf8');
+    const backup = JSON.parse(content) as { version?: number; catalog_models?: Record<string, unknown>[]; preferences?: Record<string, unknown>[] };
+    if (!backup.version) throw new Error('invalid backup file');
+    let modelsRestored = 0, prefsRestored = 0;
+    for (const m of (backup.catalog_models ?? [])) {
+      const row = m as { provider_id: string; model_id: string; capabilities_json: string; free_tier: string; checked_at: string; expires_at: string | null; priority: number };
+      db.prepare('INSERT OR REPLACE INTO catalog_models (provider_id, model_id, capabilities_json, free_tier, checked_at, expires_at, priority) VALUES (?, ?, ?, ?, ?, ?, ?)').run(row.provider_id, row.model_id, row.capabilities_json, row.free_tier, row.checked_at, row.expires_at, row.priority);
+      modelsRestored++;
+    }
+    for (const p of (backup.preferences ?? [])) {
+      const row = p as { provider_id: string; model_id: string; preference: string; updated_at: string };
+      db.prepare('INSERT OR REPLACE INTO model_preferences (provider_id, model_id, preference, updated_at) VALUES (?, ?, ?, ?)').run(row.provider_id, row.model_id, row.preference, row.updated_at);
+      prefsRestored++;
+    }
+    db.close();
+    console.log(`Restored ${modelsRestored} models and ${prefsRestored} preferences from '${inputPath}'.`);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+async function refreshCatalog(): Promise<void> {
+  const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: requiredEnv('FREEROUTE_API_TOKEN'), baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+  try {
+    const results = await runtime.refreshProviders();
+    for (const result of results) {
+      if (result.status === 'updated') console.log(`${result.providerId}: ${result.modelCount} models`);
+      else console.error(`${result.providerId}: ${result.error ?? 'no credential'}`);
+    }
+  } finally { runtime.close(); }
+}
+
+async function keyValidate(args: string[]): Promise<void> {
+  const [providerId, credentialId = 'default'] = args;
+  if (!providerId) { console.error('usage: freeroute key-validate <provider> [credential-id]'); process.exitCode = 1; return; }
+  const store = await credentialStore();
+  try {
+    const secret = await store.get(providerId, credentialId);
+    if (!secret) { console.error(`No credential found for '${providerId}/${credentialId}'.`); process.exitCode = 1; return; }
+    const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: requiredEnv('FREEROUTE_API_TOKEN'), baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+    try {
+      const results = await runtime.refreshProviders();
+      const result = results.find(r => r.providerId === providerId);
+      if (!result) { console.error(`Provider '${providerId}' is not configured.`); process.exitCode = 1; return; }
+      if (result.status === 'updated') console.log(`Key for '${providerId}/${credentialId}' is VALID — ${result.modelCount} models accessible.`);
+      else { console.error(`Key for '${providerId}/${credentialId}' validation failed: ${result.error}`); process.exitCode = 1; }
+    } finally { runtime.close(); }
   } finally { store.close(); }
 }
 
@@ -154,7 +232,11 @@ Commands:
   freeroute list-keys          List stored credentials
   freeroute remove-key <provider> [credential-id]  Remove a credential
   freeroute status             Show server status
-  freeroute import-9router <db-path> [provider]  Import from 9Router database`);
+  freeroute import-9router <db-path> [provider]  Import from 9Router database
+  freeroute backup <file>     Backup catalog, preferences and events
+  freeroute restore <file>     Restore from backup
+  freeroute refresh           Force-refresh model catalog from providers
+  freeroute key-validate <provider> [credential-id]  Validate a stored API key`);
   process.exitCode = 1;
 }
 
