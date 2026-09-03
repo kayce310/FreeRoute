@@ -4,7 +4,7 @@
 
 ## Project status
 
-**Current phase: complete — milestones 1, 2, and 3 done, milestone 4 pending.**
+**Current phase: complete — milestones 1, 2, and 3 done. Milestone 4 (modalities and ecosystem) is next.**
 
 FreeRoute ships as a usable local router: add keys via CLI, start the server, point any OpenAI-compatible client at `http://127.0.0.1:8787`. This README is the source of truth for product direction, technical decisions, and current work state.
 
@@ -47,6 +47,9 @@ After startup, point any OpenAI-compatible client at `http://127.0.0.1:8787/v1` 
 | Structured output | Complete | `response_format: {type:"json_object"}` routing and forwarding. |
 | Dashboard | Complete | Provider health, quota observations, model catalog, preference controls, redacted routing history. |
 | Provider adapters | Complete | OpenRouter + Groq (OpenAI-compatible) and native Gemini text/streaming/tools/vision. |
+| Embeddings & speech | Pending | Extensible via adapter contract; not yet wired. |
+| Custom provider config | Pending | User-defined upstream provider adapter; adapter SDK is next. |
+| Signed catalog format | Pending | Import/export catalog, signed upstream catalog for offline use. |
 
 ## Why FreeRoute
 
