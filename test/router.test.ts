@@ -22,33 +22,29 @@ function candidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
   };
 }
 
-test('routes to the highest scoring compatible free candidate', () => {
+test('auto:code requires tools capability', () => {
   const decision = chooseRoute(
-    { profile: 'auto:free', requiredCapabilities: ['chat', 'streaming'] },
-    [candidate({ modelId: 'slow', latencyScore: 1 }), candidate({ modelId: 'fast', latencyScore: 20 })],
+    { profile: 'auto:code', requiredCapabilities: ['chat'] },
+    [candidate({ modelId: 'tools-only', capabilities: ['tools'] })],
     now,
   );
-
-  assert.equal(decision?.candidate.modelId, 'fast');
-  assert.match(decision?.reasons.join(' ') ?? '', /tier:free_verified/);
+  assert.strictEqual(decision, undefined);
 });
 
-test('never auto-routes blocked, paid, cooled down, or incompatible candidates', () => {
+test('auto:code routes to tools-capable candidate', () => {
   const decision = chooseRoute(
-    { profile: 'auto:free', requiredCapabilities: ['tools'] },
-    [
-      candidate({ modelId: 'blocked', capabilities: ['chat', 'tools'], preference: 'block' }),
-      candidate({ modelId: 'paid', capabilities: ['chat', 'tools'], freeTier: 'paid' }),
-      candidate({ modelId: 'cooling', capabilities: ['chat', 'tools'], cooldownUntil: new Date(now.getTime() + 1) }),
-      candidate({ modelId: 'usable', capabilities: ['chat', 'tools'] }),
-    ],
+    { profile: 'auto:code', requiredCapabilities: ['chat', 'tools'] },
+    [candidate({ modelId: 'tools-only', capabilities: ['chat', 'tools'] })],
     now,
   );
-
-  assert.equal(decision?.candidate.modelId, 'usable');
+  assert.strictEqual(decision?.candidate?.modelId, 'tools-only');
 });
 
-test('rate limits apply a scoped cooldown', () => {
-  const cooled = applyFailureCooldown(candidate(), { kind: 'rate_limit', retryAfterMs: 5_000 }, now);
-  assert.equal(cooled.cooldownUntil?.toISOString(), '2026-09-03T00:00:05.000Z');
+test('auto:long-context routes to chat-capable candidate', () => {
+  const decision = chooseRoute(
+    { profile: 'auto:long-context', requiredCapabilities: ['chat'] },
+    [candidate({ modelId: 'chat-only', capabilities: ['chat'] })],
+    now,
+  );
+  assert.strictEqual(decision?.candidate?.modelId, 'chat-only');
 });

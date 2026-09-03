@@ -100,7 +100,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
             requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, tools: input.tools, traceId: requestId,
           });
           response.writeHead(200, {
@@ -116,7 +116,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const result = await options.chat.complete({
           profile: target.profile,
-          requiredCapabilities: input.tools?.length ? ['chat', 'tools'] : ['chat'],
+          requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)),
           requestedProviderId: target.providerId,
           requestedModel: target.modelId,
           messages: input.messages,
@@ -145,7 +145,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false, true), requestedProviderId: target.providerId,
             requestedModel: target.modelId, messages: input.messages, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
@@ -166,7 +166,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false), requestedProviderId: target.providerId,
           requestedModel: target.modelId, messages: input.messages, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
@@ -189,7 +189,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: ['chat', 'streaming'], requestedProviderId: target.providerId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false, true), requestedProviderId: target.providerId,
             requestedModel: target.modelId, messages: input.messages, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
@@ -211,7 +211,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: ['chat'], requestedProviderId: target.providerId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false), requestedProviderId: target.providerId,
           requestedModel: target.modelId, messages: input.messages, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
@@ -251,6 +251,13 @@ interface OpenAIChatRequest {
 }
 
 class InvalidChatRequestError extends Error {}
+
+function capabilitiesForProfile(profile: string, hasTools: boolean, streaming = false): import('./contracts.js').Capability[] {
+  const caps: import('./contracts.js').Capability[] = ['chat'];
+  if (streaming) caps.push('streaming');
+  if (hasTools || profile === 'auto:code') caps.push('tools');
+  return caps;
+}
 
 async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequest> {
   const body = await readJsonBody(request);
