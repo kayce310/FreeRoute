@@ -48,7 +48,7 @@ After startup, point any OpenAI-compatible client at `http://127.0.0.1:8787/v1` 
 | Dashboard | Complete | Provider health, quota observations, model catalog, preference controls, redacted routing history. |
 | Provider adapters | Complete | OpenRouter + Groq (OpenAI-compatible) and native Gemini text/streaming/tools/vision. |
 | Embeddings & speech | Pending | Extensible via adapter contract; not yet wired. |
-| Custom provider config | Pending | User-defined upstream provider adapter; adapter SDK is next. |
+| Custom provider config | Complete | `provider-add`, `provider-list`, `provider-remove` CLI commands; SQLite-backed; loaded at runtime. |
 | Signed catalog format | Pending | Import/export catalog, signed upstream catalog for offline use. |
 
 ## Why FreeRoute

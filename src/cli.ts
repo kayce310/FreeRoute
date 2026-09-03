@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { createOpenRouterRuntime } from './app.js';
 import { importNineRouterApiKey } from './importers/9router.js';
 import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
+import { createSqliteProviderStore } from './storage/sqlite-provider-store.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -19,6 +20,9 @@ async function main(): Promise<void> {
   else if (command === 'restore') await restore(args);
   else if (command === 'refresh') await refreshCatalog();
   else if (command === 'key-validate') await keyValidate(args);
+  else if (command === 'provider-add') await providerAdd(args);
+  else if (command === 'provider-list') await providerList();
+  else if (command === 'provider-remove') await providerRemove(args);
   else printUsage();
 }
 
@@ -224,6 +228,39 @@ function readEnvFile(path: string): void {
   } catch { /* file not found — skip */ }
 }
 
+function localDatabasePathSync(): string {
+  const dataDir = process.env.FREEROUTE_DATA_DIR ?? 'data';
+  return `${dataDir}/freeroute.sqlite`;
+}
+
+async function providerAdd(args: string[]): Promise<void> {
+  const [providerId, adapterType, baseUrl, classifyAsFree] = args;
+  if (!providerId || !adapterType || !baseUrl) { console.error('usage: freeroute provider-add <provider-id> <openai-compatible|gemini> <base-url> [free_verified|free_unverified]'); process.exitCode = 1; return; }
+  if (adapterType !== 'openai-compatible' && adapterType !== 'gemini') { console.error('adapter-type must be openai-compatible or gemini'); process.exitCode = 1; return; }
+  const store = createSqliteProviderStore(localDatabasePathSync());
+  try {
+    store.put({ providerId, adapterType: adapterType as 'openai-compatible' | 'gemini', baseUrl, enabled: true, classifyAsFree });
+    console.log(`Added provider '${providerId}' (${adapterType}) at ${baseUrl}.`);
+  } finally { store.close(); }
+}
+
+async function providerList(): Promise<void> {
+  const store = createSqliteProviderStore(localDatabasePathSync());
+  try {
+    const defs = store.list();
+    if (!defs.length) { console.log('No custom providers.'); return; }
+    console.log('Custom providers:');
+    for (const def of defs) { console.log(`  ${def.providerId}  ${def.adapterType}  ${def.baseUrl}  [${def.enabled ? 'enabled' : 'disabled'}]${def.classifyAsFree ? `  tier:${def.classifyAsFree}` : ''}`); }
+  } finally { store.close(); }
+}
+
+async function providerRemove(args: string[]): Promise<void> {
+  const [providerId] = args;
+  if (!providerId) { console.error('usage: freeroute provider-remove <provider-id>'); process.exitCode = 1; return; }
+  const store = createSqliteProviderStore(localDatabasePathSync());
+  try { store.remove(providerId); console.log(`Removed provider '${providerId}'.`); } finally { store.close(); }
+}
+
 function printUsage(): void {
   console.log(`FreeRoute CLI
 Commands:
@@ -234,9 +271,12 @@ Commands:
   freeroute status             Show server status
   freeroute import-9router <db-path> [provider]  Import from 9Router database
   freeroute backup <file>     Backup catalog, preferences and events
-  freeroute restore <file>     Restore from backup
+  freeroute restore <file>    Restore from backup
   freeroute refresh           Force-refresh model catalog from providers
-  freeroute key-validate <provider> [credential-id]  Validate a stored API key`);
+  freeroute key-validate <provider> [credential-id]  Validate a stored API key
+  freeroute provider-add <id> <openai-compatible|gemini> <url> [tier]  Add custom provider
+  freeroute provider-list     List custom providers
+  freeroute provider-remove <id>  Remove a custom provider`);
   process.exitCode = 1;
 }
 

@@ -12,6 +12,7 @@ export interface SqliteProviderStore {
   list(): ProviderDefinition[];
   put(def: ProviderDefinition): void;
   remove(providerId: string): void;
+  close(): void;
 }
 
 export function createSqliteProviderStore(filename: string): SqliteProviderStore {
@@ -42,6 +43,9 @@ export function createSqliteProviderStore(filename: string): SqliteProviderStore
     },
     remove(providerId) {
       db.prepare('DELETE FROM providers WHERE provider_id = ?').run(providerId);
+    },
+    close() {
+      db.close();
     },
   };
 }
