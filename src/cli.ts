@@ -6,22 +6,77 @@ import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
 
 const [command, ...args] = process.argv.slice(2);
 
-if (command === 'import-9router') await importFromNineRouter(args);
-else if (command === 'serve') await serve();
-else printUsage();
+async function main(): Promise<void> {
+  if (command === 'import-9router') await importFromNineRouter(args);
+  else if (command === 'serve') await serve();
+  else if (command === 'add-key') await addKey(args);
+  else if (command === 'list-keys') await listKeys();
+  else if (command === 'remove-key') await removeKey(args);
+  else if (command === 'status') await status();
+  else printUsage();
+}
+
+async function credentialStore(): Promise<SqliteCredentialStore> {
+  return new SqliteCredentialStore(await localDatabasePath(), requiredEnv('FREEROUTE_MASTER_SECRET'));
+}
+
+async function addKey(args: string[]): Promise<void> {
+  const [providerId, apiKey] = args;
+  if (!providerId || !apiKey) { console.error('usage: freeroute add-key <provider> <api-key>'); process.exitCode = 1; return; }
+  const store = await credentialStore();
+  try {
+    await store.put(providerId, 'default', apiKey);
+    console.log(`Added key for provider '${providerId}' (credential: default).`);
+  } finally { store.close(); }
+}
+
+async function listKeys(): Promise<void> {
+  const store = await credentialStore();
+  try {
+    const creds = await store.list();
+    if (!creds.length) { console.log('No credentials stored.'); return; }
+    console.log('Stored credentials:');
+    for (const cred of creds) {
+      console.log(`  ${cred.providerId}/${cred.credentialId}  (added ${cred.createdAt.toISOString()})`);
+    }
+  } finally { store.close(); }
+}
+
+async function removeKey(args: string[]): Promise<void> {
+  const [providerId, credentialId = 'default'] = args;
+  if (!providerId) { console.error('usage: freeroute remove-key <provider> [credential-id]'); process.exitCode = 1; return; }
+  const store = await credentialStore();
+  try {
+    // Direct SQLite delete since there's no remove method
+    const dbPath = await localDatabasePath();
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    db.prepare('DELETE FROM credentials WHERE provider_id = ? AND credential_id = ?').run(providerId, credentialId);
+    db.close();
+    console.log(`Removed credential '${providerId}/${credentialId}'.`);
+  } finally { store.close(); }
+}
+
+async function status(): Promise<void> {
+  const store = await credentialStore();
+  try {
+    const creds = await store.list();
+    console.log(`FreeRoute status`);
+    console.log(`  Data dir: ${resolve(process.env.FREEROUTE_DATA_DIR ?? 'data')}`);
+    console.log(`  Stored providers: ${creds.length > 0 ? creds.map(c => c.providerId).join(', ') : '(none)'}`);
+    console.log(`  Supported: openrouter, groq, gemini`);
+  } finally { store.close(); }
+}
 
 async function importFromNineRouter(args: string[]): Promise<void> {
   const sourceDatabasePath = args[0];
-  if (!sourceDatabasePath) throw new Error('usage: import-9router <9router-database-path> [provider-id]');
+  if (!sourceDatabasePath) throw new Error('usage: freeroute import-9router <9router-database-path> [provider-id]');
   const providerId = args[1] ?? 'openrouter';
-  const databasePath = await localDatabasePath();
-  const credentials = new SqliteCredentialStore(databasePath, requiredEnv('FREEROUTE_MASTER_SECRET'));
+  const store = await credentialStore();
   try {
-    const result = await importNineRouterApiKey({ sourceDatabasePath: resolve(sourceDatabasePath), providerId, credentials });
+    const result = await importNineRouterApiKey({ sourceDatabasePath: resolve(sourceDatabasePath), providerId, credentials: store });
     console.log(`Imported ${result.providerId} connection ${result.sourceConnectionId} as credential ${result.credentialId}.`);
-  } finally {
-    credentials.close();
-  }
+  } finally { store.close(); }
 }
 
 async function serve(): Promise<void> {
@@ -49,9 +104,7 @@ async function serve(): Promise<void> {
         if (result.status === 'updated') console.log(`${result.providerId} catalog refreshed (${result.modelCount} models).`);
         else if (result.error !== 'credential not configured') console.error(`${result.providerId} catalog refresh failed: ${result.error}`);
       }
-    } finally {
-      refreshing = false;
-    }
+    } finally { refreshing = false; }
   };
   void refresh();
   const refreshTimer = setInterval(() => { void refresh(); }, refreshMinutes * 60_000);
@@ -76,6 +129,15 @@ function requiredEnv(name: string): string {
 }
 
 function printUsage(): void {
-  console.log('Usage: freeroute <serve|import-9router>');
+  console.log(`FreeRoute CLI
+Commands:
+  freeroute serve              Start the routing server
+  freeroute add-key <provider> <api-key>   Add an API key for a provider
+  freeroute list-keys          List stored credentials
+  freeroute remove-key <provider> [credential-id]  Remove a credential
+  freeroute status             Show server status
+  freeroute import-9router <db-path> [provider]  Import from 9Router database`);
   process.exitCode = 1;
 }
+
+main().catch((error) => { console.error(error.message); process.exitCode = 1; });
