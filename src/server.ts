@@ -227,6 +227,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
       sendJson(response, 404, { error: { message: 'not found', type: 'invalid_request_error' } });
     } catch (error) {
+      if (error instanceof Error && error.message === 'no eligible route candidates') {
+        sendJson(response, 503, { error: { message: 'no eligible route candidate for the requested capabilities', type: 'server_error' } });
+        return;
+      }
       if (error instanceof ProviderInvocationError) {
         sendJson(response, error.failure.kind === 'authentication' ? 401 : 502, {
           error: { message: error.message, type: error.failure.kind === 'authentication' ? 'authentication_error' : 'upstream_error' },

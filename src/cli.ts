@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createOpenRouterRuntime } from './app.js';
 import { importNineRouterApiKey } from './importers/9router.js';
@@ -7,6 +8,7 @@ import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
 const [command, ...args] = process.argv.slice(2);
 
 async function main(): Promise<void> {
+  if (process.env.FREEROUTE_ENV_FILE) readEnvFile(process.env.FREEROUTE_ENV_FILE);
   if (command === 'import-9router') await importFromNineRouter(args);
   else if (command === 'serve') await serve();
   else if (command === 'add-key') await addKey(args);
@@ -126,6 +128,22 @@ function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} must be set`);
   return value;
+}
+
+/** Reads key=value lines from a .env file, ignoring comments and blank lines. */
+function readEnvFile(path: string): void {
+  try {
+    const lines = readFileSync(path, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq < 1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+      if (key && !process.env[key]) process.env[key] = val;
+    }
+  } catch { /* file not found — skip */ }
 }
 
 function printUsage(): void {
