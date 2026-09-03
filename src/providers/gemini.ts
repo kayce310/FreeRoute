@@ -1,9 +1,15 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
-import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest } from '../inference.js';
+import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
 interface GeminiList { models?: GeminiModel[]; nextPageToken?: string; }
-interface GeminiResponse { responseId?: string; modelVersion?: string; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; }
+interface GeminiResponse {
+  responseId?: string;
+  modelVersion?: string;
+  candidates?: Array<{
+    content?: { parts?: Array<{ text: string }>; toolCalls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> };
+  }>;
+}
 
 export interface GeminiAdapterOptions {
   baseUrl?: string;
@@ -73,7 +79,13 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         if (!data) continue;
         try {
           const chunk = JSON.parse(data) as GeminiResponse;
-          yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: textFrom(chunk) };
+          const text = textFrom(chunk);
+          const toolCalls = (chunk.candidates?.[0]?.content?.toolCalls ?? []).map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.function.name, arguments: tc.function.arguments },
+          }));
+          yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined };
         } catch { /* Ignore non-data SSE lines. */ }
       }
     }

@@ -39,6 +39,7 @@ export interface NormalizedChatStreamEvent {
   model: string;
   delta?: string;
   finishReason?: string | null;
+  toolCalls?: ToolCall[];
 }
 
 export class ProviderInvocationError extends Error {

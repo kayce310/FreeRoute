@@ -22,7 +22,7 @@ interface OpenAIChatCompletion {
 interface OpenAIChatChunk {
   id?: string;
   model?: string;
-  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null; tool_calls?: ToolCall[] }>;
 }
 
 export interface OpenAICompatibleAdapterOptions {
@@ -88,7 +88,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true }),
+      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools }),
     });
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });
@@ -110,6 +110,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
           model: chunk.model ?? input.modelId,
           delta: choice.delta?.content,
           finishReason: choice.finish_reason,
+          toolCalls: choice.tool_calls,
         };
       }
     }

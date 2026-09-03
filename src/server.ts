@@ -109,7 +109,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'x-freeroute-model': result.decision.candidate.modelId,
           });
           for await (const event of result.events) {
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null }] })}\n\n`);
+            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }] })}\n\n`);
           }
           response.end('data: [DONE]\n\n');
           return;
@@ -145,8 +145,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false, true), requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
           const responseId = `resp_${requestId}`;
@@ -166,8 +166,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)), requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -189,8 +189,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         response.setHeader('x-freeroute-request-id', requestId);
         if (input.stream) {
           const result = await options.chat.stream({
-            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false, true), requestedProviderId: target.providerId,
-            requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+            profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true), requestedProviderId: target.providerId,
+            requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
           });
           const model = `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`;
           const messageId = `msg_${requestId}`;
@@ -211,8 +211,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         const result = await options.chat.complete({
-          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, false), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, traceId: requestId,
+          profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length)), requestedProviderId: target.providerId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, traceId: requestId,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -275,30 +275,59 @@ async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequ
   return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools };
 }
 
-async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean }> {
+async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[] }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; input?: unknown; stream?: unknown };
+  const value = body as { model?: unknown; input?: unknown; stream?: unknown; tools?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
-  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream };
+  if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isToolDefinition))) throw new InvalidChatRequestError('tools must be OpenAI function definitions');
+  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools };
   if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
-    return { model: value.model, messages: value.input.map((message) => ({ role: message.role, content: message.content })), stream: value.stream };
+    return {
+      model: value.model,
+      messages: value.input.map((message) => {
+        if (isChatMessage(message)) return message;
+        const m = message as { role: ChatMessage['role']; content: unknown };
+        return { role: m.role, content: extractResponsesText(m.content) };
+      }),
+      stream: value.stream,
+      tools: value.tools,
+    };
   }
   throw new InvalidChatRequestError('input must be a string or messages with role and string content');
 }
 
-async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean }> {
+async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[] }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown };
+  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown; tools?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.system !== undefined && typeof value.system !== 'string') throw new InvalidChatRequestError('system must be a string');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (!Array.isArray(value.messages) || !value.messages.every(isAnthropicMessage)) throw new InvalidChatRequestError('messages must contain user or assistant roles and string content');
+  if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isAnthropicToolDefinition))) throw new InvalidChatRequestError('tools must be Anthropic tool definitions');
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
-  return { model: value.model, messages, stream: value.stream };
+  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined };
+}
+
+function isAnthropicToolDefinition(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const tool = value as { name?: unknown };
+  return typeof tool.name === 'string' && tool.name.length > 0;
+}
+
+function toOpenAITool(value: unknown): import('./inference.js').ToolDefinition {
+  const tool = value as { name: string; description?: unknown; input_schema?: unknown };
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      ...(typeof tool.description === 'string' ? { description: tool.description } : {}),
+      ...(tool.input_schema !== undefined ? { parameters: tool.input_schema } : {}),
+    },
+  };
 }
 
 async function readPreferenceRequest(request: IncomingMessage): Promise<{ providerId: string; modelId: string; preference: Preference }> {
@@ -322,8 +351,36 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new InvalidChatRequestError('request body must be valid JSON'); }
 }
 
-function isResponsesMessage(value: unknown): value is ChatMessage {
-  return isChatMessage(value);
+function isResponsesMessage(value: unknown): boolean {
+  return isChatMessage(value) || isResponsesArrayMessage(value);
+}
+
+function isResponsesArrayMessage(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as { role?: unknown; content?: unknown };
+  if (message.role !== 'user' && message.role !== 'system' && message.role !== 'assistant' && message.role !== 'tool') return false;
+  return Array.isArray(message.content) && message.content.every((part) => isResponsesContentPart(part));
+}
+
+function isResponsesContentPart(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const part = value as { type?: unknown; text?: unknown };
+  return part.type === 'input_text' || part.type === 'output_text' || part.type === 'text'
+    ? typeof part.text === 'string'
+    : true; // ponytail: future part types (image, audio) pass through; downstream provider rejects if unsupported
+}
+
+function extractResponsesText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
+        return (part as { text: string }).text;
+      }
+      return '';
+    }).join('');
+  }
+  return '';
 }
 
 function isAnthropicMessage(value: unknown): value is ChatMessage {
