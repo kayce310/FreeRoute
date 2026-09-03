@@ -4,7 +4,7 @@
 
 ## Project status
 
-**Current phase: complete — milestones 1 and 2 done, milestone 3 in progress.**
+**Current phase: complete — milestones 1, 2, and 3 done, milestone 4 pending.**
 
 FreeRoute ships as a usable local router: add keys via CLI, start the server, point any OpenAI-compatible client at `http://127.0.0.1:8787`. This README is the source of truth for product direction, technical decisions, and current work state.
 
@@ -35,7 +35,7 @@ After startup, point any OpenAI-compatible client at `http://127.0.0.1:8787/v1` 
 | Architecture | Complete | Core is provider-independent; providers load as adapters. |
 | Repository bootstrap | Complete | Git repository, README and secret-safe ignore rules present. |
 | Routing core | Complete | Candidate contracts, deterministic score selection and scoped cooldown. |
-| CLI setup | Complete | `add-key`, `list-keys`, `remove-key`, `status`, `import-9router`, `serve`. |
+| CLI setup | Complete | `add-key`, `list-keys`, `remove-key`, `status`, `import-9router`, `serve`, `backup`, `restore`, `refresh`, `key-validate`. |
 | Durable catalog cache | Complete | SQLite catalog storage, cache-first startup, 30-min background refresh. |
 | Credential security | Complete | AES-256-GCM SQLite credential store; CLI key management. |
 | Existing-router import | Complete | Opt-in 9Router importer with encrypted transfer. |
@@ -43,8 +43,10 @@ After startup, point any OpenAI-compatible client at `http://127.0.0.1:8787/v1` 
 | Inference fallback | Complete | Retry on rate-limit/quota/temp; auth errors surface safely. |
 | Provider discovery | Complete | Non-overlapping schedule, cache-safe upsert, unit-tested. |
 | Routing, quota and fallback | Complete | `auto:free`, `auto:code` (tools-cap), `auto:fast` (3x latency), `auto:long-context`; cooldown, events, quota obs, preferences. |
+| Vision support | Complete | image_url content parts routed to vision-capable providers (OpenAI-compatible, Gemini). |
+| Structured output | Complete | `response_format: {type:"json_object"}` routing and forwarding. |
 | Dashboard | Complete | Provider health, quota observations, model catalog, preference controls, redacted routing history. |
-| Provider adapters | Complete | OpenRouter + Groq (OpenAI-compatible) and native Gemini text/streaming/tools. |
+| Provider adapters | Complete | OpenRouter + Groq (OpenAI-compatible) and native Gemini text/streaming/tools/vision. |
 
 ## Why FreeRoute
 
@@ -238,11 +240,11 @@ Lets users reorder profiles and assign Prefer/Limit/Block rules without needing 
 
 ### Milestone 3 — broader compatibility
 
-- Streaming and non-streaming `/v1/responses` for Codex-oriented clients are implemented; full feature parity remains pending.
-- Streaming and non-streaming Anthropic Messages compatibility for Claude-oriented clients are implemented; tool-use parity remains pending.
-- Native Gemini compatibility is implemented for text chat and SSE; tool/vision parity remains pending.
-- Tool calls, vision and structured output parity.
-- CLI setup commands and safe config backup.
+- Streaming and non-streaming `/v1/responses` for Codex-oriented clients are implemented.
+- Streaming and non-streaming Anthropic Messages compatibility for Claude-oriented clients are implemented.
+- Native Gemini compatibility is implemented for text chat, streaming, and SSE.
+- Tool calls, vision (image_url), and structured output (response_format) parity are implemented.
+- CLI setup commands (`backup`, `restore`, `refresh`, `key-validate`) and safe config backup are implemented.
 
 ### Milestone 4 — additional modalities and ecosystem
 
