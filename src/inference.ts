@@ -96,6 +96,7 @@ export interface ChatResult {
 /** Runtime-only health state. It deliberately contains no credentials or request content. */
 export class RouteState {
   private readonly cooldowns = new Map<string, Date>();
+  private readonly failureCounts = new Map<string, number>();
 
   apply(candidates: RouteCandidate[], now: Date): RouteCandidate[] {
     return candidates.map((candidate) => {
@@ -105,9 +106,22 @@ export class RouteState {
     });
   }
 
+  recordSuccess(candidate: RouteCandidate): void {
+    const key = routeKey(candidate);
+    this.failureCounts.delete(key);
+    this.cooldowns.delete(key);
+  }
+
   recordFailure(candidate: RouteCandidate, failure: AdapterFailure, now: Date): void {
-    const updated = applyFailureCooldown(candidate, failure, now);
-    if (updated.cooldownUntil) this.cooldowns.set(routeKey(candidate), updated.cooldownUntil);
+    const key = routeKey(candidate);
+    const count = (this.failureCounts.get(key) ?? 0) + 1;
+    this.failureCounts.set(key, count);
+    const updated = applyFailureCooldown(candidate, failure, now, count);
+    if (updated.cooldownUntil) this.cooldowns.set(key, updated.cooldownUntil);
+  }
+
+  getFailureCount(candidate: RouteCandidate): number {
+    return this.failureCounts.get(routeKey(candidate)) ?? 0;
   }
 }
 
@@ -125,10 +139,17 @@ export class ChatService {
   async complete(request: NormalizedChatRequest): Promise<ChatResult> {
     let candidates = this.withRouteState(await this.options.candidates(request));
     let fallbackCount = 0;
+    let contextOverflowCount = 0;
+    let totalAttempts = 0;
 
     while (true) {
       const decision = chooseRoute(request, candidates, this.now());
-      if (!decision) throw new Error('no eligible route candidates');
+      if (!decision) {
+        if (totalAttempts > 0 && contextOverflowCount === totalAttempts) {
+          throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
+        }
+        throw new Error('no eligible route candidates');
+      }
       const adapter = this.options.adapters.get(decision.candidate.providerId);
       if (!adapter) {
         candidates = candidates.map((candidate) => candidate === decision.candidate
@@ -150,18 +171,24 @@ export class ChatService {
           decision,
           fallbackCount,
         };
+        this.options.routeState?.recordSuccess(decision.candidate);
         await this.emitEvent(request, decision.candidate, fallbackCount, 'success', undefined, Math.max(0, this.now().getTime() - startedAt.getTime()));
         if (result.quota) await this.options.onQuota?.({ ...result.quota, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId, credentialRef: redactCredential(decision.candidate.credentialId), observedAt: this.now() });
         return completed;
       } catch (error) {
         if (!(error instanceof ProviderInvocationError)) throw error;
         const { kind } = error.failure;
-        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary') {
+        totalAttempts += 1;
+        if (kind === 'context_overflow') {
+          contextOverflowCount += 1;
+        }
+        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow') {
           await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
           throw error;
         }
+        const failureCount = (this.options.routeState?.getFailureCount(decision.candidate) ?? 0) + 1;
         candidates = candidates.map((candidate) => candidate === decision.candidate
-          ? applyFailureCooldown(candidate, error.failure, this.now())
+          ? applyFailureCooldown(candidate, error.failure, this.now(), failureCount)
           : candidate);
         this.options.routeState?.recordFailure(decision.candidate, error.failure, this.now());
         fallbackCount += 1;

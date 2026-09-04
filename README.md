@@ -19,14 +19,16 @@ Your tool  ──►  FreeRoute  ──►  OpenRouter  (rate-limited)
 | | |
 |---|---|
 | **Build** | ✅ Passing · `tsc` clean |
-| **Tests** | ✅ 56/56 green |
+| **Tests** | ✅ 60/60 green |
 | **Version** | 0.1.0 |
 | **Bilingual** | 🇻🇳 Tiếng Việt & 🇬🇧 English (100% full i18n & fluid layout) |
 | **True Free vs Paid** | 🎁 Strict Zero-Price classification (`:free`, verified) vs Commercial |
 | **Custom Combos** | 🔀 Smart fallback chains (`model: "combo:<id>"`) with UI & API |
-| **1-Click Sync** | ⚡ Auto-detect & import keys directly from 9router & OmniRoute |
+| **Smart Cooldown** | ⏱️ Stepped backoff (3 fails = 5m, 4 = 30m, 5 = 1h, 6+ = 3h; reset on success) |
+| **Context Overflow** | 🔄 Auto-switches to larger models on context overflow; prompts user to refresh session if all fail |
+| **1-Click Sync** | ⚡ Auto-detect & import keys (with multi-key preservation & auto custom provider creation) |
 | **Anti-Block Safe** | 🛡️ Dedicated guide & header sanitization for Cursor, Cline, Claude CLI |
-| **Providers** | 70+ Presets (Free Tier prioritized, Commercial grouped below) |
+| **Providers** | 80+ Presets (Kiro, Antigravity, Cline, Groq, Gemini, OpenRouter, etc.) |
 | **M1–M5** | ✅ Complete |
 
 

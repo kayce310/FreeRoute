@@ -10,8 +10,17 @@
 ## 🌟 Tính Năng Nổi Bật
 
 - **0 Runtime Dependencies**: Xây dựng hoàn toàn bằng Node.js tiêu chuẩn (Native HTTP, Crypto, SQLite). Khởi động trong **< 50ms**, chiếm chưa tới **35MB RAM**.
-- **⚡ Nhập Khóa 1-Click Tự Động Từ 9router & OmniRoute**: Tự động phát hiện database của OmniRoute và 9router trên máy cá nhân, giải mã an toàn và đồng bộ toàn bộ API Key chỉ với 1 click chuột mà không cần sao chép thủ công.
-- **🌐 Kho 70+ Nhà Cung Cấp Đa Tầng**: Tích hợp danh mục từ OmniRoute và 9router, phân loại rõ ràng **Ưu tiên Miễn phí (Free Tier)** ở trên và **Thương mại (Commercial)** ở dưới kèm link lấy key trực tiếp.
+- **⚡ Nhập Khóa 1-Click Tự Động & Không Trùng Lặp**: Tự động phát hiện database của OmniRoute và 9router trên máy cá nhân, giải mã và lưu trữ riêng biệt từng tài khoản (ví dụ 11 accounts Kiro, 12 keys OpenRouter...). Nếu phát hiện provider lạ, hệ thống **chủ động tạo ngay Custom Provider** và nạp model tương ứng.
+- **🌐 Kho 80+ Nhà Cung Cấp Đa Tầng**: Tích hợp danh mục phong phú từ OmniRoute và 9router (bao gồm **Kiro AI / AWS Q Developer**, **Google Antigravity**, **Cline**, **Blackbox**, **AliCode**, **Kimi**...), phân loại rõ ràng **Ưu tiên Miễn phí (Free Tier)** ở trên và **Thương mại (Commercial)** ở dưới.
+- **⏱️ Cơ Chế Cooldown Lũy Tiến Thông Minh (Stepped Backoff)**: Khi 1 model/key fail liên tục mà không có thông báo reset quota:
+  - 3 lần fail liên tục ➔ cooldown **5 phút**.
+  - 4 lần fail liên tục ➔ tăng lên **30 phút**.
+  - 5 lần fail liên tục ➔ tăng lên **1 giờ**.
+  - 6+ lần fail liên tục ➔ chạm trần **3 giờ** (tối đa).
+  - Khi model được gọi lại và trả lời thành công ➔ tự động reset chuỗi lỗi và cooldown về 0!
+- **🔄 Tự Động Bắt Lỗi Tràn Ngữ Cảnh (Context Overflow)**: Khi model fail vì input quá dài (vượt context window):
+  - Hệ thống tự động chuyển tiếp sang model có ngữ cảnh lớn hơn.
+  - Nếu tất cả model đều fail vì nguyên nhân input quá lớn, FreeRoute gửi phản hồi rõ ràng yêu cầu người dùng làm mới phiên (clear context/new session).
 - **📚 Danh Mục Model Thông Minh (Sort & Filter)**: Sắp xếp theo Model ID, Provider, Phân hạng Free/Paid, Độ ưu tiên, cùng bộ lọc đa chiều theo Nhà cung cấp và Tính năng (Chat, Tools, Vision).
 - **📡 Bảng Giám Sát Sức Khỏe Trực Quan (NOC Health Matrix)**: Theo dõi trạng thái từng provider qua ma trận đèn báo (🟢 Khỏe mạnh, 🟡 Hạ nhiệt, 🔴 Lỗi), thanh đo tỉ lệ thành công, độ trễ P50/P90 và bảng dòng sự kiện định tuyến (Routing Stream) hiển thị rõ các lần Fallback cứu nguy.
 - **Song Ngữ Toàn Diện (Tiếng Việt & English)**: Giao diện Web Dashboard Dark mode cao cấp, chuyển đổi ngôn ngữ 1-click tức thì với bố cục co giãn đàn hồi chống vỡ chữ.

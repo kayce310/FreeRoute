@@ -58,14 +58,43 @@ export function chooseRoute(request: RouteRequest, candidates: RouteCandidate[],
   };
 }
 
-export function applyFailureCooldown(candidate: RouteCandidate, failure: AdapterFailure, now = new Date()): RouteCandidate {
-  if (failure.kind !== 'rate_limit' && failure.kind !== 'quota_exhausted' && failure.kind !== 'temporary') {
+export function applyFailureCooldown(
+  candidate: RouteCandidate,
+  failure: AdapterFailure,
+  now = new Date(),
+  consecutiveFailures = 1,
+): RouteCandidate {
+  if (
+    failure.kind !== 'rate_limit'
+    && failure.kind !== 'quota_exhausted'
+    && failure.kind !== 'temporary'
+    && failure.kind !== 'context_overflow'
+  ) {
     return candidate;
   }
 
-  const fallbackMs = failure.kind === 'temporary' ? 15_000 : 60_000;
+  let fallbackMs = 60_000;
+  if (failure.retryAfterMs) {
+    fallbackMs = failure.retryAfterMs;
+  } else if (failure.kind === 'context_overflow') {
+    fallbackMs = 15_000; // Cooldown ngắn để prompt dài chuyển ngay sang candidate khác
+  } else {
+    // Stepped progressive backoff: 3 fails = 5m, 4 fails = 30m, 5 fails = 1h, 6+ fails = 3h (tối đa)
+    if (consecutiveFailures < 3) {
+      fallbackMs = failure.kind === 'temporary' ? 15_000 : 30_000;
+    } else if (consecutiveFailures === 3) {
+      fallbackMs = 5 * 60 * 1_000; // 5 phút
+    } else if (consecutiveFailures === 4) {
+      fallbackMs = 30 * 60 * 1_000; // 30 phút
+    } else if (consecutiveFailures === 5) {
+      fallbackMs = 60 * 60 * 1_000; // 1 tiếng
+    } else {
+      fallbackMs = 3 * 60 * 60 * 1_000; // 3 tiếng tối đa
+    }
+  }
+
   return {
     ...candidate,
-    cooldownUntil: new Date(now.getTime() + (failure.retryAfterMs ?? fallbackMs)),
+    cooldownUntil: new Date(now.getTime() + fallbackMs),
   };
 }

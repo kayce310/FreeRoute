@@ -49,6 +49,7 @@ export interface RouteDecision {
 }
 
 export interface AdapterFailure {
-  kind: 'authentication' | 'rate_limit' | 'quota_exhausted' | 'temporary' | 'unsupported' | 'permanent';
+  kind: 'authentication' | 'rate_limit' | 'quota_exhausted' | 'temporary' | 'unsupported' | 'permanent' | 'context_overflow';
   retryAfterMs?: number;
+  message?: string;
 }

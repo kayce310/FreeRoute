@@ -153,19 +153,51 @@ function contentToText(content: OpenAIMessageContent): string | undefined {
   return undefined;
 }
 
+function isContextOverflowError(status: number, text: string): boolean {
+  if (status !== 400 && status !== 413) return false;
+  const lower = text.toLowerCase();
+  return lower.includes('context length')
+    || lower.includes('maximum context length')
+    || lower.includes('context_length_exceeded')
+    || lower.includes('token limit')
+    || lower.includes('tokens limit')
+    || lower.includes('too many tokens')
+    || lower.includes('prompt is too long')
+    || lower.includes('string too long')
+    || lower.includes('exceeds the context window')
+    || lower.includes('please reduce the length')
+    || lower.includes('input is too long')
+    || lower.includes('request too large')
+    || lower.includes('payload too large');
+}
+
 async function providerError(response: Response): Promise<ProviderInvocationError> {
   const retryAfter = response.headers.get('retry-after');
   const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1_000 : undefined;
-  const kind = response.status === 401 || response.status === 403
-    ? 'authentication'
-    : response.status === 402
-      ? 'quota_exhausted'
-    : response.status === 429
-      ? 'rate_limit'
-      : response.status === 408 || response.status >= 500
-        ? 'temporary'
-        : response.status === 404 || response.status === 400
-          ? 'unsupported'
-          : 'permanent';
-  return new ProviderInvocationError(`upstream request failed with HTTP ${response.status}`, { kind, retryAfterMs });
+  const rawBody = await response.text().catch(() => '');
+  let extractedMessage = '';
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: { message?: string } | string; message?: string };
+    extractedMessage = (typeof parsed.error === 'object' ? parsed.error?.message : parsed.error) || parsed.message || '';
+  } catch {
+    extractedMessage = rawBody.slice(0, 300);
+  }
+
+  const kind = isContextOverflowError(response.status, rawBody)
+    ? 'context_overflow'
+    : response.status === 401 || response.status === 403
+      ? 'authentication'
+      : response.status === 402
+        ? 'quota_exhausted'
+      : response.status === 429
+        ? 'rate_limit'
+        : response.status === 408 || response.status >= 500
+          ? 'temporary'
+          : response.status === 404 || response.status === 400
+            ? 'unsupported'
+            : 'permanent';
+
+  const errPrefix = `upstream request failed with HTTP ${response.status}`;
+  const fullMessage = extractedMessage ? `${errPrefix}: ${extractedMessage}` : errPrefix;
+  return new ProviderInvocationError(fullMessage, { kind, retryAfterMs, message: extractedMessage });
 }

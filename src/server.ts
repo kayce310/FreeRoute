@@ -386,12 +386,35 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return true;
         });
 
-        const imported: Array<{ providerId: string; source: string; name: string }> = [];
+        const imported: Array<{ providerId: string; credentialId: string; source: string; name: string }> = [];
+        const usedCreds = new Set<string>();
         for (const target of targets) {
-          await options.credentials.put(target.providerId, 'default', target.apiKey);
+          const rawCredId = (target.name || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 30) || 'default';
+          let credId = rawCredId;
+          let counter = 1;
+          while (usedCreds.has(`${target.providerId}:${credId}`)) {
+            credId = `${rawCredId}-${counter++}`;
+          }
+          usedCreds.add(`${target.providerId}:${credId}`);
+
+          await options.credentials.put(target.providerId, credId, target.apiKey);
+
+          // If unknown provider, automatically register custom provider
+          const preset = PROVIDER_PRESETS.find((p) => p.id === target.providerId);
+          if (options.providerStore && !['openrouter', 'groq', 'gemini'].includes(target.providerId)) {
+            const existing = options.providerStore.list().find((p) => p.providerId === target.providerId);
+            if (!existing) {
+              options.providerStore.put({
+                providerId: target.providerId,
+                adapterType: preset?.adapterType ?? 'openai-compatible',
+                baseUrl: preset?.baseUrl ?? `https://api.${target.providerId}.com/v1`,
+                classifyAsFree: (preset?.category === 'free' || preset?.category === 'freemium') ? 'free_verified' : undefined,
+                enabled: true,
+              });
+            }
+          }
 
           // Auto-seed models if present in presets
-          const preset = PROVIDER_PRESETS.find((p) => p.id === target.providerId);
           if (preset && preset.seedModels.length > 0) {
             try {
               const existing = await options.catalog.list();
@@ -414,13 +437,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
           if (options.onCredentialChanged) {
             try {
-              await options.onCredentialChanged(target.providerId, 'default');
+              await options.onCredentialChanged(target.providerId, credId);
             } catch {
               // Ignore refresh errors
             }
           }
 
-          imported.push({ providerId: target.providerId, source: target.source, name: target.name });
+          imported.push({ providerId: target.providerId, credentialId: credId, source: target.source, name: target.name });
         }
 
         sendJson(response, 200, {
@@ -443,6 +466,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
         if (target.profile === 'combo' && target.comboModels && target.comboModels.length > 0) {
           let lastError: unknown = null;
+          let contextOverflowCount = 0;
           for (const cm of target.comboModels) {
             const sep = cm.indexOf('/');
             const cProv = sep > 0 ? cm.slice(0, sep) : undefined;
@@ -498,8 +522,21 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               }
             } catch (err) {
               lastError = err;
+              if (err instanceof ProviderInvocationError && err.failure.kind === 'context_overflow') {
+                contextOverflowCount += 1;
+              }
               continue;
             }
+          }
+          if (contextOverflowCount > 0 && contextOverflowCount === target.comboModels.length) {
+            sendJson(response, 400, {
+              error: {
+                message: 'Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model trong combo. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all models in this combo. Please clear context or start a new chat session.',
+                type: 'context_length_exceeded',
+                code: 'context_length_exceeded',
+              },
+            });
+            return;
           }
           throw lastError || new Error('no eligible route candidates in combo');
         }
@@ -638,11 +675,31 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         try { response.end(); } catch {}
         return;
       }
+      if (error instanceof Error && error.message.includes('Ngữ cảnh hội thoại vượt quá giới hạn token')) {
+        sendJson(response, 400, {
+          error: {
+            message: error.message,
+            type: 'context_length_exceeded',
+            code: 'context_length_exceeded',
+          },
+        });
+        return;
+      }
       if (error instanceof Error && error.message === 'no eligible route candidates') {
         sendJson(response, 503, { error: { message: 'no eligible route candidate for the requested capabilities', type: 'server_error' } });
         return;
       }
       if (error instanceof ProviderInvocationError) {
+        if (error.failure.kind === 'context_overflow') {
+          sendJson(response, 400, {
+            error: {
+              message: error.message,
+              type: 'context_length_exceeded',
+              code: 'context_length_exceeded',
+            },
+          });
+          return;
+        }
         sendJson(response, error.failure.kind === 'authentication' ? 401 : 502, {
           error: { message: error.message, type: error.failure.kind === 'authentication' ? 'authentication_error' : 'upstream_error' },
         });
