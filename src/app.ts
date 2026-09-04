@@ -9,6 +9,7 @@ import { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js
 import { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 import { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import { createSqliteProviderStore, type ProviderDefinition } from './storage/sqlite-provider-store.js';
+import { createSqliteComboStore } from './storage/sqlite-combo-store.js';
 
 export interface OpenRouterRuntimeOptions {
   databasePath: string;
@@ -28,6 +29,41 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   const quotas = new SqliteQuotaObservationStore(options.databasePath);
   const preferences = new SqlitePreferenceStore(options.databasePath);
   const providerStore = createSqliteProviderStore(options.databasePath);
+  const comboStore = createSqliteComboStore(options.databasePath);
+
+  // Seed default curated combos if none exist
+  if (comboStore.list().length === 0) {
+    comboStore.put({
+      comboId: 'free-coders',
+      name: 'Free Coding Agents',
+      models: [
+        'groq/llama-3.3-70b-versatile',
+        'cerebras/llama-3.3-70b',
+        'openrouter/qwen/qwen-2.5-coder-32b-instruct:free',
+      ],
+      description: 'Mô hình lập trình và gọi hàm công cụ miễn phí tốc độ cao.',
+    });
+    comboStore.put({
+      comboId: 'speed-demons',
+      name: 'Ultra-Speed Inference',
+      models: [
+        'cerebras/llama-3.3-70b',
+        'groq/llama-3.1-8b-instant',
+        'cerebras/llama-3.1-8b',
+      ],
+      description: 'Tốc độ phản hồi cực nhanh (500-1800 tok/s).',
+    });
+    comboStore.put({
+      comboId: 'smart-chat',
+      name: 'Best Free Chat',
+      models: [
+        'gemini/gemini-2.5-flash',
+        'openrouter/google/gemini-2.0-flash-exp:free',
+        'groq/llama-3.3-70b-versatile',
+      ],
+      description: 'Hội thoại thông minh, ngữ cảnh lớn, suy luận mạnh mẽ.',
+    });
+  }
 
   const builtIn: import('./inference.js').ChatProviderAdapter[] = [
     new OpenAICompatibleAdapter({
@@ -76,6 +112,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     preferences,
     credentials,
     providerStore,
+    combos: comboStore,
     onCredentialChanged: async () => {
       const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
       void discovery.refresh(credentialIds);
@@ -102,6 +139,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       quotas.close();
       preferences.close();
       providerStore.close();
+      comboStore.close();
     },
   };
 }

@@ -466,4 +466,74 @@ test('auto-seeds catalog models when credentials are saved for a preset provider
   }
 });
 
+test('serves discovered import sources without requiring token', async () => {
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/v1/import/sources`);
+    assert.equal(res.status, 200);
+    const body = await res.json() as { object: string; data: Array<{ providerId: string; maskedKey: string }> };
+    assert.equal(body.object, 'list');
+    assert.ok(Array.isArray(body.data));
+    // Each item should only expose maskedKey, not raw apiKey
+    for (const item of body.data) {
+      assert.ok(item.maskedKey);
+      assert.ok(!('apiKey' in item));
+    }
+  });
+});
+
+test('syncs discovered credentials via POST /v1/import/sync and seeds catalog', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { SqliteCredentialStore } = await import('../src/storage/sqlite-credential-store.js');
+
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-test-sync-'));
+  const credentials = new SqliteCredentialStore(join(dir, 'keys.db'), 'test-master-key-sync');
+  const catalog = new InMemoryCatalogStore();
+  const server = createFreeRouteServer({
+    catalog,
+    credentials,
+    apiToken: 'local-token',
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    const syncRes = await fetch(`${baseUrl}/v1/import/sync`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ syncAll: false, providerIds: ['openrouter', 'cerebras'] }),
+    });
+    assert.equal(syncRes.status, 200);
+    const syncBody = await syncRes.json() as { status: string; count: number };
+    assert.equal(syncBody.status, 'ok');
+
+    // If local sources had openrouter or cerebras, they should be in credentials
+    const credList = await credentials.list();
+    if (syncBody.count > 0) {
+      assert.ok(credList.length > 0);
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    credentials.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('presets catalog contains both free and commercial categories with 30+ providers', async () => {
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/v1/providers/presets`);
+    assert.equal(res.status, 200);
+    const body = await res.json() as { data: Array<{ id: string; category: string }> };
+    assert.ok(body.data.length >= 30);
+    const free = body.data.filter((p) => p.category === 'free' || p.category === 'freemium' || p.category === 'local');
+    const comm = body.data.filter((p) => p.category === 'commercial');
+    assert.ok(free.length >= 10);
+    assert.ok(comm.length >= 10);
+  });
+});
+
+
 

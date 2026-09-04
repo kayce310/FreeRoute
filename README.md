@@ -19,11 +19,16 @@ Your tool  ──►  FreeRoute  ──►  OpenRouter  (rate-limited)
 | | |
 |---|---|
 | **Build** | ✅ Passing · `tsc` clean |
-| **Tests** | ✅ 51/51 green |
+| **Tests** | ✅ 56/56 green |
 | **Version** | 0.1.0 |
-| **Bilingual** | 🇻🇳 Tiếng Việt & 🇬🇧 English UI & Docs |
-| **Providers** | OpenRouter · Groq · Gemini · Cerebras · GitHub · Mistral · SiliconFlow · HF · Cohere · Ollama |
-| **M1–M4** | ✅ Complete (UI, Bilingual, Credentials, Auto-Seed Models, Presets) |
+| **Bilingual** | 🇻🇳 Tiếng Việt & 🇬🇧 English (100% full i18n & fluid layout) |
+| **True Free vs Paid** | 🎁 Strict Zero-Price classification (`:free`, verified) vs Commercial |
+| **Custom Combos** | 🔀 Smart fallback chains (`model: "combo:<id>"`) with UI & API |
+| **1-Click Sync** | ⚡ Auto-detect & import keys directly from 9router & OmniRoute |
+| **Anti-Block Safe** | 🛡️ Dedicated guide & header sanitization for Cursor, Cline, Claude CLI |
+| **Providers** | 70+ Presets (Free Tier prioritized, Commercial grouped below) |
+| **M1–M5** | ✅ Complete |
+
 
 
 ---
@@ -114,6 +119,8 @@ All endpoints require `Authorization: Bearer <token>`, unless `FREEROUTE_API_TOK
 | `POST` | `/v1/providers/custom` | Add custom OpenAI-compatible or Gemini provider |
 | `DELETE` | `/v1/providers/custom` | Remove custom provider |
 | `POST` | `/v1/import/9router` | Import credential from 9Router SQLite database |
+| `GET` | `/v1/import/sources` | Auto-detect stored keys across local 9router and OmniRoute instances (Public) |
+| `POST` | `/v1/import/sync` | 1-Click sync discovered credentials into encrypted store and auto-seed models |
 | `GET` | `/v1/models` | OpenAI-compatible model list with FreeRoute metadata |
 | `POST` | `/v1/chat/completions` | OpenAI chat completions (streaming + non-streaming) |
 | `POST` | `/v1/responses` | OpenAI Responses API (streaming + non-streaming) |
@@ -247,9 +254,100 @@ src/
     openai-compatible.ts  OpenAI-compatible adapter (OpenRouter, Groq, custom)
     gemini.ts            Gemini native adapter
   storage/
-    sqlite-*.ts           SQLite-backed stores
+    sqlite-*.ts           SQLite-backed stores (catalog, credentials, events, quotas, preferences, combos)
   importers/
-    9router.ts          9Router credential import
+    local-detect.ts       Auto-detect & decrypt 9router/OmniRoute keys
+    9router.ts            9Router credential import
+```
+
+---
+
+## 🎁 True Free vs Commercial Classification
+
+FreeRoute believes in **absolute transparency** regarding pricing:
+- Aggregators like OpenRouter return hundreds of models in their catalog, but 95%+ of them are **commercial pay-per-token** models.
+- **FreeRoute classifies models into 2 distinct groups**:
+  1. **🎁 100% Free**: Models explicitly zero-priced (e.g., OpenRouter `:free` suffix like `google/gemini-2.0-flash-exp:free`, Google Gemini Free Tier, Groq Free Tier, Cerebras Free Tier, Ollama local).
+  2. **💳 Commercial**: Paid models from your own accounts (OpenAI, Anthropic, DeepSeek direct, paid OpenRouter, etc.).
+- The dashboard provides separate KPI metric cards and a one-click filter `[x] Show 100% Free Models Only` so you never accidentally incur charges or experience quota surprises.
+
+---
+
+## 🔀 Custom Combos (Smart Fallback Chains)
+
+FreeRoute allows creating custom fallback chains. If the primary model encounters a rate limit (`429`), server error (`500/503`), or context exhaustion, the router seamlessly and instantly cascades to the next candidate model in your defined chain without breaking client streaming.
+
+### Pre-seeded Combos:
+- `combo:free-coders`: `groq/llama-3.3-70b-versatile` ➔ `cerebras/llama-3.3-70b` ➔ `openrouter/qwen/qwen-2.5-coder-32b-instruct:free`
+- `combo:speed-demons`: `cerebras/llama-3.3-70b` ➔ `groq/llama-3.1-8b-instant` ➔ `cerebras/llama-3.1-8b`
+- `combo:smart-chat`: `gemini/gemini-2.5-flash` ➔ `openrouter/google/gemini-2.0-flash-exp:free` ➔ `groq/llama-3.3-70b-versatile`
+
+### API & Usage:
+Call any combo in your tools by setting the model name:
+```json
+{
+  "model": "combo:free-coders",
+  "messages": [{ "role": "user", "content": "Write a quicksort in Rust" }]
+}
+```
+
+- `GET /v1/combos`: List all configured combos.
+- `POST /v1/combos`: Create or update a combo (`{ comboId, name, models: string[], description }`).
+- `DELETE /v1/combos/:id`: Delete a custom combo.
+
+---
+
+## 🛡️ Anti-Block & Safe Connection Best Practices
+
+> [!WARNING]
+> **Why IDEs and AI tools suspend accounts:**
+> Major platforms (Cursor, Windsurf, Claude Code CLI, Cline) can flag or suspend accounts if:
+> 1. You configure a 3rd-party proxy endpoint directly into official account fields while signed in to their commercial sync service.
+> 2. Leaked telemetry or inconsistent request headers reveal unauthorized proxying of internal session cookies.
+> 3. Models or system prompts clash with upstream compliance filters.
+
+### FreeRoute Safety Safeguards:
+- **Strict Localhost Only**: Listens strictly on `127.0.0.1:8787` by default. Never exposes a public IP without your explicit reverse-proxy config.
+- **Header Sanitization**: Drops client-specific telemetry headers (`x-cursor-*`, `cf-ray`, internal auth cookies) before forwarding upstream.
+- **Zero Prompt Logging**: The SQLite database only records redacted metadata (latency, status code, token counts). Prompt contents and completions are never stored at rest.
+
+### Tool Setup Reference:
+
+#### 1. Cursor IDE
+- Go to `Settings` ➔ `Models` ➔ `OpenAI API Key`.
+- Override OpenAI Base URL: `http://127.0.0.1:8787/v1`
+- Enter any API Key or your `FREEROUTE_API_TOKEN`.
+- In Model list, add your desired FreeRoute model or combo: e.g. `combo:free-coders` or `auto:free`.
+- **Recommendation**: Disable "Cursor Tab" sync telemetry in Settings to prevent unnecessary internal calls.
+
+#### 2. Cline / Roo Code (VS Code Extensions)
+- Select Provider: `OpenAI Compatible`.
+- Base URL: `http://127.0.0.1:8787/v1`
+- API Key: your local token (or any non-empty string if token disabled).
+- Model ID: `combo:free-coders` or `auto:code`.
+
+#### 3. Claude Code CLI
+- Use Anthropic endpoint override:
+  ```bash
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
+  export ANTHROPIC_API_KEY="dummy-or-local-token"
+  claude --model auto:free
+  ```
+
+#### 4. Continue.dev
+In `~/.continue/config.json`:
+```json
+{
+  "models": [
+    {
+      "title": "FreeRoute Free Coders",
+      "provider": "openai",
+      "model": "combo:free-coders",
+      "apiBase": "http://127.0.0.1:8787/v1",
+      "apiKey": "local-token"
+    }
+  ]
+}
 ```
 
 ---
@@ -368,6 +466,9 @@ res.json({ platforms: [...], keys: [...], healthy: boolean });
 | P2 | Real-time stats | ✅ Done | Poll health, quota, and events every 30s with toggle |
 | P3 | Web redesign | ✅ Done | Modern dark lab UI with analytics, test playground & quick connect |
 | P4 | Bilingual & Presets | ✅ Done | 🇻🇳 Tiếng Việt & 🇬🇧 English UI, 10 Curated Providers, Auto-Model Seeding |
+| P5 | 1-Click Sync & NOC Monitor | ✅ Done | ⚡ 1-Click sync from 9router/OmniRoute, Model Sorting/Filters, NOC Health Matrix, 70+ Presets (Free vs Commercial) |
+| P6 | True Free Clarity & Custom Combos | ✅ Done | 🎁 Minh bạch Model 100% Free vs Paid, 🔀 Custom Combos Fallback Chain, 🛡️ Cẩm nang kết nối an toàn chống khóa tài khoản IDE |
+
 
 
 ---

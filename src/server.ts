@@ -6,6 +6,7 @@ import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observa
 import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import type { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
 import type { SqliteProviderStore } from './storage/sqlite-provider-store.js';
+import type { SqliteComboStore } from './storage/sqlite-combo-store.js';
 import type { Preference, ModelRecord } from './contracts.js';
 import { dashboardHtml } from './dashboard.js';
 import { PROVIDER_PRESETS } from './presets.js';
@@ -19,6 +20,7 @@ export interface FreeRouteServerOptions {
   preferences?: SqlitePreferenceStore;
   credentials?: SqliteCredentialStore;
   providerStore?: SqliteProviderStore;
+  combos?: SqliteComboStore;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
 }
 
@@ -26,11 +28,21 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
   return createServer(async (request, response) => {
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-      if (request.method === 'GET' && path === '/') {
+      if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
+        if (request.method === 'HEAD') {
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+          response.end();
+          return;
+        }
         sendHtml(response, dashboardHtml());
         return;
       }
-      if (request.method === 'GET' && path === '/health') {
+      if ((request.method === 'GET' || request.method === 'HEAD') && path === '/health') {
+        if (request.method === 'HEAD') {
+          response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+          response.end();
+          return;
+        }
         sendJson(response, 200, { status: 'ok' });
         return;
       }
@@ -50,6 +62,22 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
       if (request.method === 'GET' && path === '/v1/providers/presets') {
         sendJson(response, 200, { object: 'list', data: PROVIDER_PRESETS });
+        return;
+      }
+      if (request.method === 'GET' && path === '/v1/import/sources') {
+        const { detectAllLocalCredentials } = await import('./importers/local-detect.js');
+        const detected = detectAllLocalCredentials();
+        sendJson(response, 200, {
+          object: 'list',
+          data: detected.map((d) => ({
+            providerId: d.providerId,
+            name: d.name,
+            source: d.source,
+            sourceLocation: d.sourceLocation,
+            maskedKey: d.maskedKey,
+            isActive: d.isActive,
+          })),
+        });
         return;
       }
       if (!isAuthorized(request, options.apiToken)) {
@@ -249,6 +277,70 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'GET' && path === '/v1/combos') {
+        const list = options.combos ? options.combos.list() : [];
+        sendJson(response, 200, { object: 'list', data: list });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/combos') {
+        if (!options.combos) {
+          sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } });
+          return;
+        }
+        const body = await readJsonBody(request) as { comboId?: string; id?: string; name?: string; models?: string[]; description?: string };
+        const comboId = body.comboId ?? body.id;
+        if (!comboId || typeof comboId !== 'string' || !comboId.trim()) {
+          sendJson(response, 400, { error: { message: 'comboId is required', type: 'invalid_request_error' } });
+          return;
+        }
+        if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
+          sendJson(response, 400, { error: { message: 'name is required', type: 'invalid_request_error' } });
+          return;
+        }
+        if (!Array.isArray(body.models) || body.models.length === 0) {
+          sendJson(response, 400, { error: { message: 'models must be a non-empty array of model IDs', type: 'invalid_request_error' } });
+          return;
+        }
+        const saved = options.combos.put({
+          comboId: comboId.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-'),
+          name: body.name.trim(),
+          models: body.models.map((m) => String(m).trim()),
+          description: body.description?.trim(),
+        });
+        sendJson(response, 200, { status: 'ok', combo: saved });
+        return;
+      }
+
+      if (request.method === 'GET' && path.startsWith('/v1/combos/')) {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const comboId = decodeURIComponent(path.slice('/v1/combos/'.length));
+        const item = options.combos.get(comboId);
+        if (!item) { sendJson(response, 404, { error: { message: `Combo not found: ${comboId}`, type: 'invalid_request_error' } }); return; }
+        sendJson(response, 200, item);
+        return;
+      }
+
+      if (request.method === 'DELETE' && (path === '/v1/combos' || path.startsWith('/v1/combos/'))) {
+        if (!options.combos) {
+          sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } });
+          return;
+        }
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        let comboId = path.startsWith('/v1/combos/') ? decodeURIComponent(path.slice('/v1/combos/'.length)) : (url.searchParams.get('comboId') ?? url.searchParams.get('id'));
+        if (!comboId) {
+          const body = await readJsonBody(request).catch(() => ({})) as { comboId?: unknown; id?: unknown };
+          comboId = ((body.comboId ?? body.id) as string | undefined) ?? null;
+        }
+        if (!comboId || typeof comboId !== 'string') {
+          sendJson(response, 400, { error: { message: 'comboId is required', type: 'invalid_request_error' } });
+          return;
+        }
+        const deleted = options.combos.delete(comboId.trim());
+        sendJson(response, 200, { status: 'ok', deleted, comboId: comboId.trim() });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/import/9router') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credentials store not configured', type: 'server_error' } }); return; }
         const body = await readJsonBody(request) as { sourceDatabasePath?: string; providerId?: string; credentialId?: string };
@@ -275,15 +367,143 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/import/sync') {
+        if (!options.credentials) {
+          sendJson(response, 503, { error: { message: 'credentials store not configured', type: 'server_error' } });
+          return;
+        }
+        const body = await readJsonBody(request).catch(() => ({})) as {
+          providerIds?: string[];
+          syncAll?: boolean;
+        };
+        const { detectAllLocalCredentials } = await import('./importers/local-detect.js');
+        const detected = detectAllLocalCredentials();
+        const targets = detected.filter((d) => {
+          if (body.syncAll) return true;
+          if (body.providerIds && Array.isArray(body.providerIds) && body.providerIds.length > 0) {
+            return body.providerIds.includes(d.providerId);
+          }
+          return true;
+        });
+
+        const imported: Array<{ providerId: string; source: string; name: string }> = [];
+        for (const target of targets) {
+          await options.credentials.put(target.providerId, 'default', target.apiKey);
+
+          // Auto-seed models if present in presets
+          const preset = PROVIDER_PRESETS.find((p) => p.id === target.providerId);
+          if (preset && preset.seedModels.length > 0) {
+            try {
+              const existing = await options.catalog.list();
+              const hasModels = existing.some((m) => m.providerId === preset.id);
+              if (!hasModels) {
+                const seedList: ModelRecord[] = preset.seedModels.map((m) => ({
+                  providerId: preset.id,
+                  modelId: m.modelId,
+                  capabilities: m.capabilities,
+                  freeTier: m.freeTier,
+                  checkedAt: new Date(),
+                  priority: m.priority ?? 0,
+                }));
+                await options.catalog.replaceProvider(preset.id, seedList);
+              }
+            } catch {
+              // Ignore seed errors
+            }
+          }
+
+          if (options.onCredentialChanged) {
+            try {
+              await options.onCredentialChanged(target.providerId, 'default');
+            } catch {
+              // Ignore refresh errors
+            }
+          }
+
+          imported.push({ providerId: target.providerId, source: target.source, name: target.name });
+        }
+
+        sendJson(response, 200, {
+          status: 'ok',
+          count: imported.length,
+          imported,
+        });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/chat/completions') {
         if (!options.chat) {
           sendJson(response, 503, { error: { message: 'chat routing is not configured', type: 'server_error' } });
           return;
         }
         const input = await readChatRequest(request);
-        const target = parseRequestedModel(input.model);
+        const target = parseRequestedModel(input.model, options.combos);
         const requestId = crypto.randomUUID();
         response.setHeader('x-freeroute-request-id', requestId);
+
+        if (target.profile === 'combo' && target.comboModels && target.comboModels.length > 0) {
+          let lastError: unknown = null;
+          for (const cm of target.comboModels) {
+            const sep = cm.indexOf('/');
+            const cProv = sep > 0 ? cm.slice(0, sep) : undefined;
+            const cMod = sep > 0 ? cm.slice(sep + 1) : cm;
+            try {
+              if (input.stream) {
+                const result = await options.chat.stream({
+                  profile: 'named',
+                  requiredCapabilities: capabilitiesForProfile('named', !!(input.tools?.length), true, input.responseFormat, input.hasVision),
+                  requestedProviderId: cProv,
+                  requestedModel: cMod,
+                  messages: input.messages,
+                  temperature: input.temperature,
+                  tools: input.tools,
+                  responseFormat: input.responseFormat,
+                  traceId: requestId,
+                });
+                response.writeHead(200, {
+                  'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
+                  'x-freeroute-provider': result.decision.candidate.providerId,
+                  'x-freeroute-model': result.decision.candidate.modelId,
+                  'x-freeroute-combo': input.model,
+                });
+                for await (const event of result.events) {
+                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }] })}\n\n`);
+                }
+                response.end('data: [DONE]\n\n');
+                return;
+              } else {
+                const result = await options.chat.complete({
+                  profile: 'named',
+                  requiredCapabilities: capabilitiesForProfile('named', !!(input.tools?.length), false, input.responseFormat, input.hasVision),
+                  requestedProviderId: cProv,
+                  requestedModel: cMod,
+                  messages: input.messages,
+                  temperature: input.temperature,
+                  tools: input.tools,
+                  responseFormat: input.responseFormat,
+                  traceId: requestId,
+                });
+                response.setHeader('x-freeroute-provider', result.decision.candidate.providerId);
+                response.setHeader('x-freeroute-model', result.decision.candidate.modelId);
+                response.setHeader('x-freeroute-combo', input.model);
+                sendJson(response, 200, {
+                  id: result.response.id,
+                  object: 'chat.completion',
+                  created: Math.floor(Date.now() / 1_000),
+                  model: `${result.response.providerId}/${result.response.modelId}`,
+                  choices: [{ index: 0, message: { role: 'assistant', content: result.response.content, ...(result.response.toolCalls?.length ? { tool_calls: result.response.toolCalls } : {}) }, finish_reason: result.response.toolCalls?.length ? 'tool_calls' : 'stop' }],
+                  usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+                });
+                return;
+              }
+            } catch (err) {
+              lastError = err;
+              continue;
+            }
+          }
+          throw lastError || new Error('no eligible route candidates in combo');
+        }
+
         if (input.stream) {
           const result = await options.chat.stream({
             profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat, input.hasVision), requestedProviderId: target.providerId,
@@ -414,6 +634,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
       sendJson(response, 404, { error: { message: 'not found', type: 'invalid_request_error' } });
     } catch (error) {
+      if (response.headersSent) {
+        try { response.end(); } catch {}
+        return;
+      }
       if (error instanceof Error && error.message === 'no eligible route candidates') {
         sendJson(response, 503, { error: { message: 'no eligible route candidate for the requested capabilities', type: 'server_error' } });
         return;
@@ -612,8 +836,21 @@ function isToolDefinition(value: unknown): value is import('./inference.js').Too
   return tool.type === 'function' && typeof tool.function?.name === 'string' && tool.function.name.length > 0;
 }
 
-function parseRequestedModel(model: string): { profile: string; providerId?: string; modelId?: string } {
+function parseRequestedModel(model: string, comboStore?: import('./storage/sqlite-combo-store.js').SqliteComboStore): { profile: string; providerId?: string; modelId?: string; comboModels?: string[] } {
   if (model.startsWith('auto:')) return { profile: model };
+  if (model.startsWith('combo:')) {
+    const cId = model.slice('combo:'.length).trim();
+    const combo = comboStore?.get(cId);
+    if (combo && combo.models.length > 0) {
+      return { profile: 'combo', comboModels: combo.models };
+    }
+  }
+  if (comboStore) {
+    const combo = comboStore.get(model.trim());
+    if (combo && combo.models.length > 0) {
+      return { profile: 'combo', comboModels: combo.models };
+    }
+  }
   const separator = model.indexOf('/');
   if (separator > 0 && separator < model.length - 1) {
     return { profile: 'named', providerId: model.slice(0, separator), modelId: model.slice(separator + 1) };
@@ -627,6 +864,10 @@ function isAuthorized(request: IncomingMessage, expectedToken: string | undefine
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  if (response.headersSent) {
+    try { response.end(); } catch {}
+    return;
+  }
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
 }

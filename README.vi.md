@@ -10,21 +10,21 @@
 ## 🌟 Tính Năng Nổi Bật
 
 - **0 Runtime Dependencies**: Xây dựng hoàn toàn bằng Node.js tiêu chuẩn (Native HTTP, Crypto, SQLite). Khởi động trong **< 50ms**, chiếm chưa tới **35MB RAM**.
-- **Song Ngữ Toàn Diện (Tiếng Việt & English)**: Giao diện Web Dashboard Dark mode cao cấp, chuyển đổi ngôn ngữ 1-click tức thì.
-- **Tự Động Nạp Model (Auto-Seeding & Discovery)**: Khi kết nối bất kỳ nhà cung cấp nào, danh sách các model miễn phí tốt nhất sẽ tự động được nạp vào hệ thống để dùng ngay lập tức mà không cần chờ đợi.
+- **⚡ Nhập Khóa 1-Click Tự Động Từ 9router & OmniRoute**: Tự động phát hiện database của OmniRoute và 9router trên máy cá nhân, giải mã an toàn và đồng bộ toàn bộ API Key chỉ với 1 click chuột mà không cần sao chép thủ công.
+- **🌐 Kho 70+ Nhà Cung Cấp Đa Tầng**: Tích hợp danh mục từ OmniRoute và 9router, phân loại rõ ràng **Ưu tiên Miễn phí (Free Tier)** ở trên và **Thương mại (Commercial)** ở dưới kèm link lấy key trực tiếp.
+- **📚 Danh Mục Model Thông Minh (Sort & Filter)**: Sắp xếp theo Model ID, Provider, Phân hạng Free/Paid, Độ ưu tiên, cùng bộ lọc đa chiều theo Nhà cung cấp và Tính năng (Chat, Tools, Vision).
+- **📡 Bảng Giám Sát Sức Khỏe Trực Quan (NOC Health Matrix)**: Theo dõi trạng thái từng provider qua ma trận đèn báo (🟢 Khỏe mạnh, 🟡 Hạ nhiệt, 🔴 Lỗi), thanh đo tỉ lệ thành công, độ trễ P50/P90 và bảng dòng sự kiện định tuyến (Routing Stream) hiển thị rõ các lần Fallback cứu nguy.
+- **Song Ngữ Toàn Diện (Tiếng Việt & English)**: Giao diện Web Dashboard Dark mode cao cấp, chuyển đổi ngôn ngữ 1-click tức thì với bố cục co giãn đàn hồi chống vỡ chữ.
+- **Tự Động Nạp Model (Auto-Seeding & Discovery)**: Khi kết nối bất kỳ nhà cung cấp nào, danh sách các model tốt nhất sẽ tự động được nạp vào hệ thống để dùng ngay lập tức mà không cần chờ đợi.
 - **Định Tuyến Thông Minh (Auto Routing Profiles)**:
   - `auto:free`: Ưu tiên các model hoàn toàn miễn phí, độ ổn định cao.
   - `auto:fast`: Tối ưu độ trễ và tốc độ sinh token (Cerebras ~1800 tok/s, Groq ~500 tok/s).
   - `auto:code`: Dành riêng cho lập trình và gọi hàm (function calling / tool use).
   - `auto:vision`: Hỗ trợ đọc hiểu hình ảnh và tài liệu đa phương tiện.
   - `auto:long-context`: Dành cho tài liệu lớn, ngữ cảnh dài (Google Gemini 1M+ tokens).
-- **Tương Thích Mọi Chuẩn API**:
-  - OpenAI Chat Completions (`/v1/chat/completions`)
-  - OpenAI Responses API (`/v1/responses`)
-  - Anthropic Messages API (`/v1/messages` - hỗ trợ Claude apps/plugins)
-  - OpenAI Models List (`/v1/models`)
 - **Bảo Mật Cấp Cao**: Mã hóa API Key bằng AES-256-GCM ngay trên máy cá nhân (`keys.db`). Không gửi bất kỳ dữ liệu nhạy cảm hay API key nào ra ngoài máy của bạn.
 - **Tự Động Chuyển Vùng Khi Lỗi (Smart Failover)**: Tự động thử lại nhà cung cấp khác nếu gặp lỗi giới hạn tần suất (Rate Limit 429) hoặc sự cố tạm thời (5xx).
+
 
 ---
 
@@ -71,49 +71,93 @@ Server sẽ khởi chạy tại:
 
 ---
 
-## 💻 Hướng Dẫn Kết Nối Ứng Dụng & Công Cụ Lập Trình
+---
 
-### 1. Cursor IDE
-Vào **Cursor Settings** -> **Models** -> **OpenAI API Key**:
-1. Bật **Override OpenAI Base URL**.
-2. Đặt URL thành: `http://127.0.0.1:8787/v1`
-3. Nhập API Key: Nếu bạn có đặt biến môi trường `FREEROUTE_API_TOKEN`, hãy nhập token đó; nếu không đặt, có thể nhập bất kỳ chuỗi nào (ví dụ: `freeroute-local`).
-4. Thêm các model tuỳ ý hoặc dùng các profile tự động: `auto:free`, `auto:fast`, `auto:code`.
+## 🎁 Minh Bạch Hóa Model: 100% Free vs Thương Mại (Paid)
 
-### 2. Cline / Roo Code (VS Code Extension)
-1. Trong phần cài đặt Provider, chọn **OpenAI Compatible**.
-2. **Base URL**: `http://127.0.0.1:8787/v1`
-3. **API Key**: `freeroute-local` (hoặc token bạn đã cấu hình).
-4. **Model ID**: `auto:code` (tối ưu hóa cho coding và tools).
+Khác với các aggregator tổng hợp hàng trăm model nhưng đa số là tính phí per-token (trừ tiền tài khoản), FreeRoute thực hiện **minh bạch hóa tuyệt đối**:
+- **🎁 Model 100% Miễn Phí (True Free)**:
+  - Chỉ bao gồm các model có mức giá prompt/completion bằng đúng 0đ.
+  - Các model hậu tố `:free` trên OpenRouter (ví dụ: `google/gemini-2.0-flash-exp:free`, `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`).
+  - Hạn mức miễn phí chính hãng từ Google Gemini AI Studio (Gemini 2.5 Flash), Groq LPU, Cerebras, Ollama cục bộ.
+- **💳 Model Thương Mại (Commercial)**:
+  - Danh mục các model tính phí trực tiếp qua key cá nhân của bạn (OpenAI, Anthropic, DeepSeek direct, OpenRouter paid...).
+  - Được tách riêng thẻ thống kê KPI và có bộ lọc 1-click: `[x] Chỉ hiển thị Model 100% Miễn Phí` trên Dashboard để bạn không bao giờ bị trừ tiền ngoài ý muốn.
 
-### 3. OpenAI Python SDK
-```python
-from openai import OpenAI
+---
 
-# Kết nối trực tiếp tới FreeRoute cục bộ
-client = OpenAI(
-    base_url="http://127.0.0.1:8787/v1",
-    api_key="freeroute-local"  # Bất kỳ chuỗi nào nếu chưa đặt token
-)
+## 🔀 Custom Combos (Chuỗi Dự Phòng Tùy Biến)
 
-response = client.chat.completions.create(
-    model="auto:free",
-    messages=[
-        {"role": "user", "content": "Giải thích ngắn gọn cơ chế hoạt động của Attention trong Transformer bằng tiếng Việt"}
-    ]
-)
+Cho phép người dùng tự ghép các model yêu thích thành một **chuỗi fallback tự động**. Nếu model đầu tiên chạm trần giới hạn tần suất (Rate Limit 429), lỗi mạng hoặc quá tải, FreeRoute lập tức chuyển tiếp mượt mà sang model tiếp theo mà không làm ngắt quãng streaming của IDE/công cụ.
 
-print(response.choices[0].message.content)
-```
+### Các Combo Mặc Định Có Sẵn:
+- `combo:free-coders`: `groq/llama-3.3-70b-versatile` ➔ `cerebras/llama-3.3-70b` ➔ `openrouter/qwen/qwen-2.5-coder-32b-instruct:free`
+- `combo:speed-demons`: `cerebras/llama-3.3-70b` ➔ `groq/llama-3.1-8b-instant` ➔ `cerebras/llama-3.1-8b`
+- `combo:smart-chat`: `gemini/gemini-2.5-flash` ➔ `openrouter/google/gemini-2.0-flash-exp:free` ➔ `groq/llama-3.3-70b-versatile`
 
-### 4. cURL
+### Cách Gọi Combo:
+Chỉ cần điền tên model dạng `combo:<id>` trong bất kỳ ứng dụng hoặc IDE nào:
 ```bash
 curl http://127.0.0.1:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "auto:fast",
-    "messages": [{"role": "user", "content": "Xin chào FreeRoute!"}]
+    "model": "combo:free-coders",
+    "messages": [{"role": "user", "content": "Viết thuật toán Quicksort bằng TypeScript"}]
   }'
+```
+
+---
+
+## 🛡️ Cẩm Nang Kết Nối An Toàn Chống Khóa Tài Khoản (Anti-Block Best Practices)
+
+> [!WARNING]
+> **Vì sao các IDE & công cụ lớn (Cursor, Windsurf, Claude Code CLI, Cline...) có thể cấm/khóa tài khoản khi dùng proxy bên thứ 3?**
+> 1. **Rò rỉ Telemetry & Session Cookies**: Khi bạn đăng nhập tài khoản chính chủ của IDE nhưng lại trỏ proxy sang bên ngoài, các header đo kiểm nội bộ (internal telemetry) hoặc token phiên bản quyền có thể bị gửi kèm ra ngoài, kích hoạt cơ chế phát hiện gian lận của hệ thống kiểm duyệt.
+> 2. **Xung đột Header & User-Agent**: Các proxy thông thường không chuẩn hóa header, khiến máy chủ upstream nhận diện yêu cầu đến từ client không được cấp phép.
+> 3. **Public Endpoint Bị Quét**: Sử dụng các proxy mở qua internet công cộng (ngrok, vps không mật khẩu) khiến IP bị đưa vào danh sách đen.
+
+### Cơ Chế Bảo Vệ Tận Tâm Của FreeRoute:
+- **🔒 Chỉ Lắng Nghe Cục Bộ (Strict Localhost)**: Mặc định FreeRoute chỉ bind vào `127.0.0.1:8787`, tuyệt đối không mở port ra internet nếu bạn không chủ động cấu hình reverse proxy.
+- **🧹 Làm Sạch Header Tự Động (Header Sanitization)**: Mọi header telemetry riêng của IDE (ví dụ `x-cursor-*`, `cf-ray`, cookie nội bộ) đều được lọc sạch trước khi chuyển tiếp lên nhà cung cấp AI.
+- **🛡️ Không Lưu Prompt (Zero Prompt Logging)**: Database SQLite chỉ ghi nhận metadata ẩn danh (độ trễ, mã lỗi HTTP, số token). Toàn bộ nội dung câu lệnh và phản hồi không bao giờ bị lưu trên ổ đĩa.
+
+### Cấu Hình Chuẩn Cho Từng Ứng Dụng:
+
+#### 1. Cursor IDE
+- Vào `Settings` ➔ `Models` ➔ `OpenAI API Key`.
+- Bật `Override OpenAI Base URL`: `http://127.0.0.1:8787/v1`
+- Nhập API Key: chuỗi bất kỳ hoặc token `FREEROUTE_API_TOKEN` của bạn.
+- Trong danh sách Model, thêm tên combo hoặc profile: `combo:free-coders` hoặc `auto:free`.
+- **Mẹo an toàn**: Tắt tính năng telemetry đồng bộ tab trong phần cài đặt của Cursor để tránh gọi ngầm.
+
+#### 2. Cline / Roo Code (VS Code Extension)
+- Chọn Provider: `OpenAI Compatible`.
+- Base URL: `http://127.0.0.1:8787/v1`
+- API Key: `freeroute-local` (hoặc token cấu hình).
+- Model ID: `combo:free-coders` hoặc `auto:code`.
+
+#### 3. Claude Code CLI
+- Thiết lập biến môi trường trỏ endpoint Anthropic Messages của FreeRoute:
+  ```bash
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
+  export ANTHROPIC_API_KEY="dummy-token"
+  claude --model auto:free
+  ```
+
+#### 4. Continue.dev
+Cấu hình trong `~/.continue/config.json`:
+```json
+{
+  "models": [
+    {
+      "title": "FreeRoute Free Coders",
+      "provider": "openai",
+      "model": "combo:free-coders",
+      "apiBase": "http://127.0.0.1:8787/v1",
+      "apiKey": "local-token"
+    }
+  ]
+}
 ```
 
 ---

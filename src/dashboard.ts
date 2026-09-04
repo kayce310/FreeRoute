@@ -1,7 +1,8 @@
 /**
- * Modern, bilingual Dashboard for FreeRoute (Tiếng Việt & English).
- * Synthesizes provider lists, API key links, and model catalogs from:
- * 9router, OmniRoute, FreeLLMAPI, and CLIProxyAPI.
+ * Modern, fully bilingual, NOC-style Dashboard for FreeRoute (Tiếng Việt & English).
+ * Synthesizes 70+ providers from OmniRoute & 9router with Free/Commercial categorization,
+ * 1-click credential sync, true free vs paid model separation, custom routing combos,
+ * and comprehensive safe/anti-block connection instructions for IDEs.
  */
 export function dashboardHtml(): string {
   return `<!doctype html>
@@ -12,14 +13,14 @@ export function dashboardHtml(): string {
   <title>FreeRoute</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #090d16;
       --card-bg: #111827;
       --card-hover: #151e32;
       --card-border: #1f293d;
-      --border-focus: #3b82f6;
+      --border-focus: #6366f1;
       --text: #f9fafb;
       --text-muted: #9ca3af;
       --text-dim: #6b7280;
@@ -51,11 +52,12 @@ export function dashboardHtml(): string {
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden;
     }
 
-    /* Layout */
+    /* Fluid App Container */
     .app-container {
-      max-width: 1280px;
+      max-width: 1360px;
       margin: 0 auto;
       padding: 24px 20px 60px;
       width: 100%;
@@ -80,8 +82,8 @@ export function dashboardHtml(): string {
     }
 
     .brand-icon {
-      width: 40px;
-      height: 40px;
+      width: 42px;
+      height: 42px;
       background: var(--primary-gradient);
       border-radius: var(--radius);
       display: flex;
@@ -89,10 +91,11 @@ export function dashboardHtml(): string {
       justify-content: center;
       font-size: 22px;
       box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+      flex-shrink: 0;
     }
 
     .brand-title {
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 700;
       letter-spacing: -0.02em;
       background: var(--primary-gradient);
@@ -100,9 +103,10 @@ export function dashboardHtml(): string {
       -webkit-text-fill-color: transparent;
     }
 
-    .brand-subtitle {
-      font-size: 12px;
+    .brand-sub {
       color: var(--text-muted);
+      font-size: 13px;
+      margin-top: 2px;
     }
 
     .header-actions {
@@ -112,271 +116,159 @@ export function dashboardHtml(): string {
       flex-wrap: wrap;
     }
 
-    /* Live status badge */
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 12px;
-      border-radius: 9999px;
-      font-size: 12px;
-      font-weight: 500;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      color: #34d399;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-
     /* Buttons */
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      padding: 7px 14px;
+      gap: 8px;
+      padding: 8px 14px;
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 500;
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      text-decoration: none;
+      color: var(--text);
+      background: var(--card-bg);
+      border-color: var(--card-border);
     }
-
+    .btn:hover {
+      background: var(--card-hover);
+      border-color: var(--primary);
+    }
     .btn-primary {
       background: var(--primary);
       color: #fff;
+      border-color: var(--primary);
     }
     .btn-primary:hover {
       background: var(--primary-hover);
-      box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
     }
-
-    .btn-outline {
-      background: transparent;
-      border-color: var(--card-border);
-      color: var(--text);
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+      border-color: var(--success);
     }
-    .btn-outline:hover {
-      background: var(--card-border);
+    .btn-success:hover {
+      background: #059669;
+    }
+    .btn-danger {
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+      background: var(--danger-bg);
+    }
+    .btn-danger:hover {
+      background: var(--danger);
       color: #fff;
     }
-
     .btn-sm {
-      padding: 4px 8px;
-      font-size: 11px;
-    }
-
-    .btn-danger-outline {
-      background: transparent;
-      border-color: rgba(239, 68, 68, 0.3);
-      color: #f87171;
-    }
-    .btn-danger-outline:hover {
-      background: rgba(239, 68, 68, 0.15);
-      border-color: #ef4444;
-    }
-
-    /* Auth token bar */
-    .token-bar {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 4px 8px;
-      border-radius: var(--radius-sm);
-    }
-    .token-bar input {
-      background: transparent;
-      border: none;
-      color: var(--text);
+      padding: 4px 10px;
       font-size: 12px;
-      outline: none;
-      width: 120px;
-      font-family: var(--font-mono);
-    }
-    .token-bar input::placeholder { color: var(--text-dim); }
-
-    /* Polling indicator */
-    .polling-control {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text-muted);
-      cursor: pointer;
-      user-select: none;
-      background: rgba(255, 255, 255, 0.04);
-      padding: 5px 10px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--card-border);
     }
 
-    /* Tabs */
-    .nav-tabs {
-      display: flex;
-      gap: 8px;
-      border-bottom: 1px solid var(--card-border);
+    /* Smart Sync Banner */
+    .sync-banner {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: var(--radius);
+      padding: 14px 18px;
       margin-bottom: 24px;
-      overflow-x: auto;
-    }
-
-    .tab-btn {
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-muted);
-      background: transparent;
-      border: none;
-      border-bottom: 2px solid transparent;
-      cursor: pointer;
-      display: flex;
+      display: none;
       align-items: center;
-      gap: 8px;
-      transition: all 0.2s;
-      white-space: nowrap;
-    }
-    .tab-btn:hover { color: var(--text); }
-    .tab-btn.active {
-      color: var(--text);
-      border-bottom-color: var(--primary);
-    }
-
-    .tab-badge {
-      background: rgba(255,255,255,0.08);
-      padding: 2px 6px;
-      border-radius: 9999px;
-      font-size: 11px;
-    }
-
-    .tab-pane { display: none; }
-    .tab-pane.active { display: block; animation: fadeIn 0.25s ease; }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Onboarding wizard banner */
-    .wizard-card {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      margin-bottom: 24px;
-      position: relative;
-      overflow: hidden;
-    }
-    .wizard-card::before {
-      content: '';
-      position: absolute;
-      top: -40px; right: -40px;
-      width: 140px; height: 140px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .wizard-header {
-      display: flex;
-      align-items: flex-start;
       justify-content: space-between;
-      margin-bottom: 16px;
       flex-wrap: wrap;
       gap: 12px;
     }
-
-    .wizard-title {
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    .wizard-desc {
-      color: var(--text-muted);
+    .sync-banner-text {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-size: 13px;
-      max-width: 720px;
+    }
+    .sync-icon {
+      font-size: 20px;
+      color: var(--accent);
     }
 
-    .wizard-steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-      margin-top: 20px;
-    }
-
-    .wizard-step {
-      background: rgba(17, 24, 39, 0.7);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 16px;
-    }
-    .step-number {
-      display: inline-block;
-      width: 24px; height: 24px;
-      background: var(--primary);
-      color: #fff;
-      font-weight: 700;
-      font-size: 12px;
-      border-radius: 50%;
-      text-align: center;
-      line-height: 24px;
-      margin-bottom: 8px;
-    }
-    .step-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-    .step-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 10px; }
-
-    /* KPI Metrics Cards */
+    /* KPI Grid */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
-
     .kpi-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-    .kpi-card:hover {
-      border-color: #2e3e5c;
-      transform: translateY(-2px);
-    }
-    .kpi-label {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-weight: 500;
+      padding: 18px 20px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
+      transition: border-color 0.2s;
+    }
+    .kpi-card:hover { border-color: var(--primary); }
+    .kpi-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
     }
     .kpi-value {
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      color: var(--text);
+      font-family: var(--font-mono);
     }
-    .kpi-sub {
-      font-size: 11px;
-      color: var(--text-dim);
+    .kpi-icon {
+      font-size: 28px;
+      opacity: 0.7;
+    }
+
+    /* Navigation Tabs */
+    .tabs-nav {
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 24px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Tab Content Panes */
+    .tab-pane {
+      display: none;
+    }
+    .tab-pane.active {
+      display: block;
     }
 
     /* Cards & Containers */
@@ -387,82 +279,78 @@ export function dashboardHtml(): string {
       padding: 20px;
       margin-bottom: 24px;
     }
-
     .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 16px;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 12px;
     }
     .card-title {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 600;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    /* Preset Provider Grid */
-    .preset-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-      gap: 16px;
-      margin-top: 16px;
+    /* Filter & Search Bar */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
     }
-    .preset-card {
-      background: #0d1320;
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-pill {
+      background: var(--card-hover);
       border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      transition: all 0.2s;
-    }
-    .preset-card:hover {
-      border-color: var(--border-focus);
-      background: #111a2d;
-      transform: translateY(-2px);
-    }
-    .preset-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-    }
-    .preset-name {
-      font-weight: 700;
-      font-size: 15px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .preset-desc {
-      font-size: 12px;
       color: var(--text-muted);
-      line-height: 1.4;
-      margin-bottom: 12px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
     }
-    .preset-models {
-      font-size: 11px;
-      color: var(--text-dim);
-      font-family: var(--font-mono);
-      background: rgba(255,255,255,0.03);
-      padding: 6px 8px;
+    .filter-pill:hover, .filter-pill.active {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: var(--primary);
+      color: var(--text);
+    }
+    .search-input {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 7px 12px;
       border-radius: var(--radius-sm);
-      margin-bottom: 12px;
+      font-size: 13px;
+      min-width: 220px;
+      outline: none;
     }
-    .preset-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+    .search-input:focus {
+      border-color: var(--primary);
+    }
+    select.filter-select {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      outline: none;
     }
 
     /* Tables */
-    .table-responsive {
+    .table-wrap {
       overflow-x: auto;
       width: 100%;
     }
@@ -473,21 +361,28 @@ export function dashboardHtml(): string {
       font-size: 13px;
     }
     th {
-      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 10px 14px;
+      color: var(--text-muted);
       font-weight: 600;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 10px 12px;
       border-bottom: 1px solid var(--card-border);
+      white-space: nowrap;
+      user-select: none;
     }
-    td {
-      padding: 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    th.sortable {
+      cursor: pointer;
+    }
+    th.sortable:hover {
       color: var(--text);
     }
-    tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(31, 41, 61, 0.5);
+      vertical-align: middle;
+    }
+    tr:hover td {
+      background: var(--card-hover);
+    }
 
     /* Badges */
     .badge {
@@ -495,181 +390,286 @@ export function dashboardHtml(): string {
       align-items: center;
       gap: 4px;
       padding: 2px 8px;
-      border-radius: 9999px;
+      border-radius: 4px;
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
+      white-space: nowrap;
     }
-    .badge-verified { background: var(--success-bg); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .badge-unverified { background: var(--warning-bg); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .badge-capability { background: rgba(99, 102, 241, 0.12); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.25); }
-    .badge-provider { background: rgba(255,255,255,0.06); color: var(--text); font-family: var(--font-mono); }
+    .badge-green { background: var(--success-bg); color: var(--success); }
+    .badge-yellow { background: var(--warning-bg); color: var(--warning); }
+    .badge-red { background: var(--danger-bg); color: var(--danger); }
+    .badge-blue { background: rgba(6, 182, 212, 0.12); color: var(--accent); }
+    .badge-gray { background: rgba(156, 163, 175, 0.12); color: var(--text-muted); }
+    .badge-purple { background: rgba(168, 85, 247, 0.12); color: #c084fc; }
 
-    /* Form Controls */
-    input[type="text"], input[type="password"], select, textarea {
-      background: #0d1320;
+    /* Provider Directory Cards Grid */
+    .presets-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .preset-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s;
+    }
+    .preset-card:hover {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+    }
+    .preset-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .preset-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .preset-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      line-height: 1.4;
+      flex-grow: 1;
+    }
+    .preset-models {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 14px;
+    }
+    .preset-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 12px;
+    }
+
+    /* Combos Grid */
+    .combos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+    }
+    .combo-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s;
+    }
+    .combo-card:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow);
+    }
+    .combo-chain {
+      background: var(--bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius-sm);
-      color: var(--text);
-      padding: 8px 12px;
-      font-size: 13px;
-      outline: none;
-      font-family: inherit;
+      padding: 10px 12px;
+      margin: 12px 0;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .chain-step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chain-arrow {
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    /* NOC Health Matrix */
+    .health-matrix {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .health-item {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
       transition: border-color 0.2s;
     }
-    input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus {
-      border-color: var(--border-focus);
+    .health-item:hover {
+      border-color: var(--primary);
     }
-    select { cursor: pointer; }
-
-    /* Preferences Select */
-    .pref-select {
-      font-size: 11px;
-      padding: 4px 8px;
-      border-radius: var(--radius-sm);
+    .health-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .health-name {
       font-weight: 600;
-      background: #1e293b;
-      border: 1px solid #334155;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .pref-select[data-pref="prefer"] { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
-    .pref-select[data-pref="neutral"] { color: var(--text-muted); }
-    .pref-select[data-pref="limit"] { color: #f97316; border-color: rgba(249, 115, 22, 0.4); }
-    .pref-select[data-pref="block"] { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
-
-    /* Progress bar */
-    .progress-bar-container {
-      width: 90px;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 9999px;
-      overflow: hidden;
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
       display: inline-block;
-      vertical-align: middle;
-      margin-right: 8px;
     }
-    .progress-bar-fill {
+    .dot-green { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot-yellow { background: var(--warning); box-shadow: 0 0 8px var(--warning); }
+    .dot-red { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    .dot-gray { background: var(--text-dim); }
+
+    .progress-bar {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .progress-fill {
       height: 100%;
-      border-radius: 9999px;
       background: var(--success);
+      border-radius: 3px;
+    }
+
+    .health-metrics {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
     }
 
     /* Modal */
-    .modal-backdrop {
-      display: none;
+    .modal-overlay {
       position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.7);
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
       backdrop-filter: blur(4px);
-      z-index: 100;
+      display: none;
       align-items: center;
       justify-content: center;
+      z-index: 1000;
       padding: 20px;
     }
-    .modal-backdrop.open { display: flex; animation: fadeIn 0.2s ease; }
-
-    .modal-box {
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius-lg);
-      max-width: 540px;
       width: 100%;
+      max-width: 560px;
       padding: 24px;
       box-shadow: var(--shadow);
-      position: relative;
+      max-height: 90vh;
+      overflow-y: auto;
     }
-
     .modal-title {
       font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-    .modal-desc {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 20px;
-    }
-
-    .form-group {
+      font-weight: 600;
       margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .form-group {
+      margin-bottom: 14px;
     }
     .form-group label {
       display: block;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       color: var(--text-muted);
       margin-bottom: 6px;
     }
-    .form-group input, .form-group select {
+    .form-control {
       width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      outline: none;
     }
-    .form-help {
-      font-size: 11px;
-      color: var(--text-dim);
-      margin-top: 4px;
-      display: flex;
-      justify-content: space-between;
+    .form-control:focus {
+      border-color: var(--primary);
     }
-    .form-help a { color: var(--accent); text-decoration: none; font-weight: 500; }
-    .form-help a:hover { text-decoration: underline; }
-
     .modal-actions {
       display: flex;
       justify-content: flex-end;
       gap: 10px;
-      margin-top: 24px;
+      margin-top: 20px;
     }
 
-    /* Playground */
-    .playground-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-    @media (max-width: 768px) {
-      .playground-grid { grid-template-columns: 1fr; }
-    }
-
-    .code-block {
-      background: #080c14;
+    /* Code Snippet Box */
+    .code-box {
+      background: var(--bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius-sm);
-      padding: 14px;
+      padding: 14px 16px;
       font-family: var(--font-mono);
       font-size: 12px;
-      color: #e2e8f0;
-      position: relative;
-      overflow-x: auto;
       line-height: 1.6;
+      color: #a5b4fc;
+      overflow-x: auto;
+      white-space: pre;
     }
-    .copy-btn {
-      position: absolute;
-      top: 8px; right: 8px;
-      padding: 3px 8px;
-      font-size: 11px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: var(--radius-sm);
-      color: var(--text-muted);
-      cursor: pointer;
-    }
-    .copy-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 
-    /* Toast notification */
+    .alert-box {
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .alert-info {
+      background: rgba(6, 182, 212, 0.1);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: #a5f3fc;
+    }
+    .alert-warning {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fde68a;
+    }
+
+    /* Toast Notification */
     #toast {
       position: fixed;
       bottom: 24px;
       right: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-focus);
+      color: var(--text);
       padding: 10px 18px;
-      background: #1e293b;
-      color: #fff;
-      border: 1px solid #3b82f6;
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
       font-size: 13px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
       opacity: 0;
       transform: translateY(10px);
-      transition: all 0.25s ease;
+      transition: all 0.2s ease;
       pointer-events: none;
-      z-index: 1000;
+      z-index: 2000;
     }
     #toast.show {
       opacity: 1;
@@ -678,1220 +678,1605 @@ export function dashboardHtml(): string {
   </style>
 </head>
 <body>
-
-<div class="app-container">
-  <!-- Header -->
-  <header>
-    <div class="brand">
-      <div class="brand-icon">⚡</div>
-      <div>
-        <div class="brand-title">FreeRoute</div>
-        <div class="brand-subtitle" id="i18n-sub">Local-first, quota-aware routing for free-tier LLMs</div>
-      </div>
-    </div>
-    <div class="header-actions">
-      <!-- Language Toggle -->
-      <button class="btn btn-outline btn-sm" id="lang-toggle-btn" onclick="toggleLanguage()">
-        🇻🇳 Tiếng Việt
-      </button>
-
-      <div class="status-pill" id="gateway-status">
-        <span class="status-dot"></span>
-        <span id="gateway-text">127.0.0.1:8787</span>
-      </div>
-
-      <div class="polling-control" id="poll-toggle" title="Auto-refresh toggle">
-        <span id="poll-icon">⏱️</span>
-        <span id="poll-text">30s Live</span>
-      </div>
-
-      <button class="btn btn-outline btn-sm" onclick="loadAll()" title="Refresh">
-        🔄 <span id="btn-refresh-text">Làm mới</span>
-      </button>
-
-      <div class="token-bar" title="API Token">
-        <span>🔑</span>
-        <input id="token" type="password" placeholder="Local API token" autocomplete="off" onchange="saveToken()">
-      </div>
-
-      <button class="btn btn-primary" onclick="openAddKeyModal()">
-        + <span id="btn-add-key-text">Thêm API Key</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- Onboarding Wizard Banner -->
-  <div class="wizard-card" id="wizard-banner" style="display: none;">
-    <div class="wizard-header">
-      <div>
-        <h2 class="wizard-title" id="wz-title">👋 Chào mừng đến với FreeRoute!</h2>
-        <p class="wizard-desc" id="wz-desc">FreeRoute tự động gộp và định tuyến thông minh giữa các gói miễn phí từ OpenRouter, Groq, Gemini, Cerebras... thành một endpoint duy nhất có tự động dự phòng (fallback) khi hết quota.</p>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ <span id="wz-connect-btn">Kết nối Key đầu tiên</span></button>
-    </div>
-    <div class="wizard-steps">
-      <div class="wizard-step">
-        <div class="step-number">1</div>
-        <div class="step-title" id="wz-s1-title">Lấy API Key Miễn Phí</div>
-        <div class="step-desc" id="wz-s1-desc">Chọn bất kỳ nhà cung cấp miễn phí nào bên dưới, không cần thẻ tín dụng:</div>
-        <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="wizard-quick-links">
-          <!-- populated dynamically -->
-        </div>
-      </div>
-      <div class="wizard-step">
-        <div class="step-number">2</div>
-        <div class="step-title" id="wz-s2-title">Lưu Key vào FreeRoute</div>
-        <div class="step-desc" id="wz-s2-desc">Key được mã hóa an toàn AES-256-GCM tại máy của bạn và tự động nạp danh sách model.</div>
-        <button class="btn btn-outline btn-sm" onclick="openAddKeyModal()" id="wz-open-modal-btn">Mở Trình quản lý Key</button>
-      </div>
-      <div class="wizard-step">
-        <div class="step-number">3</div>
-        <div class="step-title" id="wz-s3-title">Trỏ Công Cụ Của Bạn</div>
-        <div class="step-desc" id="wz-s3-desc">Sử dụng Base URL <code>http://127.0.0.1:8787/v1</code> trong Cursor, Cline, hoặc script cá nhân.</div>
-        <button class="btn btn-outline btn-sm" onclick="switchTab('quickstart')" id="wz-view-config-btn">Xem Cấu hình Mẫu</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- KPI Cards -->
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="kpi-label"><span>🌐</span> <span id="kpi-lbl-providers">Nhà Cung Cấp Đã Kết Nối</span></div>
-      <div class="kpi-value" id="kpi-providers">0</div>
-      <div class="kpi-sub" id="kpi-providers-sub">Chưa có key nào</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span>🤖</span> <span id="kpi-lbl-models">Model Miễn Phí Sẵn Sàng</span></div>
-      <div class="kpi-value" id="kpi-models">0</div>
-      <div class="kpi-sub" id="kpi-models-sub">Từ các provider đang hoạt động</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span>⚡</span> <span id="kpi-lbl-requests">Yêu Cầu Đã Xử Lý</span></div>
-      <div class="kpi-value" id="kpi-requests">0</div>
-      <div class="kpi-sub" id="kpi-success-rate">100% thành công</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span>🛡️</span> <span id="kpi-lbl-fallbacks">Lần Fallback Cứu Nguy</span></div>
-      <div class="kpi-value" id="kpi-fallbacks">0</div>
-      <div class="kpi-sub" id="kpi-fallbacks-sub">Tự động vượt giới hạn quota</div>
-    </div>
-  </div>
-
-  <!-- Navigation Tabs -->
-  <div class="nav-tabs">
-    <button class="tab-btn active" onclick="switchTab('analytics')">
-      📊 <span id="tab-lbl-analytics">Phân tích & Sức khỏe</span>
-    </button>
-    <button class="tab-btn" onclick="switchTab('presets')">
-      🌐 <span id="tab-lbl-presets">Danh mục Nhà cung cấp</span>
-    </button>
-    <button class="tab-btn" onclick="switchTab('models')">
-      🤖 <span id="tab-lbl-models">Danh mục Model</span> <span class="tab-badge" id="tab-model-count">0</span>
-    </button>
-    <button class="tab-btn" onclick="switchTab('keys')">
-      🔑 <span id="tab-lbl-keys">Quản lý API Key</span> <span class="tab-badge" id="tab-key-count">0</span>
-    </button>
-    <button class="tab-btn" onclick="switchTab('playground')">
-      ⚡ <span id="tab-lbl-play">Thử nghiệm Prompt</span>
-    </button>
-    <button class="tab-btn" onclick="switchTab('quickstart')">
-      🔌 <span id="tab-lbl-guide">Hướng dẫn Kết nối</span>
-    </button>
-  </div>
-
-  <!-- TAB 1: Analytics & Health -->
-  <div class="tab-pane active" id="tab-analytics">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span>🏥</span> <span id="card-health-title">Bảng Theo Dõi Sức Khỏe & Hiệu Năng Provider</span></div>
-        <span class="badge badge-provider">Live Stats</span>
-      </div>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th id="th-h-provider">Nhà cung cấp</th>
-              <th id="th-h-status">Trạng thái</th>
-              <th id="th-h-rate">Tỷ lệ thành công</th>
-              <th id="th-h-reqs">Yêu cầu</th>
-              <th id="th-h-latency">Độ trễ (p50 / p95)</th>
-            </tr>
-          </thead>
-          <tbody id="health-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải dữ liệu sức khỏe…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><span>⏱️</span> <span id="card-quota-title">Hạn Ngạch & Thời Gian Phục Hồi (Cooldown)</span></div>
-        </div>
-        <div class="table-responsive">
-          <table>
-            <thead>
-              <tr>
-                <th>Route</th>
-                <th id="th-q-reqs">Số Req còn lại</th>
-                <th id="th-q-tokens">Tokens</th>
-                <th id="th-q-reset">Reset vào lúc</th>
-              </tr>
-            </thead>
-            <tbody id="quota-rows">
-              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">Chưa có dữ liệu hạn ngạch nào.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><span>📜</span> <span id="card-events-title">Lịch Sử Định Tuyến Gần Đây (Redacted)</span></div>
-        </div>
-        <div class="table-responsive">
-          <table>
-            <thead>
-              <tr>
-                <th id="th-e-time">Thời gian</th>
-                <th>Route</th>
-                <th id="th-e-outcome">Kết quả</th>
-                <th id="th-e-fb">Số lần fallback</th>
-              </tr>
-            </thead>
-            <tbody id="event-rows">
-              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">Chưa có lịch sử định tuyến nào.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB 2: Provider Directory (Presets from 9router, OmniRoute, freellmapi, CLIProxyAPI) -->
-  <div class="tab-pane" id="tab-presets">
-    <div class="card">
-      <div class="card-header">
+  <div class="app-container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
         <div>
-          <div class="card-title"><span>🌐</span> <span id="card-dir-title">Danh Mục Nhà Cung Cấp Miễn Phí (Provider Directory)</span></div>
-          <p class="wizard-desc" style="margin-top:4px" id="card-dir-desc">Tổng hợp các nhà cung cấp có gói miễn phí định kỳ từ 9router, OmniRoute, FreeLLMAPI và CLIProxyAPI. Bấm để lấy API key và tự động nạp model.</p>
+          <h1 class="brand-title">FreeRoute</h1>
+          <div class="brand-sub" id="hdr-subtitle">Định tuyến LLM cục bộ, tối ưu hạn ngạch miễn phí, chuyển đổi dự phòng tức thì</div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ <span id="btn-add-custom-provider">Thêm Provider Tùy Chỉnh</span></button>
       </div>
-      <div class="preset-grid" id="preset-container">
-        <!-- Loaded dynamically from /v1/providers/presets -->
+      <div class="header-actions">
+        <button class="btn btn-sm" id="lang-btn" onclick="toggleLanguage()">🇻🇳 Tiếng Việt</button>
+        <button class="btn btn-sm" onclick="triggerRefresh()" id="hdr-refresh-btn">🔄 Làm mới</button>
+        <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()" id="hdr-add-key-btn">➕ Thêm API Key</button>
+        <button class="btn btn-success btn-sm" onclick="openSyncModal()" id="hdr-sync-btn" style="display:none;">⚡ Nhập Key Có Sẵn</button>
+      </div>
+    </header>
+
+    <!-- Smart 1-Click Sync Banner -->
+    <div class="sync-banner" id="sync-banner">
+      <div class="sync-banner-text">
+        <span class="sync-icon">⚡</span>
+        <span id="sync-banner-msg">Phát hiện khóa API từ OmniRoute & 9router trên máy này.</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-success btn-sm" onclick="quickSyncAll()" id="sync-quick-btn">Đồng bộ tất cả ngay</button>
+        <button class="btn btn-outline btn-sm" onclick="openSyncModal()" id="sync-review-btn">Xem chi tiết</button>
       </div>
     </div>
-  </div>
 
-  <!-- TAB 3: Model Catalog & Preferences -->
-  <div class="tab-pane" id="tab-models">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span>🤖</span> <span id="card-models-title">Danh Mục Model & Chính Sách Ưu Tiên</span></div>
-        <div style="display:flex; gap:10px;">
-          <input id="model-search" type="text" placeholder="Tìm kiếm model…" oninput="filterModels()">
-          <select id="model-filter-provider" onchange="filterModels()">
-            <option value="">Tất cả Provider</option>
+    <!-- KPI Summary Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-providers">Nhà Cung Cấp Đã Kết Nối</div>
+          <div class="kpi-value" id="kpi-providers">0</div>
+        </div>
+        <div class="kpi-icon">🌐</div>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-models-free">🎁 Model 100% Miễn Phí</div>
+          <div class="kpi-value" id="kpi-models-free" style="color:var(--success);">0</div>
+        </div>
+        <div class="kpi-icon">🎉</div>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-models-paid">💳 Model Thương Mại (Paid)</div>
+          <div class="kpi-value" id="kpi-models-paid" style="color:#c084fc;">0</div>
+        </div>
+        <div class="kpi-icon">💎</div>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-requests">Yêu Cầu Đã Xử Lý</div>
+          <div class="kpi-value" id="kpi-requests">0</div>
+        </div>
+        <div class="kpi-icon">📊</div>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-fallbacks">Chuyển Vùng Cứu Nguy</div>
+          <div class="kpi-value" id="kpi-fallbacks">0</div>
+        </div>
+        <div class="kpi-icon">🛡️</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('monitor')" id="tab-btn-monitor">📡 Giám Sát Sức Khỏe</button>
+      <button class="tab-btn" onclick="switchTab('directory')" id="tab-btn-directory">🌐 Danh Mục 70+ Provider</button>
+      <button class="tab-btn" onclick="switchTab('models')" id="tab-btn-models">📚 Danh Sách Model</button>
+      <button class="tab-btn" onclick="switchTab('combos')" id="tab-btn-combos">🔀 Custom Combos</button>
+      <button class="tab-btn" onclick="switchTab('credentials')" id="tab-btn-credentials">🔑 Quản Lý API Key</button>
+      <button class="tab-btn" onclick="switchTab('playground')" id="tab-btn-playground">🧪 Test Playground</button>
+      <button class="tab-btn" onclick="switchTab('guide')" id="tab-btn-guide">📖 Hướng Dẫn An Toàn</button>
+    </div>
+
+    <!-- TAB 1: MONITOR & HEALTH MATRIX -->
+    <div class="tab-pane active" id="pane-monitor">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span id="title-health-matrix">Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted);" id="lbl-live-polling">
+            🟢 Tự động cập nhật mỗi 10s
+          </div>
+        </div>
+        <div class="health-matrix" id="health-matrix-container">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span id="title-recent-stream">Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th id="th-ev-time">Thời gian</th>
+                <th id="th-ev-reqid">Request ID</th>
+                <th id="th-ev-target">Model Yêu Cầu</th>
+                <th id="th-ev-served">Phục Vụ Bởi</th>
+                <th id="th-ev-fallbacks">Fallback Hops</th>
+                <th id="th-ev-latency">Độ Trễ</th>
+                <th id="th-ev-status">Trạng Thái</th>
+              </tr>
+            </thead>
+            <tbody id="events-tbody">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;" id="lbl-no-events">Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: PROVIDER DIRECTORY (70+ PRESETS) -->
+    <div class="tab-pane" id="pane-directory">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <div class="filter-pill active" onclick="filterPresets('all')" id="pill-all">Tất cả (<span id="cnt-all">0</span>)</div>
+          <div class="filter-pill" onclick="filterPresets('free')" id="pill-free">🎁 Miễn phí & Mã nguồn mở (<span id="cnt-free">0</span>)</div>
+          <div class="filter-pill" onclick="filterPresets('commercial')" id="pill-comm">💎 Thương mại (Pay-as-you-go) (<span id="cnt-comm">0</span>)</div>
+        </div>
+        <input type="text" class="search-input" id="search-presets" placeholder="🔍 Tìm nhà cung cấp..." oninput="handlePresetSearch()">
+      </div>
+      <div class="presets-grid" id="presets-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 3: MODEL CATALOG (WITH SORTING & FILTERING) -->
+    <div class="tab-pane" id="pane-models">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; cursor:pointer; background:var(--card-hover); padding:6px 12px; border-radius:var(--radius-sm); border:1px solid var(--card-border);">
+            <input type="checkbox" id="chk-free-only" onchange="applyModelFilters()" checked>
+            <span id="lbl-free-only">🎁 Chỉ hiển thị Model 100% Miễn Phí</span>
+          </label>
+          <select class="filter-select" id="model-filter-provider" onchange="applyModelFilters()">
+            <option value="all">Tất cả Provider</option>
+          </select>
+          <select class="filter-select" id="model-filter-cap" onchange="applyModelFilters()">
+            <option value="all">Tất cả Tính Năng</option>
+            <option value="chat">Chat</option>
+            <option value="tools">Tools / Function Calling</option>
+            <option value="vision">Vision</option>
           </select>
         </div>
+        <input type="text" class="search-input" id="search-models" placeholder="🔍 Tìm model theo tên, ID..." oninput="applyModelFilters()">
       </div>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th id="th-m-id">Tên Model</th>
-              <th>Provider</th>
-              <th id="th-m-tier">Gói cước</th>
-              <th id="th-m-caps">Khả năng</th>
-              <th id="th-m-pref">Chính sách Định tuyến</th>
-            </tr>
-          </thead>
-          <tbody id="model-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải danh sách model…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
 
-  <!-- TAB 4: Key Management -->
-  <div class="tab-pane" id="tab-keys">
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title"><span>🔑</span> <span id="card-keys-title">Danh Sách API Key Đã Kết Nối</span></div>
-          <div class="wizard-desc" style="margin-top:4px" id="card-keys-desc">Toàn bộ key được mã hóa AES-256-GCM cục bộ trên máy. Secret không bao giờ được gửi đi.</div>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button class="btn btn-primary" onclick="openAddKeyModal()">+ <span id="btn-add-key-card">Thêm Key</span></button>
-          <button class="btn btn-outline" onclick="openImportModal()">Nhập từ 9Router</button>
+      <div class="card" style="padding:0; overflow:hidden;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortModels('modelId')" id="th-model-id">Model ID ⇕</th>
+                <th class="sortable" onclick="sortModels('providerId')" id="th-model-provider">Nhà Cung Cấp ⇕</th>
+                <th class="sortable" onclick="sortModels('isTrueFree')" id="th-model-tier">Chi Phí / Hạng Mức ⇕</th>
+                <th class="sortable" onclick="sortModels('priority')" id="th-model-priority">Độ Ưu Tiên ⇕</th>
+                <th id="th-model-caps">Tính Năng Hỗ Trợ</th>
+                <th id="th-model-pref">Định Tuyến</th>
+              </tr>
+            </thead>
+            <tbody id="models-tbody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Credential ID</th>
-              <th id="th-k-status">Trạng thái</th>
-              <th id="th-k-added">Ngày thêm</th>
-              <th id="th-k-actions">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody id="credential-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải danh sách key…</td></tr>
-          </tbody>
-        </table>
+    </div>
+
+    <!-- TAB 4: CUSTOM COMBOS (NEW!) -->
+    <div class="tab-pane" id="pane-combos">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="title-combos">Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)</div>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:4px;" id="desc-combos">
+              Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openCreateComboModal()" id="btn-create-combo">➕ Tạo Combo Mới</button>
+        </div>
+        <div class="combos-grid" id="combos-container">
+          <!-- Rendered dynamically -->
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span>⚙️</span> <span id="card-custom-title">Provider Tùy Chỉnh (OpenAI-compatible / Gemini)</span></div>
-      </div>
-      <p class="wizard-desc" style="margin-bottom:16px" id="card-custom-desc">Bạn có thể kết nối bất kỳ endpoint cục bộ nào (Ollama, LM Studio, vLLM) hoặc proxy bên ngoài.</p>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Provider ID</th>
-              <th>Adapter</th>
-              <th>Base URL</th>
-              <th>Tier</th>
-              <th id="th-c-actions">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody id="custom-provider-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">Đang tải danh sách provider tùy chỉnh…</td></tr>
-          </tbody>
-        </table>
+    <!-- TAB 5: KEY MANAGEMENT & LOCAL SYNC -->
+    <div class="tab-pane" id="pane-credentials">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title" id="title-keys-heading">Khóa API Đã Lưu (Mã Hóa AES-256-GCM)</div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-success btn-sm" onclick="openSyncModal()" id="btn-sync-local">⚡ Nhập Từ 9router & OmniRoute</button>
+            <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()" id="btn-add-key-sub">➕ Thêm Key Mới</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th id="th-k-prov">Nhà Cung Cấp</th>
+                <th id="th-k-id">ID Khóa</th>
+                <th id="th-k-updated">Cập Nhật</th>
+                <th style="text-align:right;" id="th-k-action">Hành Động</th>
+              </tr>
+            </thead>
+            <tbody id="creds-tbody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- TAB 5: Test Playground -->
-  <div class="tab-pane" id="tab-playground">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span>⚡</span> <span id="card-play-title">Thử Nghiệm Định Tuyến Trực Tiếp (Live Routing Playground)</span></div>
-        <div class="wizard-desc" id="card-play-desc">Kiểm tra kết nối và theo dõi các header định tuyến (provider, model, fallback count) thời gian thực.</div>
-      </div>
-      <div class="playground-grid">
-        <div>
+    <!-- TAB 6: TEST PLAYGROUND -->
+    <div class="tab-pane" id="pane-playground">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title" id="title-play">Thử Nghiệm Định Tuyến Prompt</div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-bottom:16px;">
           <div class="form-group">
-            <label id="lbl-play-route">Chọn Profile Định Tuyến hoặc Model</label>
-            <select id="play-model">
-              <option value="auto:free">auto:free (Ưu tiên gói miễn phí)</option>
-              <option value="auto:code">auto:code (Hỗ trợ gọi công cụ/coding)</option>
-              <option value="auto:fast">auto:fast (Tốc độ phản hồi nhanh nhất)</option>
-              <option value="auto:long-context">auto:long-context (Ngữ cảnh lớn nhất)</option>
+            <label id="lbl-play-model">Hồ Sơ / Model / Combo Mục Tiêu</label>
+            <select class="form-control" id="play-model-select">
+              <optgroup label="Hồ Sơ Tự Động (Auto Profiles)">
+                <option value="auto:free">auto:free (Ưu tiên mô hình miễn phí)</option>
+                <option value="auto:fast">auto:fast (Tối ưu tốc độ cao Cerebras/Groq)</option>
+                <option value="auto:code">auto:code (Lập trình & Tools)</option>
+                <option value="auto:long-context">auto:long-context (Ngữ cảnh dài Gemini 1M+)</option>
+              </optgroup>
+              <optgroup label="Custom Combos" id="play-combos-group">
+                <!-- Populated dynamically -->
+              </optgroup>
             </select>
           </div>
           <div class="form-group">
-            <label id="lbl-play-prompt">Prompt Thử Nghiệm</label>
-            <textarea id="play-prompt" rows="5" style="width:100%" placeholder="Nhập câu hỏi thử nghiệm tại đây…">Chào FreeRoute! Hãy giới thiệu bạn là ai và mô hình nào đang trả lời câu hỏi này.</textarea>
+            <label id="lbl-play-temp">Nhiệt Độ (Temperature): <span id="temp-val">0.7</span></label>
+            <input type="range" min="0" max="1" step="0.1" value="0.7" class="form-control" id="play-temp" oninput="document.getElementById('temp-val').textContent = this.value">
           </div>
-          <button class="btn btn-primary" id="play-send-btn" onclick="runPlayground()">
-            🚀 <span id="btn-play-send">Gửi Yêu Cầu</span>
-          </button>
         </div>
-        <div>
-          <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;" id="lbl-play-result">Kết Quả & Thông Số Định Tuyến (Tracing)</label>
-          <div class="code-block" id="play-result" style="min-height: 200px;">
-// Kết quả và các header định tuyến sẽ xuất hiện tại đây:
-// x-freeroute-request-id
-// x-freeroute-provider
-// x-freeroute-model
-// x-freeroute-fallback-count
-          </div>
+        <div class="form-group">
+          <label id="lbl-play-prompt">Prompt Thử Nghiệm</label>
+          <textarea class="form-control" id="play-prompt" rows="3" placeholder="Nhập câu hỏi tại đây...">Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.</textarea>
+        </div>
+        <button class="btn btn-primary" onclick="sendTestChat()" id="btn-play-send">🚀 Gửi Thử Nghiệm (Streaming)</button>
+
+        <div style="margin-top:20px;">
+          <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:6px;" id="lbl-play-res">Kết quả phản hồi:</label>
+          <div class="code-box" id="play-output" style="min-height:100px; max-height:300px;">Chờ gửi prompt...</div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- TAB 6: Quick Connect & User Guide (Bilingual) -->
-  <div class="tab-pane" id="tab-quickstart">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span>🔌</span> <span id="guide-title">Hướng Dẫn Kết Nối (Quick Connect & User Guide)</span></div>
-      </div>
-      <p class="wizard-desc" style="margin-bottom:20px;" id="guide-desc">FreeRoute đóng vai trò là một proxy tương thích 100% chuẩn OpenAI. Bạn chỉ cần trỏ công cụ của mình tới Base URL cục bộ.</p>
-
-      <div style="margin-bottom:24px;">
-        <h3 style="font-size:14px; margin-bottom:8px;" id="guide-cursor-title">1. Cấu hình cho Cursor / Windsurf / Cline / Roo Code / Continue</h3>
-        <div class="code-block">
-Base URL:  http://127.0.0.1:8787/v1
-Model:     auto:free   (hoặc auto:code cho coding agent cần function calling)
-API Key:   <span id="quick-token-display">chưa đặt token (mặc định mở trên localhost)</span>
+    <!-- TAB 7: SAFE & ANTI-BLOCK CONNECTION GUIDE -->
+    <div class="tab-pane" id="pane-guide">
+      <div class="card">
+        <h2 style="font-size:18px; margin-bottom:12px;" id="guide-head">🛡️ Cẩm Nang Kết Nối & Bảo Vệ Tài Khoản An Toàn Tuyệt Đối</h2>
+        <div class="alert-box alert-info" id="guide-sec-alert">
+          <strong>🔒 An Tâm Sử Dụng:</strong> FreeRoute chạy hoàn toàn trên máy cục bộ của bạn (<code style="color:#fff;">127.0.0.1:8787</code>). Mọi dữ liệu mã hóa lưu trong máy, không qua server trung gian nào, tự động gỡ bỏ telemetry và khử sạch các header lạ để tránh bị hệ thống quét của IDE phát hiện hoặc đánh dấu tài khoản bất thường!
         </div>
-        <p class="wizard-desc" style="margin-top:6px" id="guide-cursor-note">💡 Lưu ý: Khi sử dụng <code>auto:free</code>, FreeRoute sẽ tự động chọn model miễn phí tốt nhất và tự động fallback sang provider khác nếu gặp lỗi hoặc hết quota.</p>
-      </div>
 
-      <div style="margin-bottom:24px;">
-        <h3 style="font-size:14px; margin-bottom:8px;">2. OpenAI Python SDK</h3>
-        <div class="code-block">
-from openai import OpenAI
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">1. Cursor IDE (Cấu hình an toàn không lo xung đột)</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
+            Vào <strong>Settings -> Models -> OpenAI API Key</strong>:
+          </p>
+          <ul style="color:var(--text-muted); font-size:13px; margin-left:20px; margin-bottom:10px; line-height:1.6;">
+            <li>Bật <strong>Override OpenAI Base URL</strong> và điền: <code style="color:#fff;">http://127.0.0.1:8787/v1</code></li>
+            <li>API Key: Nhập bất kỳ chuỗi nào (vd: <code style="color:#fff;">freeroute-local</code>) hoặc token nếu bạn có cấu hình.</li>
+            <li><strong>Mẹo tránh bị block:</strong> Chỉ thêm các model alias của FreeRoute như <code style="color:#fff;">auto:free</code>, <code style="color:#fff;">auto:code</code>, <code style="color:#fff;">auto:fast</code> hoặc tên combo của bạn như <code style="color:#fff;">combo:free-coders</code>. <em>Tuyệt đối không đặt tên model trùng với các model độc quyền Cursor (claude-3-5-sonnet-cursor...)</em> để tránh bị hệ thống verify server-side của Cursor gắn cờ!</li>
+          </ul>
+        </div>
 
-# Kết nối trực tiếp tới FreeRoute cục bộ
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">2. Cline / Roo Code (VS Code & JetBrains Extension)</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
+            Cline và Roo Code hỗ trợ chuẩn cả 2 giao thức OpenAI Compatible và Anthropic Messages:
+          </p>
+          <div class="code-box">Option A: OpenAI Compatible
+- API Provider: OpenAI Compatible
+- Base URL: http://127.0.0.1:8787/v1
+- API Key: freeroute-local
+- Model ID: auto:code (hoặc combo:free-coders)
+
+Option B: Anthropic Native Mode (Hỗ trợ Tool Calling / Function tốt nhất)
+- API Provider: Anthropic
+- Base URL: http://127.0.0.1:8787/v1
+- API Key: freeroute-local
+- Model ID: auto:code</div>
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">3. Claude Code CLI & OpenCode</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
+            Đặt biến môi trường terminal trong file profile (<code style="color:#fff;">.bashrc</code> hoặc PowerShell):
+          </p>
+          <div class="code-box"># Cho Claude Code CLI
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8787/v1"
+export ANTHROPIC_API_KEY="freeroute-local"
+
+# Cho Aider / OpenCode / AutoGPT
+export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
+export OPENAI_API_KEY="freeroute-local"</div>
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">4. Continue.dev (Cấu hình config.json)</h3>
+          <div class="code-box">{
+  "models": [
+    {
+      "title": "FreeRoute Coding",
+      "provider": "openai",
+      "model": "auto:code",
+      "apiBase": "http://127.0.0.1:8787/v1",
+      "apiKey": "freeroute-local"
+    }
+  ]
+}</div>
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">5. OpenAI Python SDK</h3>
+          <div class="code-box">from openai import OpenAI
+
 client = OpenAI(
     base_url="http://127.0.0.1:8787/v1",
-    api_key="your-freeroute-token"  # Optional or FREEROUTE_API_TOKEN
+    api_key="your-freeroute-token"
 )
 
+# Gọi combo tự tạo hoặc profile tự động
 response = client.chat.completions.create(
-    model="auto:free",
-    messages=[{"role": "user", "content": "Giải thích điện toán đám mây bằng tiếng Việt"}]
+    model="combo:free-coders",
+    messages=[{"role": "user", "content": "Viết hàm đảo ngược xâu trong Python"}]
 )
-print(response.choices[0].message.content)
+print(response.choices[0].message.content)</div>
         </div>
       </div>
+    </div>
 
-      <div style="margin-bottom:24px;">
-        <h3 style="font-size:14px; margin-bottom:8px;">3. Lệnh kiểm tra cURL</h3>
-        <div class="code-block">
-curl http://127.0.0.1:8787/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -d '{"model":"auto:free","messages":[{"role":"user","content":"Xin chào!"}]}'
-        </div>
+  </div> <!-- /app-container -->
+
+  <!-- MODAL: ADD API KEY -->
+  <div class="modal-overlay" id="modal-add-key">
+    <div class="modal">
+      <div class="modal-title">
+        <span id="modal-add-title">Thêm / Cập Nhật Khóa API</span>
+        <button class="btn btn-sm" onclick="closeAddKeyModal()">✕</button>
       </div>
-
-      <div>
-        <h3 style="font-size:14px; margin-bottom:8px;" id="guide-profiles-title">4. Ý nghĩa các Profile Định Tuyến Tự Động (Auto Profiles)</h3>
-        <div class="table-responsive">
-          <table>
-            <thead>
-              <tr>
-                <th>Profile</th>
-                <th id="th-p-meaning">Ý nghĩa & Hành vi</th>
-                <th id="th-p-bestfor">Phù hợp nhất cho</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>auto:free</code></td>
-                <td id="td-p1-desc">Chỉ chọn các model miễn phí định kỳ đã kiểm chứng (free_verified).</td>
-                <td id="td-p1-use">Sử dụng hàng ngày, chat, dịch thuật, tóm tắt.</td>
-              </tr>
-              <tr>
-                <td><code>auto:code</code></td>
-                <td id="td-p2-desc">Ưu tiên các model có hỗ trợ Function Calling / Tools Calling.</td>
-                <td id="td-p2-use">Coding agent (Cursor, Cline, Aider).</td>
-              </tr>
-              <tr>
-                <td><code>auto:fast</code></td>
-                <td id="td-p3-desc">Ưu tiên các provider có độ trễ phản hồi thấp nhất (Groq, Cerebras).</td>
-                <td id="td-p3-use">Autocomplete, phản hồi tức thì.</td>
-              </tr>
-              <tr>
-                <td><code>auto:long-context</code></td>
-                <td id="td-p4-desc">Ưu tiên model có cửa sổ ngữ cảnh lớn nhất (Gemini 2.0 Flash 1M tokens).</td>
-                <td id="td-p4-use">Đọc tài liệu lớn, phân tích toàn bộ codebase.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="form-group">
+        <label id="lbl-modal-prov">Chọn Nhà Cung Cấp</label>
+        <select class="form-control" id="modal-prov-select" onchange="onModalProviderChange()">
+          <!-- Populated dynamically -->
+        </select>
+      </div>
+      <div id="modal-prov-hint" style="font-size:12px; color:var(--accent); margin-bottom:12px;"></div>
+      <div class="form-group">
+        <label id="lbl-modal-secret">API Key / Secret Token</label>
+        <input type="password" class="form-control" id="modal-secret" placeholder="sk-...">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeAddKeyModal()" id="btn-modal-cancel">Hủy</button>
+        <button class="btn btn-primary" onclick="submitAddKey()" id="btn-modal-save">Lưu & Nạp Model</button>
       </div>
     </div>
   </div>
-</div>
 
-<!-- Modal: Add Key & Connect Provider -->
-<div class="modal-backdrop" id="add-key-modal">
-  <div class="modal-box">
-    <h3 class="modal-title" id="modal-key-title">Thêm API Key Provider</h3>
-    <p class="modal-desc" id="modal-key-desc">Chọn nhà cung cấp và nhập API key. Danh sách model sẽ được tự động nạp ngay lập tức.</p>
-    
-    <div class="form-group">
-      <label id="lbl-modal-prov">Nhà Cung Cấp (Provider)</label>
-      <select id="modal-provider" onchange="updateKeyModalHelper()">
-        <!-- Filled dynamically from presets -->
-      </select>
-      <div class="form-help">
-        <span id="modal-provider-help">Miễn phí định kỳ không cần thẻ tín dụng.</span>
-        <a id="modal-provider-link" href="#" target="_blank">Lấy Key miễn phí ↗</a>
+  <!-- MODAL: 1-CLICK SYNC FROM 9ROUTER & OMNIROUTE -->
+  <div class="modal-overlay" id="modal-sync">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-title">
+        <span id="modal-sync-title">⚡ Nhập Khóa Từ 9router & OmniRoute</span>
+        <button class="btn btn-sm" onclick="closeSyncModal()">✕</button>
       </div>
-    </div>
-
-    <div class="form-group" id="modal-custom-url-group" style="display:none;">
-      <label id="lbl-modal-url">Base URL Tùy Chỉnh</label>
-      <input type="text" id="modal-custom-url" placeholder="http://127.0.0.1:11434/v1">
-    </div>
-
-    <div class="form-group">
-      <label id="lbl-modal-key">API Key / Secret</label>
-      <div style="position:relative">
-        <input type="password" id="modal-key" placeholder="Dán API key vào đây…" style="padding-right: 36px; width:100%">
-        <span onclick="togglePasswordVisibility('modal-key')" style="position:absolute; right:10px; top:8px; cursor:pointer; font-size:14px;">👁️</span>
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;" id="modal-sync-desc">
+        Hệ thống tự động phát hiện các cấu hình khóa API đã có sẵn trên máy của bạn. Chọn các khóa muốn nhập vào FreeRoute:
+      </p>
+      <div style="max-height:300px; overflow-y:auto; border:1px solid var(--card-border); border-radius:var(--radius-sm); margin-bottom:16px;">
+        <table style="width:100%;">
+          <thead>
+            <tr>
+              <th style="width:40px;"><input type="checkbox" id="sync-select-all" checked onchange="toggleSelectAllSync(this)"></th>
+              <th>Provider</th>
+              <th>Nguồn</th>
+              <th>Masked Key</th>
+            </tr>
+          </thead>
+          <tbody id="sync-sources-tbody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
       </div>
-      <div class="form-help">
-        <span id="modal-key-note" style="color:var(--text-dim)">Mã hóa an toàn bằng AES-256-GCM tại máy của bạn.</span>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeSyncModal()" id="btn-sync-cancel">Hủy</button>
+        <button class="btn btn-success" onclick="executeSyncSelected()" id="btn-sync-confirm">Đồng Bộ Khóa Đã Chọn</button>
       </div>
-    </div>
-
-    <div class="form-group">
-      <label id="lbl-modal-label">Nhãn Định Danh (Tùy chọn)</label>
-      <input type="text" id="modal-label" placeholder="default">
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeAddKeyModal()" id="btn-modal-cancel">Hủy</button>
-      <button class="btn btn-primary" id="modal-submit-btn" onclick="submitAddKey()">Lưu & Tự Động Nạp Model</button>
     </div>
   </div>
-</div>
 
-<!-- Modal: Import 9Router -->
-<div class="modal-backdrop" id="import-modal">
-  <div class="modal-box">
-    <h3 class="modal-title">Nhập kết nối từ 9Router</h3>
-    <p class="modal-desc">Nhập key đang hoạt động từ file database SQLite của 9Router mà không để lộ secret.</p>
-    <div class="form-group">
-      <label>Đường dẫn file 9Router SQLite</label>
-      <input type="text" id="import-path" placeholder="D:/9router/data/9router.sqlite">
-    </div>
-    <div class="form-group">
-      <label>Provider muốn import</label>
-      <select id="import-provider">
-        <option value="openrouter">OpenRouter</option>
-        <option value="groq">Groq</option>
-        <option value="gemini">Gemini</option>
-      </select>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeImportModal()">Hủy</button>
-      <button class="btn btn-primary" onclick="submitImport9Router()">Bắt đầu Import</button>
-    </div>
-  </div>
-</div>
-
-<!-- Toast -->
-<div id="toast"></div>
-
-<script>
-  let currentLang = localStorage.getItem('freeroute_lang') || 'vi';
-  let allModels = [];
-  let allPreferences = [];
-  let allPresets = [];
-  let pollInterval = null;
-  let isPolling = true;
-
-  const I18N = {
-    vi: {
-      sub: 'Định tuyến LLM cục bộ, tối ưu hạn ngạch miễn phí, tự động chuyển đổi dự phòng',
-      langBtn: '🇻🇳 Tiếng Việt',
-      refresh: 'Làm mới',
-      addKey: 'Thêm API Key',
-      providersKpi: 'Nhà Cung Cấp Đã Kết Nối',
-      modelsKpi: 'Model Miễn Phí Sẵn Sàng',
-      requestsKpi: 'Yêu Cầu Đã Xử Lý',
-      fallbacksKpi: 'Lần Fallback Cứu Nguy',
-      tabAnalytics: 'Phân tích & Sức khỏe',
-      tabPresets: 'Danh mục Nhà cung cấp',
-      tabModels: 'Danh mục Model',
-      tabKeys: 'Quản lý API Key',
-      tabPlay: 'Thử nghiệm Prompt',
-      tabGuide: 'Hướng dẫn Kết nối',
-      getKey: 'Lấy Key miễn phí ↗',
-      connectKey: 'Kết nối Key',
-      saveKeyBtn: 'Lưu & Tự Động Nạp Model',
-      cancelBtn: 'Hủy'
-    },
-    en: {
-      sub: 'Local-first, quota-aware routing for official free-tier LLMs',
-      langBtn: '🇬🇧 English',
-      refresh: 'Refresh',
-      addKey: 'Add API Key',
-      providersKpi: 'Configured Providers',
-      modelsKpi: 'Available Free Models',
-      requestsKpi: 'Requests Handled',
-      fallbacksKpi: 'Fallbacks Recovered',
-      tabAnalytics: 'Analytics & Health',
-      tabPresets: 'Provider Directory',
-      tabModels: 'Model Catalog',
-      tabKeys: 'Key Management',
-      tabPlay: 'Test Playground',
-      tabGuide: 'Quick Connect',
-      getKey: 'Get Free Key ↗',
-      connectKey: 'Connect Key',
-      saveKeyBtn: 'Save & Auto-load Models',
-      cancelBtn: 'Cancel'
-    }
-  };
-
-  document.addEventListener('DOMContentLoaded', async () => {
-    const savedToken = localStorage.getItem('freeroute_token') || '';
-    if (savedToken) {
-      document.getElementById('token').value = savedToken;
-      updateQuickTokenDisplay(savedToken);
-    }
-    applyLanguage(currentLang);
-    await loadPresets();
-    loadAll();
-    setupPolling();
-  });
-
-  function toggleLanguage() {
-    currentLang = currentLang === 'vi' ? 'en' : 'vi';
-    localStorage.setItem('freeroute_lang', currentLang);
-    applyLanguage(currentLang);
-    renderPresets(allPresets);
-    renderModels(allModels);
-  }
-
-  function applyLanguage(lang) {
-    const t = I18N[lang];
-    document.getElementById('lang-toggle-btn').textContent = t.langBtn;
-    document.getElementById('i18n-sub').textContent = t.sub;
-    document.getElementById('btn-refresh-text').textContent = t.refresh;
-    document.getElementById('btn-add-key-text').textContent = t.addKey;
-    document.getElementById('kpi-lbl-providers').textContent = t.providersKpi;
-    document.getElementById('kpi-lbl-models').textContent = t.modelsKpi;
-    document.getElementById('kpi-lbl-requests').textContent = t.requestsKpi;
-    document.getElementById('kpi-lbl-fallbacks').textContent = t.fallbacksKpi;
-    document.getElementById('tab-lbl-analytics').textContent = t.tabAnalytics;
-    document.getElementById('tab-lbl-presets').textContent = t.tabPresets;
-    document.getElementById('tab-lbl-models').textContent = t.tabModels;
-    document.getElementById('tab-lbl-keys').textContent = t.tabKeys;
-    document.getElementById('tab-lbl-play').textContent = t.tabPlay;
-    document.getElementById('tab-lbl-guide').textContent = t.tabGuide;
-    document.getElementById('btn-modal-cancel').textContent = t.cancelBtn;
-    document.getElementById('modal-submit-btn').textContent = t.saveKeyBtn;
-  }
-
-  function saveToken() {
-    const val = document.getElementById('token').value.trim();
-    localStorage.setItem('freeroute_token', val);
-    updateQuickTokenDisplay(val);
-    showToast(currentLang === 'vi' ? 'Đã lưu API token.' : 'API token saved.');
-    loadAll();
-  }
-
-  function updateQuickTokenDisplay(t) {
-    const el = document.getElementById('quick-token-display');
-    if (el) el.textContent = t || (currentLang === 'vi' ? 'chưa đặt token (mặc định mở)' : 'unset (public localhost)');
-  }
-
-  function token() { return document.getElementById('token').value.trim(); }
-
-  async function api(path, options = {}) {
-    const headers = { ...options.headers };
-    const t = token();
-    if (t) headers['Authorization'] = 'Bearer ' + t;
-    const res = await fetch(path, { ...options, headers });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || res.statusText);
-    }
-    return res.json();
-  }
-
-  function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2800);
-  }
-
-  function switchTab(tabId) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    event.currentTarget.classList.add('active');
-    const pane = document.getElementById('tab-' + tabId);
-    if (pane) pane.classList.add('active');
-  }
-
-  // Load Presets from server
-  async function loadPresets() {
-    try {
-      const res = await fetch('/v1/providers/presets');
-      if (res.ok) {
-        const body = await res.json();
-        allPresets = body.data || [];
-        populateModalPresets(allPresets);
-        renderPresets(allPresets);
-        renderWizardLinks(allPresets);
-      }
-    } catch (e) {
-      console.warn('Failed to load presets', e);
-    }
-  }
-
-  function populateModalPresets(presets) {
-    const sel = document.getElementById('modal-provider');
-    sel.replaceChildren();
-    presets.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.name;
-      sel.appendChild(opt);
-    });
-    const customOpt = document.createElement('option');
-    customOpt.value = 'custom';
-    customOpt.textContent = currentLang === 'vi' ? '➕ Provider Tùy Chỉnh (OpenAI-compatible)' : '➕ Custom OpenAI-Compatible';
-    sel.appendChild(customOpt);
-  }
-
-  function renderPresets(presets) {
-    const c = document.getElementById('preset-container');
-    if (!c) return;
-    c.replaceChildren();
-    presets.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'preset-card';
-      const desc = currentLang === 'vi' ? p.descriptionVi : p.descriptionEn;
-      const modelNames = p.seedModels.map(m => m.modelId.split('/').pop()).slice(0, 3).join(', ') + (p.seedModels.length > 3 ? '...' : '');
-
-      card.innerHTML = \`
-        <div>
-          <div class="preset-top">
-            <div class="preset-name">
-              <span>⚡</span> \${p.name}
-            </div>
-            <span class="badge badge-verified">\${p.category.toUpperCase()}</span>
-          </div>
-          <div class="preset-desc">\${desc}</div>
-          <div class="preset-models">📦 Models: \${modelNames}</div>
-        </div>
-        <div class="preset-actions">
-          <a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">
-            \${currentLang === 'vi' ? 'Lấy Key ↗' : 'Get Key ↗'}
-          </a>
-          <button class="btn btn-primary btn-sm" onclick="connectPreset('\${p.id}')">
-            + \${currentLang === 'vi' ? 'Kết nối' : 'Connect'}
-          </button>
-        </div>
-      \`;
-      c.appendChild(card);
-    });
-  }
-
-  function renderWizardLinks(presets) {
-    const c = document.getElementById('wizard-quick-links');
-    if (!c) return;
-    c.replaceChildren();
-    presets.slice(0, 5).forEach(p => {
-      const a = document.createElement('a');
-      a.href = p.apiKeyUrl;
-      a.target = '_blank';
-      a.className = 'btn btn-outline btn-sm';
-      a.style.textDecoration = 'none';
-      a.textContent = p.name + ' ↗';
-      c.appendChild(a);
-    });
-  }
-
-  function connectPreset(presetId) {
-    openAddKeyModal();
-    document.getElementById('modal-provider').value = presetId;
-    updateKeyModalHelper();
-  }
-
-  // Load all dashboard components
-  async function loadAll() {
-    try {
-      await Promise.allSettled([
-        loadAuthStatus(),
-        loadHealthAndAnalytics(),
-        loadModelsAndPreferences(),
-        loadCredentials(),
-        loadCustomProviders()
-      ]);
-    } catch (e) {
-      console.error('Error refreshing dashboard:', e);
-    }
-  }
-
-  // Auth Status & First-Run Wizard
-  async function loadAuthStatus() {
-    try {
-      const res = await fetch('/v1/auth/status');
-      if (!res.ok) return;
-      const data = await res.json();
-      const banner = document.getElementById('wizard-banner');
-      if (data.needsSetup) {
-        banner.style.display = 'block';
-      } else {
-        banner.style.display = 'none';
-      }
-      document.getElementById('kpi-providers').textContent = (data.configuredProviders || []).length;
-      document.getElementById('kpi-providers-sub').textContent = (data.configuredProviders || []).join(', ') || (currentLang === 'vi' ? 'Chưa có key' : 'None configured');
-    } catch (e) {
-      console.warn('Auth status load error', e);
-    }
-  }
-
-  // Provider Health & Stats
-  async function loadHealthAndAnalytics() {
-    try {
-      const [health, events, quotas] = await Promise.all([
-        api('/v1/provider-health').catch(() => ({ data: [] })),
-        api('/v1/routing-events').catch(() => ({ data: [] })),
-        api('/v1/quota-observations').catch(() => ({ data: [] }))
-      ]);
-
-      renderHealth(health.data || []);
-      renderEvents(events.data || []);
-      renderQuotas(quotas.data || []);
-
-      const evList = events.data || [];
-      const totalReq = evList.length;
-      const successes = evList.filter(e => e.outcome === 'success').length;
-      const fallbacks = evList.reduce((acc, cur) => acc + (cur.fallbackCount || 0), 0);
-
-      document.getElementById('kpi-requests').textContent = totalReq;
-      if (totalReq > 0) {
-        document.getElementById('kpi-success-rate').textContent = ((successes / totalReq) * 100).toFixed(0) + (currentLang === 'vi' ? '% thành công' : '% success rate');
-      }
-      document.getElementById('kpi-fallbacks').textContent = fallbacks;
-    } catch (e) {
-      console.warn('Analytics load error', e);
-    }
-  }
-
-  function renderHealth(list) {
-    const tbody = document.getElementById('health-rows');
-    tbody.replaceChildren();
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có lưu lượng định tuyến nào.' : 'No provider traffic observed yet.') + '</td></tr>';
-      return;
-    }
-    list.forEach(p => {
-      const tr = document.createElement('tr');
-      const ratePct = (p.successRate * 100).toFixed(0);
-      tr.innerHTML = \`
-        <td><strong>\${p.providerId}</strong></td>
-        <td><span class="status-pill"><span class="status-dot"></span> Active</span></td>
-        <td>
-          <div class="progress-bar-container"><div class="progress-bar-fill" style="width: \${ratePct}%"></div></div>
-          \${ratePct}%
-        </td>
-        <td>\${p.requestCount}</td>
-        <td>\${p.latencyP50Ms ? p.latencyP50Ms + 'ms / ' + (p.latencyP95Ms || '-') + 'ms' : '-'}</td>
-      \`;
-      tbody.appendChild(tr);
-    });
-  }
-
-  function renderEvents(list) {
-    const tbody = document.getElementById('event-rows');
-    tbody.replaceChildren();
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có sự kiện nào.' : 'No routing events recorded yet.') + '</td></tr>';
-      return;
-    }
-    list.slice(0, 15).forEach(e => {
-      const tr = document.createElement('tr');
-      const isSuccess = e.outcome === 'success';
-      const outcomeBadge = isSuccess
-        ? '<span class="badge badge-verified">success</span>'
-        : '<span class="badge badge-unverified">' + (e.outcome || 'failed') + '</span>';
-      tr.innerHTML = \`
-        <td>\${new Date(e.occurredAt).toLocaleTimeString()}</td>
-        <td><code>\${e.providerId}/\${e.modelId}</code></td>
-        <td>\${outcomeBadge}</td>
-        <td>\${e.fallbackCount > 0 ? '🔄 ' + e.fallbackCount : '0'}</td>
-      \`;
-      tbody.appendChild(tr);
-    });
-  }
-
-  function renderQuotas(list) {
-    const tbody = document.getElementById('quota-rows');
-    tbody.replaceChildren();
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có dữ liệu hạn ngạch.' : 'No quota events recorded yet.') + '</td></tr>';
-      return;
-    }
-    list.slice(0, 10).forEach(q => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = \`
-        <td><code>\${q.providerId}/\${q.modelId}</code></td>
-        <td>\${q.remainingRequests ?? 'untracked'}</td>
-        <td>\${q.remainingTokens ?? 'untracked'}</td>
-        <td>\${q.resetAt ? new Date(q.resetAt).toLocaleTimeString() : 'standard'}</td>
-      \`;
-      tbody.appendChild(tr);
-    });
-  }
-
-  // Models & Preferences
-  async function loadModelsAndPreferences() {
-    try {
-      const [modelsRes, prefsRes] = await Promise.all([
-        api('/v1/models').catch(() => ({ data: [] })),
-        api('/v1/preferences').catch(() => ({ data: [] }))
-      ]);
-      allModels = modelsRes.data || [];
-      allPreferences = prefsRes.data || [];
-      document.getElementById('kpi-models').textContent = allModels.length;
-      document.getElementById('tab-model-count').textContent = allModels.length;
-
-      const provSelect = document.getElementById('model-filter-provider');
-      const providers = [...new Set(allModels.map(m => m.owned_by))];
-      provSelect.innerHTML = '<option value="">' + (currentLang === 'vi' ? 'Tất cả Provider' : 'All Providers') + '</option>';
-      providers.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = opt.textContent = p;
-        provSelect.appendChild(opt);
-      });
-
-      renderModels(allModels);
-    } catch (e) {
-      console.warn('Model load error', e);
-    }
-  }
-
-  function renderModels(list) {
-    const tbody = document.getElementById('model-rows');
-    tbody.replaceChildren();
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">' + (currentLang === 'vi' ? 'Chưa có model nào. Hãy kết nối API key để tự động nạp model.' : 'No models available. Add a provider key to auto-load models.') + '</td></tr>';
-      return;
-    }
-    list.forEach(m => {
-      const tr = document.createElement('tr');
-      const tierBadge = m.freeroute?.free_tier === 'free_verified'
-        ? '<span class="badge badge-verified">verified free</span>'
-        : '<span class="badge badge-unverified">' + (m.freeroute?.free_tier || 'free') + '</span>';
-
-      const caps = (m.freeroute?.capabilities || [])
-        .map(c => '<span class="badge badge-capability">' + c + '</span>')
-        .join(' ');
-
-      const modelIdOnly = m.id.slice(m.owned_by.length + 1);
-      const curPref = getModelPreference(m.owned_by, modelIdOnly);
-
-      tr.innerHTML = \`
-        <td><strong>\${modelIdOnly}</strong></td>
-        <td><span class="badge badge-provider">\${m.owned_by}</span></td>
-        <td>\${tierBadge}</td>
-        <td>\${caps}</td>
-        <td>
-          <select class="pref-select" data-pref="\${curPref}" onchange="updatePreference(this, '\${m.owned_by}', '\${modelIdOnly}')">
-            <option value="prefer" \${curPref==='prefer'?'selected':''}>⭐ Prefer</option>
-            <option value="neutral" \${curPref==='neutral'?'selected':''}>⚪ Neutral</option>
-            <option value="limit" \${curPref==='limit'?'selected':''}>⏳ Limit</option>
-            <option value="block" \${curPref==='block'?'selected':''}>🚫 Block</option>
+  <!-- MODAL: CREATE CUSTOM COMBO (NEW!) -->
+  <div class="modal-overlay" id="modal-create-combo">
+    <div class="modal" style="max-width:620px;">
+      <div class="modal-title">
+        <span id="modal-combo-title">➕ Tạo Custom Routing Combo</span>
+        <button class="btn btn-sm" onclick="closeCreateComboModal()">✕</button>
+      </div>
+      <div class="form-group">
+        <label id="lbl-combo-id">Mã Combo (ID duy nhất, dùng trong request model: "combo:xxx")</label>
+        <input type="text" class="form-control" id="combo-input-id" placeholder="vd: my-coding-chain">
+      </div>
+      <div class="form-group">
+        <label id="lbl-combo-name">Tên Combo Hiển Thị</label>
+        <input type="text" class="form-control" id="combo-input-name" placeholder="vd: Siêu Tốc & Lập Trình Dự Phòng">
+      </div>
+      <div class="form-group">
+        <label id="lbl-combo-desc">Mô Tả</label>
+        <input type="text" class="form-control" id="combo-input-desc" placeholder="vd: Chuỗi fallback khi cần lập trình">
+      </div>
+      <div class="form-group">
+        <label id="lbl-combo-models">Chuỗi Model Fallback (Theo Thứ Tự Ưu Tiên)</label>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <select class="form-control" id="combo-add-model-select">
+            <!-- Populated with models -->
           </select>
-        </td>
-      \`;
-      tbody.appendChild(tr);
-    });
-  }
+          <button class="btn btn-sm btn-primary" onclick="addModelToComboChain()">➕ Thêm</button>
+        </div>
+        <div id="combo-chain-list" style="max-height:160px; overflow-y:auto; border:1px solid var(--card-border); border-radius:var(--radius-sm); padding:8px;">
+          <!-- Items listed with remove button -->
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeCreateComboModal()" id="btn-combo-cancel">Hủy</button>
+        <button class="btn btn-primary" onclick="submitCreateCombo()" id="btn-combo-save">Lưu Combo</button>
+      </div>
+    </div>
+  </div>
 
-  function getModelPreference(provider, model) {
-    const match = allPreferences.find(p => p.providerId === provider && p.modelId === model);
-    return match ? match.preference : 'neutral';
-  }
+  <!-- Toast Notification -->
+  <div id="toast"></div>
 
-  async function updatePreference(select, provider, model) {
-    const pref = select.value;
-    select.setAttribute('data-pref', pref);
-    try {
-      await api('/v1/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider_id: provider, model_id: model, preference: pref })
-      });
-      showToast((currentLang === 'vi' ? 'Đã lưu chính sách: ' : 'Saved policy: ') + provider + '/' + model + ' → ' + pref);
-    } catch (e) {
-      showToast('Error: ' + e.message);
-    }
-  }
+  <script>
+    // State
+    let currentLang = localStorage.getItem('freeroute_lang') || 'vi';
+    let presets = [];
+    let models = [];
+    let combos = [];
+    let credentials = [];
+    let healthData = [];
+    let eventsData = [];
+    let detectedSources = [];
+    let activePresetFilter = 'all';
+    let modelSortField = 'priority';
+    let modelSortAsc = false;
+    let tempComboChain = [];
 
-  function filterModels() {
-    const q = (document.getElementById('model-search').value || '').toLowerCase();
-    const p = document.getElementById('model-filter-provider').value;
-    const filtered = allModels.filter(m => {
-      const matchQ = m.id.toLowerCase().includes(q);
-      const matchP = !p || m.owned_by === p;
-      return matchQ && matchP;
-    });
-    renderModels(filtered);
-  }
-
-  // Credentials & Custom Providers
-  async function loadCredentials() {
-    try {
-      const res = await api('/v1/credentials').catch(() => ({ data: [] }));
-      const creds = res.data || [];
-      document.getElementById('tab-key-count').textContent = creds.length;
-      const tbody = document.getElementById('credential-rows');
-      tbody.replaceChildren();
-      if (!creds.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">' + (currentLang === 'vi' ? 'Chưa có key nào. Bấm "+ Thêm API Key" để bắt đầu.' : 'No provider keys stored. Click "+ Add Key" to get started.') + '</td></tr>';
-        return;
+    // Helper: Identify True Free models
+    function isTrueFreeModel(m) {
+      if (m.freeTier === 'free_verified') return true;
+      if (m.modelId.endsWith(':free') || m.id.endsWith(':free')) return true;
+      const p = (m.providerId || '').toLowerCase();
+      if (['groq', 'cerebras', 'github', 'ollama', 'gemini'].includes(p)) {
+        if (m.freeTier !== 'paid') return true;
       }
-      creds.forEach(c => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = \`
-          <td><strong>\${c.providerId}</strong></td>
-          <td><code>\${c.credentialId}</code></td>
-          <td><span class="badge badge-verified">AES-256 Encrypted</span></td>
-          <td>\${new Date(c.createdAt).toLocaleDateString()}</td>
-          <td>
-            <button class="btn btn-danger-outline btn-sm" onclick="deleteCredential('\${c.providerId}', '\${c.credentialId}')">
-              \${currentLang === 'vi' ? 'Xóa' : 'Delete'}
-            </button>
-          </td>
-        \`;
-        tbody.appendChild(tr);
-      });
-    } catch (e) {
-      console.warn('Credential list error', e);
-    }
-  }
-
-  async function deleteCredential(providerId, credentialId) {
-    if (!confirm((currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa key cho ' : 'Remove key for ') + providerId + ' (' + credentialId + ')?')) return;
-    try {
-      await api('/v1/credentials?providerId=' + encodeURIComponent(providerId) + '&credentialId=' + encodeURIComponent(credentialId), {
-        method: 'DELETE'
-      });
-      showToast((currentLang === 'vi' ? 'Đã xóa key ' : 'Removed key ') + providerId);
-      loadAll();
-    } catch (e) {
-      showToast('Error: ' + e.message);
-    }
-  }
-
-  async function loadCustomProviders() {
-    try {
-      const res = await api('/v1/providers/custom').catch(() => ({ data: [] }));
-      const list = res.data || [];
-      const tbody = document.getElementById('custom-provider-rows');
-      tbody.replaceChildren();
-      if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Mặc định hỗ trợ các provider cài sẵn (OpenRouter, Groq, Gemini). Thêm custom endpoint nếu muốn kết nối Ollama/vLLM.' : 'Built-in providers active. Add custom provider to connect Ollama/vLLM.') + '</td></tr>';
-        return;
-      }
-      list.forEach(p => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = \`
-          <td><strong>\${p.providerId}</strong></td>
-          <td><code>\${p.adapterType}</code></td>
-          <td>\${p.baseUrl}</td>
-          <td><span class="badge badge-verified">\${p.classifyAsFree || 'free'}</span></td>
-          <td>
-            <button class="btn btn-danger-outline btn-sm" onclick="deleteCustomProvider('\${p.providerId}')">\${currentLang === 'vi' ? 'Xóa' : 'Delete'}</button>
-          </td>
-        \`;
-        tbody.appendChild(tr);
-      });
-    } catch (e) {
-      console.warn('Custom provider list error', e);
-    }
-  }
-
-  async function deleteCustomProvider(id) {
-    try {
-      await api('/v1/providers/custom?providerId=' + encodeURIComponent(id), { method: 'DELETE' });
-      showToast(currentLang === 'vi' ? 'Đã xóa provider ' + id : 'Removed provider ' + id);
-      loadAll();
-    } catch (e) {
-      showToast('Error: ' + e.message);
-    }
-  }
-
-  // Modal Handlers
-  function openAddKeyModal() {
-    document.getElementById('add-key-modal').classList.add('open');
-    updateKeyModalHelper();
-  }
-  function closeAddKeyModal() {
-    document.getElementById('add-key-modal').classList.remove('open');
-    document.getElementById('modal-key').value = '';
-  }
-
-  function updateKeyModalHelper() {
-    const provId = document.getElementById('modal-provider').value;
-    const link = document.getElementById('modal-provider-link');
-    const help = document.getElementById('modal-provider-help');
-    const customUrlGroup = document.getElementById('modal-custom-url-group');
-
-    if (provId === 'custom') {
-      link.style.display = 'none';
-      help.textContent = currentLang === 'vi' ? 'Nhập Base URL tương thích OpenAI hoặc Gemini.' : 'Enter any OpenAI or Gemini compatible base URL.';
-      customUrlGroup.style.display = 'block';
-      return;
+      return false;
     }
 
-    customUrlGroup.style.display = 'none';
-    const preset = allPresets.find(p => p.id === provId);
-    if (preset) {
-      link.style.display = 'inline';
-      link.href = preset.apiKeyUrl;
-      link.textContent = currentLang === 'vi' ? 'Lấy Key miễn phí ↗' : 'Get Free Key ↗';
-      help.textContent = currentLang === 'vi' ? preset.keyInstructionsVi : preset.keyInstructionsEn;
-    }
-  }
-
-  async function submitAddKey() {
-    const provider = document.getElementById('modal-provider').value;
-    const key = document.getElementById('modal-key').value.trim();
-    const label = document.getElementById('modal-label').value.trim() || 'default';
-    const customUrl = document.getElementById('modal-custom-url').value.trim();
-    const btn = document.getElementById('modal-submit-btn');
-
-    if (!key) {
-      alert(currentLang === 'vi' ? 'Vui lòng nhập API Key' : 'Please enter an API Key');
-      return;
-    }
-
-    try {
-      btn.disabled = true;
-      btn.textContent = currentLang === 'vi' ? 'Đang lưu & nạp model…' : 'Saving & loading models…';
-
-      // If custom provider, register provider definition first
-      if (provider === 'custom') {
-        if (!customUrl) { alert('Please enter Custom Base URL'); return; }
-        const customId = label !== 'default' ? label : 'custom-' + Date.now();
-        await api('/v1/providers/custom', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerId: customId, adapterType: 'openai-compatible', baseUrl: customUrl, classifyAsFree: 'free_verified' })
-        });
-        await api('/v1/credentials', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerId: customId, credentialId: 'default', secret: key })
-        });
-      } else {
-        await api('/v1/credentials', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerId: provider, credentialId: label, secret: key })
-        });
-      }
-
-      closeAddKeyModal();
-      showToast(currentLang === 'vi' ? 'Đã lưu key & tự động nạp danh sách model!' : 'Key saved & models auto-loaded!');
-      setTimeout(loadAll, 1000);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = I18N[currentLang].saveKeyBtn;
-    }
-  }
-
-  function openImportModal() { document.getElementById('import-modal').classList.add('open'); }
-  function closeImportModal() { document.getElementById('import-modal').classList.remove('open'); }
-
-  async function submitImport9Router() {
-    const path = document.getElementById('import-path').value.trim();
-    const provider = document.getElementById('import-provider').value;
-    if (!path) { alert('Vui lòng nhập đường dẫn file 9Router SQLite'); return; }
-    try {
-      await api('/v1/import/9router', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceDatabasePath: path, providerId: provider })
-      });
-      closeImportModal();
-      showToast(currentLang === 'vi' ? 'Đã nhập key thành công từ 9Router!' : 'Imported key from 9Router!');
-      loadAll();
-    } catch (e) {
-      alert('Import error: ' + e.message);
-    }
-  }
-
-  function togglePasswordVisibility(id) {
-    const inp = document.getElementById(id);
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-  }
-
-  // Live Playground
-  async function runPlayground() {
-    const model = document.getElementById('play-model').value;
-    const prompt = document.getElementById('play-prompt').value.trim();
-    const btn = document.getElementById('play-send-btn');
-    const resultBox = document.getElementById('play-result');
-
-    if (!prompt) return;
-
-    try {
-      btn.disabled = true;
-      btn.textContent = currentLang === 'vi' ? 'Đang định tuyến…' : 'Routing…';
-      resultBox.textContent = (currentLang === 'vi' ? 'Đang gửi yêu cầu tới ' : 'Sending request to ') + model + '…';
-
-      const start = Date.now();
-      const res = await fetch('/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token() ? { 'Authorization': 'Bearer ' + token() } : {})
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-
-      const elapsed = Date.now() - start;
-      const providerHeader = res.headers.get('x-freeroute-provider') || 'unknown';
-      const modelHeader = res.headers.get('x-freeroute-model') || 'unknown';
-      const fallbackHeader = res.headers.get('x-freeroute-fallback-count') || '0';
-      const reqId = res.headers.get('x-freeroute-request-id') || 'unknown';
-
-      const data = await res.json();
-      if (!res.ok) {
-        resultBox.textContent = 'Error (' + res.status + '): ' + (data.error?.message || JSON.stringify(data));
-        return;
-      }
-
-      const content = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
-      resultBox.textContent =
-        '// Routing Tracing:\\n' +
-        '// Provider:       ' + providerHeader + '\\n' +
-        '// Model:          ' + modelHeader + '\\n' +
-        '// Fallbacks:      ' + fallbackHeader + '\\n' +
-        '// Latency:        ' + elapsed + 'ms\\n' +
-        '// Request ID:     ' + reqId + '\\n\\n' +
-        content;
-
-      showToast((currentLang === 'vi' ? 'Định tuyến thành công qua ' : 'Routed via ') + providerHeader + ' (' + modelHeader + ') trong ' + elapsed + 'ms');
-      loadHealthAndAnalytics();
-    } catch (e) {
-      resultBox.textContent = 'Request failed: ' + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '🚀 ' + (currentLang === 'vi' ? 'Gửi Yêu Cầu' : 'Send Request');
-    }
-  }
-
-  // 30s Polling
-  function setupPolling() {
-    const toggle = document.getElementById('poll-toggle');
-    let countdown = 30;
-
-    pollInterval = setInterval(() => {
-      if (!isPolling) return;
-      countdown--;
-      if (countdown <= 0) {
-        countdown = 30;
-        loadAll();
-      }
-      document.getElementById('poll-text').textContent = countdown + 's Live';
-    }, 1000);
-
-    toggle.onclick = () => {
-      isPolling = !isPolling;
-      if (isPolling) {
-        document.getElementById('poll-text').textContent = '30s Live';
-        document.getElementById('poll-icon').textContent = '⏱️';
-        countdown = 30;
-        showToast(currentLang === 'vi' ? 'Đã bật làm mới tự động.' : 'Real-time polling resumed.');
-      } else {
-        document.getElementById('poll-text').textContent = currentLang === 'vi' ? 'Tạm dừng' : 'Paused';
-        document.getElementById('poll-icon').textContent = '⏸️';
-        showToast(currentLang === 'vi' ? 'Đã tạm dừng làm mới tự động.' : 'Real-time polling paused.');
+    // Full i18n Dictionary
+    const I18N = {
+      vi: {
+        langBtn: '🇻🇳 Tiếng Việt',
+        subtitle: 'Định tuyến LLM cục bộ, tối ưu hạn ngạch miễn phí, chuyển đổi dự phòng tức thì',
+        refresh: '🔄 Làm mới',
+        addKey: '➕ Thêm API Key',
+        syncKey: '⚡ Nhập Key Có Sẵn',
+        syncBanner: (n) => 'Phát hiện ' + n + ' khóa API từ OmniRoute & 9router trên máy này.',
+        syncAllNow: 'Đồng bộ tất cả ngay',
+        syncReview: 'Xem chi tiết',
+        kpiProviders: 'Nhà Cung Cấp Đã Kết Nối',
+        kpiModelsFree: '🎁 Model 100% Miễn Phí',
+        kpiModelsPaid: '💳 Model Thương Mại (Paid)',
+        kpiRequests: 'Yêu Cầu Đã Xử Lý',
+        kpiFallbacks: 'Chuyển Vùng Cứu Nguy',
+        tabMonitor: '📡 Giám Sát Sức Khỏe',
+        tabDirectory: '🌐 Danh Mục 70+ Provider',
+        tabModels: '📚 Danh Sách Model',
+        tabCombos: '🔀 Custom Combos',
+        tabCredentials: '🔑 Quản Lý API Key',
+        tabPlayground: '🧪 Test Playground',
+        tabGuide: '📖 Hướng Dẫn An Toàn',
+        healthTitle: 'Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)',
+        healthAutoPoll: '🟢 Tự động cập nhật mỗi 10s',
+        recentStreamTitle: 'Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)',
+        thTime: 'Thời gian',
+        thReqId: 'Request ID',
+        thTarget: 'Model Yêu Cầu',
+        thServed: 'Phục Vụ Bởi',
+        thFallbacks: 'Fallback Hops',
+        thLatency: 'Độ Trễ',
+        thStatus: 'Trạng Thái',
+        noEvents: 'Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!',
+        searchProviders: '🔍 Tìm nhà cung cấp...',
+        pillAll: 'Tất cả',
+        pillFree: '🎁 Miễn phí & Mã nguồn mở',
+        pillComm: '💎 Thương mại (Pay-as-you-go)',
+        getKeyLink: 'Lấy Key ↗',
+        connectBtn: 'Kết nối',
+        connectedBadge: 'Đã kết nối',
+        allProvidersOpt: 'Tất cả Provider',
+        allCapsOpt: 'Tất cả Tính Năng',
+        lblFreeOnly: '🎁 Chỉ hiển thị Model 100% Miễn Phí',
+        searchModels: '🔍 Tìm model theo tên, ID...',
+        thModelId: 'Model ID',
+        thProvider: 'Nhà Cung Cấp',
+        thTier: 'Chi Phí / Hạng Mức',
+        thPriority: 'Độ Ưu Tiên',
+        thCaps: 'Tính Năng Hỗ Trợ',
+        thPref: 'Định Tuyến',
+        titleCombos: 'Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)',
+        descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
+        btnCreateCombo: '➕ Tạo Combo Mới',
+        keysTitle: 'Khóa API Đã Lưu (Mã Hóa AES-256-GCM)',
+        thUpdated: 'Cập Nhật',
+        thAction: 'Hành Động',
+        deleteBtn: 'Xóa',
+        playTitle: 'Thử Nghiệm Định Tuyến Prompt',
+        playSend: '🚀 Gửi Thử Nghiệm (Streaming)',
+        modalAddTitle: 'Thêm / Cập Nhật Khóa API',
+        modalProvLabel: 'Chọn Nhà Cung Cấp',
+        modalSecretLabel: 'API Key / Secret Token',
+        modalCancel: 'Hủy',
+        modalSave: 'Lưu & Nạp Model',
+        modalSyncTitle: '⚡ Nhập Khóa Từ 9router & OmniRoute',
+        modalSyncDesc: 'Hệ thống tự động phát hiện các cấu hình khóa API đã có sẵn trên máy của bạn. Chọn các khóa muốn nhập vào FreeRoute:',
+        syncConfirm: 'Đồng Bộ Khóa Đã Chọn',
+        statusHealthy: 'Khỏe mạnh',
+        statusCooldown: 'Hạ nhiệt',
+        statusError: 'Lỗi',
+        statusUnconfigured: 'Chưa kết nối'
+      },
+      en: {
+        langBtn: '🇬🇧 English',
+        subtitle: 'Local-first LLM router, quota-aware fallback, zero lock-in',
+        refresh: '🔄 Refresh',
+        addKey: '➕ Add API Key',
+        syncKey: '⚡ Import Stored Keys',
+        syncBanner: (n) => 'Detected ' + n + ' API keys from OmniRoute & 9router on this machine.',
+        syncAllNow: 'Sync all now',
+        syncReview: 'Review details',
+        kpiProviders: 'Configured Providers',
+        kpiModelsFree: '🎁 100% Free Models',
+        kpiModelsPaid: '💳 Commercial Models',
+        kpiRequests: 'Requests Handled',
+        kpiFallbacks: 'Fallbacks Recovered',
+        tabMonitor: '📡 Health & Monitor',
+        tabDirectory: '🌐 70+ Provider Directory',
+        tabModels: '📚 Model Catalog',
+        tabCombos: '🔀 Custom Combos',
+        tabCredentials: '🔑 Key Management',
+        tabPlayground: '🧪 Test Playground',
+        tabGuide: '📖 Safe Connect Guide',
+        healthTitle: 'Provider Health Matrix',
+        healthAutoPoll: '🟢 Auto-refreshing every 10s',
+        recentStreamTitle: 'Recent Routing Stream',
+        thTime: 'Time',
+        thReqId: 'Request ID',
+        thTarget: 'Target Model',
+        thServed: 'Served By',
+        thFallbacks: 'Fallback Hops',
+        thLatency: 'Latency',
+        thStatus: 'Status',
+        noEvents: 'No events yet. Send requests to http://127.0.0.1:8787/v1!',
+        searchProviders: '🔍 Search providers...',
+        pillAll: 'All',
+        pillFree: '🎁 Free & Open Source',
+        pillComm: '💎 Commercial (Pay-as-you-go)',
+        getKeyLink: 'Get Key ↗',
+        connectBtn: 'Connect',
+        connectedBadge: 'Connected',
+        allProvidersOpt: 'All Providers',
+        allCapsOpt: 'All Capabilities',
+        lblFreeOnly: '🎁 Show 100% Free Models Only',
+        searchModels: '🔍 Search models by ID or name...',
+        thModelId: 'Model ID',
+        thProvider: 'Provider',
+        thTier: 'Cost / Tier',
+        thPriority: 'Priority',
+        thCaps: 'Capabilities',
+        thPref: 'Routing',
+        titleCombos: 'Custom Fallback Routing Chains (Combos)',
+        descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
+        btnCreateCombo: '➕ Create Combo',
+        keysTitle: 'Stored API Keys (Encrypted with AES-256-GCM)',
+        thUpdated: 'Updated',
+        thAction: 'Action',
+        deleteBtn: 'Delete',
+        playTitle: 'Prompt Routing Test Playground',
+        playSend: '🚀 Send Request (Streaming)',
+        modalAddTitle: 'Add / Update API Key',
+        modalProvLabel: 'Select Provider',
+        modalSecretLabel: 'API Key / Secret Token',
+        modalCancel: 'Cancel',
+        modalSave: 'Save & Load Models',
+        modalSyncTitle: '⚡ Import Keys from 9router & OmniRoute',
+        modalSyncDesc: 'Automatically discovered API keys stored locally on this machine. Select the keys you wish to import into FreeRoute:',
+        syncConfirm: 'Sync Selected Keys',
+        statusHealthy: 'Healthy',
+        statusCooldown: 'Cooldown',
+        statusError: 'Error',
+        statusUnconfigured: 'Not Configured'
       }
     };
-  }
-</script>
+
+    function t(key, arg) {
+      const dict = I18N[currentLang] || I18N.vi;
+      const val = dict[key];
+      if (typeof val === 'function') return val(arg);
+      return val || key;
+    }
+
+    // App Initialization
+    document.addEventListener('DOMContentLoaded', async () => {
+      applyLanguage();
+      await fetchPresets();
+      await fetchImportSources();
+      await refreshAllData();
+      setInterval(refreshMonitoring, 10000);
+    });
+
+    function toggleLanguage() {
+      currentLang = currentLang === 'vi' ? 'en' : 'vi';
+      localStorage.setItem('freeroute_lang', currentLang);
+      applyLanguage();
+      renderPresets();
+      renderModels();
+      renderCombos();
+      renderHealthMatrix();
+      renderEvents();
+      renderCredentials();
+    }
+
+    function applyLanguage() {
+      document.getElementById('lang-btn').textContent = t('langBtn');
+      document.getElementById('hdr-subtitle').textContent = t('subtitle');
+      document.getElementById('hdr-refresh-btn').textContent = t('refresh');
+      document.getElementById('hdr-add-key-btn').textContent = t('addKey');
+      document.getElementById('hdr-sync-btn').textContent = t('syncKey');
+
+      document.getElementById('kpi-lbl-providers').textContent = t('kpiProviders');
+      document.getElementById('kpi-lbl-models-free').textContent = t('kpiModelsFree');
+      document.getElementById('kpi-lbl-models-paid').textContent = t('kpiModelsPaid');
+      document.getElementById('kpi-lbl-requests').textContent = t('kpiRequests');
+      document.getElementById('kpi-lbl-fallbacks').textContent = t('kpiFallbacks');
+
+      document.getElementById('tab-btn-monitor').textContent = t('tabMonitor');
+      document.getElementById('tab-btn-directory').textContent = t('tabDirectory');
+      document.getElementById('tab-btn-models').textContent = t('tabModels');
+      document.getElementById('tab-btn-combos').textContent = t('tabCombos');
+      document.getElementById('tab-btn-credentials').textContent = t('tabCredentials');
+      document.getElementById('tab-btn-playground').textContent = t('tabPlayground');
+      document.getElementById('tab-btn-guide').textContent = t('tabGuide');
+
+      document.getElementById('title-health-matrix').textContent = t('healthTitle');
+      document.getElementById('lbl-live-polling').textContent = t('healthAutoPoll');
+      document.getElementById('title-recent-stream').textContent = t('recentStreamTitle');
+
+      document.getElementById('th-ev-time').textContent = t('thTime');
+      document.getElementById('th-ev-reqid').textContent = t('thReqId');
+      document.getElementById('th-ev-target').textContent = t('thTarget');
+      document.getElementById('th-ev-served').textContent = t('thServed');
+      document.getElementById('th-ev-fallbacks').textContent = t('thFallbacks');
+      document.getElementById('th-ev-latency').textContent = t('thLatency');
+      document.getElementById('th-ev-status').textContent = t('thStatus');
+
+      document.getElementById('search-presets').placeholder = t('searchProviders');
+      document.getElementById('search-models').placeholder = t('searchModels');
+      document.getElementById('lbl-free-only').textContent = t('lblFreeOnly');
+
+      document.getElementById('th-model-id').innerHTML = t('thModelId') + ' ' + (modelSortField === 'modelId' ? (modelSortAsc ? '▲' : '▼') : '⇕');
+      document.getElementById('th-model-provider').innerHTML = t('thProvider') + ' ' + (modelSortField === 'providerId' ? (modelSortAsc ? '▲' : '▼') : '⇕');
+      document.getElementById('th-model-tier').innerHTML = t('thTier') + ' ' + (modelSortField === 'isTrueFree' ? (modelSortAsc ? '▲' : '▼') : '⇕');
+      document.getElementById('th-model-priority').innerHTML = t('thPriority') + ' ' + (modelSortField === 'priority' ? (modelSortAsc ? '▲' : '▼') : '⇕');
+      document.getElementById('th-model-caps').textContent = t('thCaps');
+      document.getElementById('th-model-pref').textContent = t('thPref');
+
+      document.getElementById('title-combos').textContent = t('titleCombos');
+      document.getElementById('desc-combos').textContent = t('descCombos');
+      document.getElementById('btn-create-combo').textContent = t('btnCreateCombo');
+
+      document.getElementById('title-keys-heading').textContent = t('keysTitle');
+      document.getElementById('btn-sync-local').textContent = t('syncKey');
+      document.getElementById('btn-add-key-sub').textContent = t('addKey');
+      document.getElementById('th-k-updated').textContent = t('thUpdated');
+      document.getElementById('th-k-action').textContent = t('thAction');
+
+      document.getElementById('title-play').textContent = t('playTitle');
+      document.getElementById('btn-play-send').textContent = t('playSend');
+
+      document.getElementById('modal-add-title').textContent = t('modalAddTitle');
+      document.getElementById('lbl-modal-prov').textContent = t('modalProvLabel');
+      document.getElementById('lbl-modal-secret').textContent = t('modalSecretLabel');
+      document.getElementById('btn-modal-cancel').textContent = t('modalCancel');
+      document.getElementById('btn-modal-save').textContent = t('modalSave');
+
+      document.getElementById('modal-sync-title').textContent = t('modalSyncTitle');
+      document.getElementById('modal-sync-desc').textContent = t('modalSyncDesc');
+      document.getElementById('btn-sync-cancel').textContent = t('modalCancel');
+      document.getElementById('btn-sync-confirm').textContent = t('syncConfirm');
+      document.getElementById('sync-quick-btn').textContent = t('syncAllNow');
+      document.getElementById('sync-review-btn').textContent = t('syncReview');
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-btn-' + tabId).classList.add('active');
+      document.getElementById('pane-' + tabId).classList.add('active');
+    }
+
+    // Data Fetching
+    async function triggerRefresh() {
+      showToast(currentLang === 'vi' ? 'Đang làm mới dữ liệu...' : 'Refreshing data...');
+      await refreshAllData();
+      showToast(currentLang === 'vi' ? 'Làm mới thành công!' : 'Refresh completed!');
+    }
+
+    async function refreshAllData() {
+      await Promise.all([
+        fetchCredentials(),
+        fetchModels(),
+        fetchCombos(),
+        fetchHealthAndEvents(),
+      ]);
+      updateKpis();
+      renderPresets();
+      renderModels();
+      renderCombos();
+      renderHealthMatrix();
+      renderEvents();
+      renderCredentials();
+    }
+
+    async function refreshMonitoring() {
+      await fetchHealthAndEvents();
+      renderHealthMatrix();
+      renderEvents();
+      updateKpis();
+    }
+
+    async function fetchPresets() {
+      try {
+        const res = await fetch('/v1/providers/presets');
+        if (res.ok) {
+          const json = await res.json();
+          presets = json.data || [];
+          populateModalProviders();
+          populateModelFilterProviders();
+        }
+      } catch (err) {
+        console.error('Failed to load presets:', err);
+      }
+    }
+
+    async function fetchCombos() {
+      try {
+        const res = await fetch('/v1/combos');
+        if (res.ok) {
+          const json = await res.json();
+          combos = json.data || [];
+          populatePlaygroundCombos();
+        }
+      } catch (err) {
+        console.error('Failed to load combos:', err);
+      }
+    }
+
+    async function fetchImportSources() {
+      try {
+        const res = await fetch('/v1/import/sources');
+        if (res.ok) {
+          const json = await res.json();
+          detectedSources = json.data || [];
+          if (detectedSources.length > 0) {
+            document.getElementById('sync-banner').style.display = 'flex';
+            document.getElementById('hdr-sync-btn').style.display = 'inline-flex';
+            document.getElementById('sync-banner-msg').textContent = t('syncBanner', detectedSources.length);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to detect sources:', err);
+      }
+    }
+
+    async function fetchCredentials() {
+      try {
+        const res = await fetch('/v1/credentials');
+        if (res.ok) {
+          const json = await res.json();
+          credentials = json.data || [];
+        }
+      } catch (err) {
+        console.error('Failed to load credentials:', err);
+      }
+    }
+
+    async function fetchModels() {
+      try {
+        const res = await fetch('/v1/models');
+        if (res.ok) {
+          const json = await res.json();
+          models = (json.data || []).map(m => {
+            const parts = m.id.split('/');
+            const item = {
+              id: m.id,
+              providerId: m.owned_by || parts[0],
+              modelId: parts.slice(1).join('/') || m.id,
+              capabilities: m.freeroute?.capabilities || [],
+              freeTier: m.freeroute?.free_tier || 'paid',
+              priority: m.priority || 50,
+              isTrueFree: false
+            };
+            item.isTrueFree = isTrueFreeModel(item);
+            return item;
+          });
+          populateComboAddSelect();
+        }
+      } catch (err) {
+        console.error('Failed to load models:', err);
+      }
+    }
+
+    async function fetchHealthAndEvents() {
+      try {
+        const [hRes, eRes] = await Promise.all([
+          fetch('/v1/provider-health'),
+          fetch('/v1/routing-events')
+        ]);
+        if (hRes.ok) {
+          const hJson = await hRes.json();
+          healthData = hJson.data || [];
+        }
+        if (eRes.ok) {
+          const eJson = await eRes.json();
+          eventsData = eJson.data || [];
+        }
+      } catch (err) {
+        console.error('Failed to fetch health/events:', err);
+      }
+    }
+
+    function updateKpis() {
+      const activeProviders = new Set(credentials.map(c => c.providerId)).size;
+      document.getElementById('kpi-providers').textContent = activeProviders;
+      
+      const freeModelsCount = models.filter(m => m.isTrueFree).length;
+      const paidModelsCount = models.length - freeModelsCount;
+      document.getElementById('kpi-models-free').textContent = freeModelsCount;
+      document.getElementById('kpi-models-paid').textContent = paidModelsCount;
+
+      document.getElementById('kpi-requests').textContent = eventsData.length;
+      const fallbacks = eventsData.filter(e => (e.fallbackCount || e.fallbacks || 0) > 0).length;
+      document.getElementById('kpi-fallbacks').textContent = fallbacks;
+    }
+
+    // TAB 1: RENDER HEALTH & EVENTS
+    function renderHealthMatrix() {
+      const container = document.getElementById('health-matrix-container');
+      const configuredMap = new Map();
+      for (const c of credentials) configuredMap.set(c.providerId, true);
+
+      const allProviderIds = [...new Set([...presets.map(p => p.id), ...credentials.map(c => c.providerId)])];
+      const healthMap = new Map();
+      for (const h of healthData) healthMap.set(h.providerId, h);
+
+      let html = '';
+      for (const pid of allProviderIds) {
+        const preset = presets.find(p => p.id === pid);
+        const name = preset ? preset.name : pid;
+        const isConfigured = configuredMap.has(pid);
+        const stat = healthMap.get(pid);
+
+        let dotClass = 'dot-gray';
+        let statusText = t('statusUnconfigured');
+        let successRate = 0;
+        let latencyP50 = stat ? stat.p50LatencyMs || 0 : 0;
+        let reqCount = stat ? stat.requestCount || 0 : 0;
+
+        if (isConfigured) {
+          if (!stat || stat.requestCount === 0) {
+            dotClass = 'dot-green';
+            statusText = t('statusHealthy');
+            successRate = 100;
+          } else if (stat.successRate >= 0.9) {
+            dotClass = 'dot-green';
+            statusText = t('statusHealthy');
+            successRate = Math.round(stat.successRate * 100);
+          } else if (stat.successRate >= 0.5) {
+            dotClass = 'dot-yellow';
+            statusText = t('statusCooldown');
+            successRate = Math.round(stat.successRate * 100);
+          } else {
+            dotClass = 'dot-red';
+            statusText = t('statusError');
+            successRate = Math.round(stat.successRate * 100);
+          }
+        }
+
+        html += \`
+          <div class="health-item">
+            <div class="health-head">
+              <span class="health-name">
+                <span class="status-dot \${dotClass}"></span>
+                \${name}
+              </span>
+              <span class="badge \${isConfigured ? 'badge-green' : 'badge-gray'}">\${statusText}</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: \${isConfigured ? successRate : 0}%;"></div>
+            </div>
+            <div class="health-metrics">
+              <span>Success: \${isConfigured ? successRate + '%' : 'N/A'}</span>
+              <span>P50: \${latencyP50 > 0 ? latencyP50 + 'ms' : '—'}</span>
+              <span>Reqs: \${reqCount}</span>
+            </div>
+          </div>
+        \`;
+      }
+      container.innerHTML = html;
+    }
+
+    function renderEvents() {
+      const tbody = document.getElementById('events-tbody');
+      if (!eventsData || eventsData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">' + t('noEvents') + '</td></tr>';
+        return;
+      }
+
+      const recent = eventsData.slice(-20).reverse();
+      let html = '';
+      for (const ev of recent) {
+        const timeStr = ev.occurredAt ? new Date(ev.occurredAt).toLocaleTimeString() : '—';
+        const reqId = ev.requestId ? ev.requestId.slice(0, 8) + '...' : '—';
+        const target = ev.requestedModel || 'auto:free';
+        const served = (ev.providerId || '—') + ' / ' + (ev.modelId || '—');
+        const fallbacks = ev.fallbackCount || ev.fallbacks || 0;
+        const latency = ev.latencyMs ? ev.latencyMs + 'ms' : '—';
+        const isOk = !ev.errorCode;
+
+        html += \`
+          <tr>
+            <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:12px;">\${timeStr}</td>
+            <td style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">\${reqId}</td>
+            <td><code>\${target}</code></td>
+            <td><strong>\${served}</strong></td>
+            <td>
+              \${fallbacks > 0 
+                ? \`<span class="badge badge-yellow">⚠️ \${fallbacks} fallbacks</span>\` 
+                : '<span class="badge badge-gray">Direct</span>'}
+            </td>
+            <td style="font-family:var(--font-mono);">\${latency}</td>
+            <td>
+              \${isOk 
+                ? '<span class="badge badge-green">200 OK</span>' 
+                : \`<span class="badge badge-red">\${ev.errorCode || 'Error'}</span>\`}
+            </td>
+          </tr>
+        \`;
+      }
+      tbody.innerHTML = html;
+    }
+
+    // TAB 2: PROVIDER DIRECTORY
+    function filterPresets(category) {
+      activePresetFilter = category;
+      document.getElementById('pill-all').classList.toggle('active', category === 'all');
+      document.getElementById('pill-free').classList.toggle('active', category === 'free');
+      document.getElementById('pill-comm').classList.toggle('active', category === 'commercial');
+      renderPresets();
+    }
+
+    function handlePresetSearch() {
+      renderPresets();
+    }
+
+    function renderPresets() {
+      const container = document.getElementById('presets-container');
+      const q = (document.getElementById('search-presets').value || '').toLowerCase().trim();
+      const configuredMap = new Map();
+      for (const c of credentials) configuredMap.set(c.providerId, true);
+
+      let freeCount = 0;
+      let commCount = 0;
+      for (const p of presets) {
+        if (p.category === 'commercial') commCount++;
+        else freeCount++;
+      }
+      document.getElementById('cnt-all').textContent = presets.length;
+      document.getElementById('cnt-free').textContent = freeCount;
+      document.getElementById('cnt-comm').textContent = commCount;
+
+      const filtered = presets.filter(p => {
+        if (activePresetFilter === 'free' && p.category === 'commercial') return false;
+        if (activePresetFilter === 'commercial' && p.category !== 'commercial') return false;
+        if (q) {
+          const matchName = p.name.toLowerCase().includes(q);
+          const matchId = p.id.toLowerCase().includes(q);
+          const matchDesc = (p.descriptionVi || '').toLowerCase().includes(q) || (p.descriptionEn || '').toLowerCase().includes(q);
+          if (!matchName && !matchId && !matchDesc) return false;
+        }
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        const aIsFree = a.category !== 'commercial';
+        const bIsFree = b.category !== 'commercial';
+        if (aIsFree && !bIsFree) return -1;
+        if (!aIsFree && bIsFree) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      let html = '';
+      for (const p of filtered) {
+        const isConfigured = configuredMap.has(p.id);
+        const desc = currentLang === 'vi' ? p.descriptionVi : p.descriptionEn;
+        const isComm = p.category === 'commercial';
+        const catBadge = isComm 
+          ? '<span class="badge badge-purple">💎 Commercial</span>'
+          : (p.category === 'local' ? '<span class="badge badge-blue">🏠 Local</span>' : '<span class="badge badge-green">🎁 Free Tier</span>');
+
+        html += \`
+          <div class="preset-card">
+            <div>
+              <div class="preset-header">
+                <div>
+                  <div class="preset-name">\${p.name}</div>
+                  <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">\${p.id}</div>
+                </div>
+                <div>\${catBadge}</div>
+              </div>
+              <div class="preset-desc">\${desc}</div>
+              <div class="preset-models">
+                \${(p.seedModels || []).slice(0, 3).map(m => \`<span class="badge badge-gray">\${m.modelId}</span>\`).join('')}
+                \${(p.seedModels || []).length > 3 ? \`<span class="badge badge-gray">+\${p.seedModels.length - 3}</span>\` : ''}
+              </div>
+            </div>
+            <div class="preset-actions">
+              \${p.apiKeyUrl ? \`<a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-sm">\${t('getKeyLink')}</a>\` : ''}
+              <button class="btn btn-sm \${isConfigured ? 'btn-outline' : 'btn-primary'}" onclick="openAddKeyModal('\${p.id}')">
+                \${isConfigured ? '✓ ' + t('connectedBadge') : '➕ ' + t('connectBtn')}
+              </button>
+            </div>
+          </div>
+        \`;
+      }
+      container.innerHTML = html;
+    }
+
+    // TAB 3: MODEL CATALOG (TRUE FREE VS PAID + SORT)
+    function populateModelFilterProviders() {
+      const sel = document.getElementById('model-filter-provider');
+      const uniqueProviders = [...new Set(presets.map(p => p.id))].sort();
+      let html = '<option value="all">' + t('allProvidersOpt') + '</option>';
+      for (const pid of uniqueProviders) {
+        const p = presets.find(x => x.id === pid);
+        html += \`<option value="\${pid}">\${p ? p.name : pid}</option>\`;
+      }
+      sel.innerHTML = html;
+    }
+
+    function sortModels(field) {
+      if (modelSortField === field) {
+        modelSortAsc = !modelSortAsc;
+      } else {
+        modelSortField = field;
+        modelSortAsc = true;
+      }
+      applyLanguage();
+      renderModels();
+    }
+
+    function applyModelFilters() {
+      renderModels();
+    }
+
+    function renderModels() {
+      const tbody = document.getElementById('models-tbody');
+      const freeOnly = document.getElementById('chk-free-only').checked;
+      const pFilter = document.getElementById('model-filter-provider').value;
+      const cFilter = document.getElementById('model-filter-cap').value;
+      const q = (document.getElementById('search-models').value || '').toLowerCase().trim();
+
+      let filtered = models.filter(m => {
+        if (freeOnly && !m.isTrueFree) return false;
+        if (pFilter !== 'all' && m.providerId !== pFilter) return false;
+        if (cFilter !== 'all' && !m.capabilities.includes(cFilter)) return false;
+        if (q) {
+          const matchId = m.modelId.toLowerCase().includes(q);
+          const matchProv = m.providerId.toLowerCase().includes(q);
+          if (!matchId && !matchProv) return false;
+        }
+        return true;
+      });
+
+      // Sorting
+      filtered.sort((a, b) => {
+        let valA = a[modelSortField];
+        let valB = b[modelSortField];
+        if (typeof valA === 'boolean') {
+          return modelSortAsc ? (valA === valB ? 0 : valA ? -1 : 1) : (valA === valB ? 0 : valA ? 1 : -1);
+        }
+        if (typeof valA === 'string') {
+          return modelSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return modelSortAsc ? (valA - valB) : (valB - valA);
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">' + (currentLang === 'vi' ? 'Không tìm thấy model nào phù hợp.' : 'No matching models found.') + '</td></tr>';
+        return;
+      }
+
+      let html = '';
+      for (const m of filtered) {
+        const costBadge = m.isTrueFree 
+          ? '<span class="badge badge-green">🎁 100% Free</span>'
+          : '<span class="badge badge-purple">💳 Pay-per-token</span>';
+
+        html += \`
+          <tr>
+            <td><code>\${m.modelId}</code></td>
+            <td><strong>\${m.providerId}</strong></td>
+            <td>\${costBadge}</td>
+            <td style="font-family:var(--font-mono);">\${m.priority}</td>
+            <td>
+              \${(m.capabilities || []).map(c => \`<span class="badge badge-gray">\${c}</span>\`).join(' ')}
+            </td>
+            <td>
+              <span class="badge badge-blue">Auto</span>
+            </td>
+          </tr>
+        \`;
+      }
+      tbody.innerHTML = html;
+    }
+
+    // TAB 4: CUSTOM COMBOS
+    function renderCombos() {
+      const container = document.getElementById('combos-container');
+      if (combos.length === 0) {
+        container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); padding:30px;">' + (currentLang === 'vi' ? 'Chưa có combo nào. Hãy bấm Tạo Combo Mới!' : 'No combos configured. Click Create Combo!') + '</div>';
+        return;
+      }
+
+      let html = '';
+      for (const cb of combos) {
+        const chainHtml = (cb.models || []).map((m, idx) => \`
+          <div class="chain-step">
+            <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
+            <span>\${m}</span>
+          </div>
+        \`).join('<div class="chain-arrow">↓ fallback</div>');
+
+        html += \`
+          <div class="combo-card">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                  <h3 style="font-size:16px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
+                  <code style="font-size:11px; color:var(--text-muted);">combo:\${cb.comboId}</code>
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="deleteCombo('\${cb.comboId}')">✕</button>
+              </div>
+              <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
+              <div class="combo-chain">
+                \${chainHtml}
+              </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--card-border); padding-top:10px;">
+              <button class="btn btn-sm btn-primary" onclick="testCombo('\${cb.comboId}')">🧪 Test Combo</button>
+            </div>
+          </div>
+        \`;
+      }
+      container.innerHTML = html;
+    }
+
+    function populatePlaygroundCombos() {
+      const grp = document.getElementById('play-combos-group');
+      let html = '';
+      for (const cb of combos) {
+        html += \`<option value="combo:\${cb.comboId}">combo:\${cb.comboId} (\${cb.name})</option>\`;
+      }
+      grp.innerHTML = html;
+    }
+
+    function testCombo(comboId) {
+      switchTab('playground');
+      document.getElementById('play-model-select').value = 'combo:' + comboId;
+    }
+
+    function populateComboAddSelect() {
+      const sel = document.getElementById('combo-add-model-select');
+      if (!sel) return;
+      let html = '';
+      // Group: True Free models first
+      const freeMods = models.filter(m => m.isTrueFree);
+      const paidMods = models.filter(m => !m.isTrueFree);
+
+      html += '<optgroup label="🎁 Model 100% Miễn Phí">';
+      for (const m of freeMods) {
+        html += \`<option value="\${m.providerId}/\${m.modelId}">\${m.providerId}/\${m.modelId}</option>\`;
+      }
+      html += '</optgroup>';
+
+      if (paidMods.length > 0) {
+        html += '<optgroup label="💳 Model Thương Mại (Paid)">';
+        for (const m of paidMods.slice(0, 50)) {
+          html += \`<option value="\${m.providerId}/\${m.modelId}">\${m.providerId}/\${m.modelId}</option>\`;
+        }
+        html += '</optgroup>';
+      }
+      sel.innerHTML = html;
+    }
+
+    function openCreateComboModal() {
+      document.getElementById('modal-create-combo').classList.add('active');
+      document.getElementById('combo-input-id').value = '';
+      document.getElementById('combo-input-name').value = '';
+      document.getElementById('combo-input-desc').value = '';
+      tempComboChain = [];
+      renderTempComboChain();
+      populateComboAddSelect();
+    }
+
+    function closeCreateComboModal() {
+      document.getElementById('modal-create-combo').classList.remove('active');
+    }
+
+    function addModelToComboChain() {
+      const sel = document.getElementById('combo-add-model-select');
+      const val = sel.value;
+      if (!val) return;
+      if (!tempComboChain.includes(val)) {
+        tempComboChain.push(val);
+        renderTempComboChain();
+      }
+    }
+
+    function removeModelFromComboChain(idx) {
+      tempComboChain.splice(idx, 1);
+      renderTempComboChain();
+    }
+
+    function renderTempComboChain() {
+      const box = document.getElementById('combo-chain-list');
+      if (tempComboChain.length === 0) {
+        box.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Chưa chọn model nào. Hãy chọn model và bấm Thêm!</div>';
+        return;
+      }
+      let html = '';
+      for (let i = 0; i < tempComboChain.length; i++) {
+        html += \`
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+            <span style="font-family:var(--font-mono); font-size:12px;">\${i + 1}. \${tempComboChain[i]}</span>
+            <button class="btn btn-danger btn-sm" style="padding:1px 6px;" onclick="removeModelFromComboChain(\${i})">✕</button>
+          </div>
+        \`;
+      }
+      box.innerHTML = html;
+    }
+
+    async function submitCreateCombo() {
+      const comboId = document.getElementById('combo-input-id').value.trim();
+      const name = document.getElementById('combo-input-name').value.trim();
+      const description = document.getElementById('combo-input-desc').value.trim();
+
+      if (!comboId || !name) {
+        alert(currentLang === 'vi' ? 'Vui lòng nhập ID và Tên Combo!' : 'Please enter Combo ID and Name!');
+        return;
+      }
+      if (tempComboChain.length === 0) {
+        alert(currentLang === 'vi' ? 'Vui lòng thêm ít nhất 1 model vào chuỗi!' : 'Please add at least 1 model to the chain!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/v1/combos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            comboId,
+            name,
+            description,
+            models: tempComboChain
+          })
+        });
+
+        if (res.ok) {
+          closeCreateComboModal();
+          showToast(currentLang === 'vi' ? 'Tạo combo thành công!' : 'Combo created successfully!');
+          await fetchCombos();
+          renderCombos();
+        } else {
+          const err = await res.json();
+          showToast(err.error?.message || 'Failed to save combo', true);
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function deleteCombo(comboId) {
+      if (!confirm(currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa combo này?' : 'Delete this combo?')) return;
+      try {
+        const res = await fetch(\`/v1/combos?comboId=\${encodeURIComponent(comboId)}\`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          showToast(currentLang === 'vi' ? 'Đã xóa combo!' : 'Combo deleted!');
+          await fetchCombos();
+          renderCombos();
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // TAB 5: KEY MANAGEMENT & 1-CLICK SYNC
+    function renderCredentials() {
+      const tbody = document.getElementById('creds-tbody');
+      if (credentials.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">' + (currentLang === 'vi' ? 'Chưa có API key nào được cấu hình.' : 'No API keys configured yet.') + '</td></tr>';
+        return;
+      }
+
+      let html = '';
+      for (const c of credentials) {
+        const p = presets.find(x => x.id === c.providerId);
+        const name = p ? p.name : c.providerId;
+        const updatedStr = c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—';
+
+        html += \`
+          <tr>
+            <td>
+              <div style="font-weight:600;">\${name}</div>
+              <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">\${c.providerId}</div>
+            </td>
+            <td style="font-family:var(--font-mono); color:var(--text-muted);">\${c.credentialId || 'default'}</td>
+            <td style="color:var(--text-muted);">\${updatedStr}</td>
+            <td style="text-align:right;">
+              <button class="btn btn-danger btn-sm" onclick="deleteKey('\${c.providerId}', '\${c.credentialId}')">\${t('deleteBtn')}</button>
+            </td>
+          </tr>
+        \`;
+      }
+      tbody.innerHTML = html;
+    }
+
+    async function deleteKey(providerId, credentialId) {
+      if (!confirm(currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa key này?' : 'Are you sure you want to delete this key?')) return;
+      try {
+        const res = await fetch(\`/v1/credentials?providerId=\${encodeURIComponent(providerId)}&credentialId=\${encodeURIComponent(credentialId)}\`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          showToast(currentLang === 'vi' ? 'Đã xóa key!' : 'Key deleted!');
+          await refreshAllData();
+        } else {
+          showToast('Failed to delete key', true);
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // MODAL: ADD KEY
+    function populateModalProviders() {
+      const sel = document.getElementById('modal-prov-select');
+      let html = '';
+      for (const p of presets) {
+        html += \`<option value="\${p.id}">\${p.name} (\${p.category === 'commercial' ? 'Commercial' : 'Free'})</option>\`;
+      }
+      sel.innerHTML = html;
+      onModalProviderChange();
+    }
+
+    function openAddKeyModal(preselectedProviderId) {
+      document.getElementById('modal-add-key').classList.add('active');
+      if (preselectedProviderId) {
+        document.getElementById('modal-prov-select').value = preselectedProviderId;
+      }
+      onModalProviderChange();
+      document.getElementById('modal-secret').value = '';
+      document.getElementById('modal-secret').focus();
+    }
+
+    function closeAddKeyModal() {
+      document.getElementById('modal-add-key').classList.remove('active');
+    }
+
+    function onModalProviderChange() {
+      const pid = document.getElementById('modal-prov-select').value;
+      const p = presets.find(x => x.id === pid);
+      const hint = document.getElementById('modal-prov-hint');
+      if (p) {
+        const inst = currentLang === 'vi' ? p.keyInstructionsVi : p.keyInstructionsEn;
+        hint.innerHTML = inst + (p.apiKeyUrl ? \` <a href="\${p.apiKeyUrl}" target="_blank" style="color:var(--accent); text-decoration:underline;">\${t('getKeyLink')}</a>\` : '');
+      } else {
+        hint.innerHTML = '';
+      }
+    }
+
+    async function submitAddKey() {
+      const providerId = document.getElementById('modal-prov-select').value;
+      const secret = document.getElementById('modal-secret').value.trim();
+      if (!secret) {
+        alert(currentLang === 'vi' ? 'Vui lòng nhập API key!' : 'Please enter API key!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/v1/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId, secret })
+        });
+        if (res.ok) {
+          closeAddKeyModal();
+          showToast(currentLang === 'vi' ? 'Đã lưu key & nạp model thành công!' : 'Key saved & models loaded!');
+          await refreshAllData();
+        } else {
+          const err = await res.json();
+          showToast(err.error?.message || 'Error saving key', true);
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // MODAL: 1-CLICK SYNC FROM 9ROUTER & OMNIROUTE
+    function openSyncModal() {
+      document.getElementById('modal-sync').classList.add('active');
+      renderSyncSources();
+    }
+
+    function closeSyncModal() {
+      document.getElementById('modal-sync').classList.remove('active');
+    }
+
+    function renderSyncSources() {
+      const tbody = document.getElementById('sync-sources-tbody');
+      if (detectedSources.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:16px;">' + (currentLang === 'vi' ? 'Không tìm thấy key nào.' : 'No sources found.') + '</td></tr>';
+        return;
+      }
+      let html = '';
+      for (let i = 0; i < detectedSources.length; i++) {
+        const s = detectedSources[i];
+        html += \`
+          <tr>
+            <td><input type="checkbox" class="sync-chk" value="\${s.providerId}" checked></td>
+            <td><strong>\${s.name || s.providerId}</strong></td>
+            <td><span class="badge \${s.source === 'omniroute' ? 'badge-blue' : 'badge-purple'}">\${s.source}</span></td>
+            <td><code>\${s.maskedKey}</code></td>
+          </tr>
+        \`;
+      }
+      tbody.innerHTML = html;
+    }
+
+    function toggleSelectAllSync(master) {
+      document.querySelectorAll('.sync-chk').forEach(c => c.checked = master.checked);
+    }
+
+    async function quickSyncAll() {
+      showToast(currentLang === 'vi' ? 'Đang đồng bộ tất cả key...' : 'Syncing all keys...');
+      try {
+        const res = await fetch('/v1/import/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ syncAll: true })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(currentLang === 'vi' ? \`Đã đồng bộ thành công \${data.count} keys!\` : \`Successfully synced \${data.count} keys!\`);
+          await refreshAllData();
+        } else {
+          showToast('Sync failed', true);
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function executeSyncSelected() {
+      const selected = [];
+      document.querySelectorAll('.sync-chk:checked').forEach(c => selected.push(c.value));
+      if (selected.length === 0) {
+        alert(currentLang === 'vi' ? 'Vui lòng chọn ít nhất một key!' : 'Please select at least one key!');
+        return;
+      }
+
+      showToast(currentLang === 'vi' ? 'Đang đồng bộ...' : 'Syncing...');
+      try {
+        const res = await fetch('/v1/import/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerIds: selected })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          closeSyncModal();
+          showToast(currentLang === 'vi' ? \`Đã đồng bộ thành công \${data.count} keys!\` : \`Successfully synced \${data.count} keys!\`);
+          await refreshAllData();
+        } else {
+          showToast('Sync failed', true);
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // TAB 6: TEST PLAYGROUND
+    async function sendTestChat() {
+      const model = document.getElementById('play-model-select').value;
+      const prompt = document.getElementById('play-prompt').value.trim();
+      const temp = parseFloat(document.getElementById('play-temp').value) || 0.7;
+      const output = document.getElementById('play-output');
+      if (!prompt) return;
+
+      output.textContent = currentLang === 'vi' ? 'Đang kết nối và định tuyến request...' : 'Routing request...';
+
+      try {
+        const res = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            temperature: temp,
+            stream: true,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          output.textContent = 'Error ' + res.status + ': ' + (errJson.error?.message || res.statusText);
+          return;
+        }
+
+        output.textContent = '';
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+            const dataStr = trimmed.replace(/^data:\s*/, '');
+            if (dataStr === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              const delta = parsed.choices?.[0]?.delta?.content || '';
+              output.textContent += delta;
+            } catch (e) {}
+          }
+        }
+        await refreshMonitoring();
+      } catch (err) {
+        output.textContent = 'Request failed: ' + err.message;
+      }
+    }
+
+    // Toast Utility
+    function showToast(msg, isError = false) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.style.borderColor = isError ? 'var(--danger)' : 'var(--border-focus)';
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3500);
+    }
+  </script>
 </body>
 </html>`;
 }
