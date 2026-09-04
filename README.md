@@ -17,11 +17,11 @@ Your tool  ──►  FreeRoute  ──►  OpenRouter  (rate-limited)
 | | |
 |---|---|
 | **Build** | ✅ Passing · `tsc` clean |
-| **Tests** | ✅ 45/45 green |
+| **Tests** | ✅ 49/49 green |
 | **Version** | 0.1.0 |
-| **Providers** | OpenRouter · Groq · Gemini (+ custom via CLI) |
+| **Providers** | OpenRouter · Groq · Gemini (+ custom via UI/CLI) |
 | **M1–M3** | ✅ Complete |
-| **M4** | ⏳ In progress |
+| **M4 / P0–P3** | ✅ Complete (UI, Credentials API, Auto-Secret, Wizard, Stats) |
 
 ---
 
@@ -102,6 +102,14 @@ All endpoints require `Authorization: Bearer <token>`, unless `FREEROUTE_API_TOK
 |---|---|---|
 | `GET` | `/` | Dashboard (HTML) |
 | `GET` | `/health` | Health check |
+| `GET` | `/v1/auth/status` | Setup status & configured providers (Public) |
+| `GET` | `/v1/credentials` | List stored credential metadata (no secrets exposed) |
+| `POST` | `/v1/credentials` | Add or update provider API key |
+| `DELETE` | `/v1/credentials` | Remove provider credential |
+| `GET` | `/v1/providers/custom` | List custom registered providers |
+| `POST` | `/v1/providers/custom` | Add custom OpenAI-compatible or Gemini provider |
+| `DELETE` | `/v1/providers/custom` | Remove custom provider |
+| `POST` | `/v1/import/9router` | Import credential from 9Router SQLite database |
 | `GET` | `/v1/models` | OpenAI-compatible model list with FreeRoute metadata |
 | `POST` | `/v1/chat/completions` | OpenAI chat completions (streaming + non-streaming) |
 | `POST` | `/v1/responses` | OpenAI Responses API (streaming + non-streaming) |
@@ -241,6 +249,7 @@ These routes are accessible **without** any token (`Authorization` header not re
 |---|---|---|
 | `GET` | `/` | Dashboard (HTML) |
 | `GET` | `/health` | Health check (`{ status: "ok" }`) |
+| `GET` | `/v1/auth/status` | Public status check (`needsSetup`, configured providers) |
 
 All other routes (`/v1/models`, `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, etc.) require `Authorization: Bearer <token>`.
 
@@ -253,16 +262,16 @@ Setting `FREEROUTE_API_TOKEN` to an empty string or omitting it entirely disable
 | Feature | FreeRoute | 9router | OmniRoute | FreeLLMAPI |
 |---|---|---|---|---|
 | **Focus** | Free-tier routing | Multi-provider proxy | Enterprise routing | Free-tier aggregation |
-| **Dashboard** | ⚠️ Basic | ✅ Full UI | ✅ Full UI | ✅ Full UI |
+| **Dashboard** | ✅ Full Modern UI (Analytics, Playground) | ✅ Full UI | ✅ Full UI | ✅ Full UI |
 | **Auth flow** | Optional token | Optional login | JWT auth | Setup wizard |
-| **Add keys via UI** | ❌ CLI only | ✅ Modal | ✅ Settings | ✅ UI |
-| **Public endpoints** | ✅ `/` and `/health` | ✅ Yes | ✅ Yes | ✅ Yes |
-| **First-run UX** | ✅ Dashboard works immediately | ✅ Open dashboard | ✅ Open dashboard | ✅ Setup wizard |
-| **9Router import** | ✅ CLI only | N/A | ✅ Yes | ❌ No |
-| **Custom providers** | ✅ CLI + runtime | ❌ Fixed | ✅ Config | ❌ Fixed |
+| **Add keys via UI** | ✅ Full UI + Modal | ✅ Modal | ✅ Settings | ✅ UI |
+| **Public endpoints** | ✅ `/`, `/health`, `/v1/auth/status` | ✅ Yes | ✅ Yes | ✅ Yes |
+| **First-run UX** | ✅ Auto-secret + Onboarding wizard | ✅ Open dashboard | ✅ Open dashboard | ✅ Setup wizard |
+| **9Router import** | ✅ CLI + Dashboard Modal | N/A | ✅ Yes | ❌ No |
+| **Custom providers** | ✅ CLI + UI + Runtime | ❌ Fixed | ✅ Config | ❌ Fixed |
 | **Structured output** | ✅ `response_format` | ❌ | ❌ | ❌ |
-| **Tech stack** | Node.js (TypeScript) | Next.js | Next.js | Node.js + React |
-| **Complexity** | Simple | Medium | Complex | Medium |
+| **Tech stack** | Node.js (TypeScript) · 0-deps | Next.js | Next.js | Node.js + React |
+| **Complexity** | Simple & lightweight | Medium | Complex | Medium |
 
 ---
 
@@ -327,13 +336,13 @@ res.json({ platforms: [...], keys: [...], healthy: boolean });
 
 | Priority | Item | Status | Description |
 |---|---|---|---|
-| P0 | Public endpoints | ✅ Done | `/` and `/health` accessible without token |
-| P0 | Dashboard UX | ⏳ Planned | Show empty state + setup instructions when no keys |
-| P1 | Add key via UI | ⏳ Planned | Modal to add API key from dashboard |
-| P1 | Auto-generate token | ⏳ Planned | Generate default token on first start |
-| P2 | First-run wizard | ⏳ Planned | Guide user to add first key on initial launch |
-| P2 | Real-time stats | ⏳ Planned | Poll health endpoint every 30s in dashboard |
-| P3 | Web redesign | ⏳ Planned | Modern UI with Tailwind/Bootstrap |
+| P0 | Public endpoints | ✅ Done | `/`, `/health`, and `/v1/auth/status` accessible without token |
+| P0 | Dashboard UX | ✅ Done | Show empty state + setup instructions when no keys |
+| P1 | Add key via UI | ✅ Done | Modal to add/manage API keys directly from dashboard |
+| P1 | Auto-generate token | ✅ Done | Auto-generate master secret & manage local API token |
+| P2 | First-run wizard | ✅ Done | Step-by-step onboarding guide on initial launch |
+| P2 | Real-time stats | ✅ Done | Poll health, quota, and events every 30s with toggle |
+| P3 | Web redesign | ✅ Done | Modern dark lab UI with analytics, test playground & quick connect |
 
 ---
 
