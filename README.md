@@ -12,16 +12,20 @@
 [![Security](https://img.shields.io/badge/vault-AES--256--GCM-orange.svg)](https://github.com/kayce310/FreeRoute)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[**English Documentation**](./README.md) · [**Tài Liệu Tiếng Việt**](./README.vi.md) · [**Báo Lỗi / Đóng Góp**](https://github.com/kayce310/FreeRoute/issues)
+<p align="center">
+  <a href="./README.md"><b>English Documentation</b></a> · 
+  <a href="./README.vi.md"><b>Tài Liệu Tiếng Việt</b></a> · 
+  <a href="https://github.com/kayce310/FreeRoute/issues"><b>Báo Lỗi / Đóng Góp</b></a>
+</p>
 
-<br/>
+</div>
 
-```
+```text
   Your IDE / Agent (Cursor, VS Code Copilot, Cline, Claude CLI)
                                │
                                ▼  [http://127.0.0.1:8787/v1]
                  ┌───────────────────────────┐
-                 │    ⚡ FreeRoute Router     │
+                 │   ⚡ FreeRoute Router     │
                  └─────────────┬─────────────┘
                                │
       ┌────────────────────────┼────────────────────────┐
@@ -31,8 +35,6 @@
 │  (1800t/s)│ Rate Limit │ (LPU Fast)│  Overload  │ (1M Ctx)  │
 └───────────┘            └───────────┘            └───────────┘
 ```
-
-</div>
 
 ---
 
