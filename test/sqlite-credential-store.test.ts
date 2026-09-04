@@ -41,3 +41,24 @@ test('a different master secret cannot decrypt a stored credential', async () =>
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('deletes an existing credential and returns true, or false if not found', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'freeroute-credentials-'));
+  const databaseFile = join(directory, 'state.sqlite');
+  try {
+    const store = new SqliteCredentialStore(databaseFile, masterSecret);
+    await store.put('openrouter', 'default', 'secret-key');
+    assert.equal((await store.list()).length, 1);
+
+    const deleted = await store.delete('openrouter', 'default');
+    assert.equal(deleted, true);
+    assert.equal(await store.get('openrouter', 'default'), undefined);
+    assert.equal((await store.list()).length, 0);
+
+    const notFound = await store.delete('openrouter', 'default');
+    assert.equal(notFound, false);
+    store.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

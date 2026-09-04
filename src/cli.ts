@@ -57,13 +57,12 @@ async function removeKey(args: string[]): Promise<void> {
   if (!providerId) { console.error('usage: freeroute remove-key <provider> [credential-id]'); process.exitCode = 1; return; }
   const store = await credentialStore();
   try {
-    // Direct SQLite delete since there's no remove method
-    const dbPath = await localDatabasePath();
-    const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(dbPath);
-    db.prepare('DELETE FROM credentials WHERE provider_id = ? AND credential_id = ?').run(providerId, credentialId);
-    db.close();
-    console.log(`Removed credential '${providerId}/${credentialId}'.`);
+    const removed = await store.delete(providerId, credentialId);
+    if (removed) {
+      console.log(`Removed credential '${providerId}/${credentialId}'.`);
+    } else {
+      console.log(`No credential found for '${providerId}/${credentialId}'.`);
+    }
   } finally { store.close(); }
 }
 

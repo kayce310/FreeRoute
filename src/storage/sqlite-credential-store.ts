@@ -73,6 +73,13 @@ export class SqliteCredentialStore {
     }));
   }
 
+  async delete(providerId: string, credentialId: string): Promise<boolean> {
+    const result = this.database.prepare(`
+      DELETE FROM credentials WHERE provider_id = ? AND credential_id = ?
+    `).run(providerId, credentialId);
+    return Number(result.changes) > 0;
+  }
+
   close(): void {
     this.database.close();
   }
