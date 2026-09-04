@@ -653,6 +653,70 @@ export function dashboardHtml(): string {
       color: #fde68a;
     }
 
+    /* Fixed-height auto-scrolling Routing Stream Box */
+    .stream-scroll-box {
+      max-height: 380px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-sm);
+      background: rgba(9, 13, 22, 0.6);
+      position: relative;
+    }
+    .stream-scroll-box thead th {
+      position: sticky;
+      top: 0;
+      background: #111827;
+      z-index: 5;
+      box-shadow: 0 1px 0 var(--card-border);
+    }
+    @keyframes streamPulse {
+      0% { background: rgba(99, 102, 241, 0.25); }
+      100% { background: transparent; }
+    }
+    .newest-stream-row {
+      animation: streamPulse 2s ease-out;
+    }
+
+    /* Dedicated Vertical Streaming Console Layout */
+    .play-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .play-response-card {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+    .play-response-header {
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid var(--card-border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .play-response-body {
+      padding: 18px 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.7;
+      color: #e2e8f0;
+      min-height: 280px;
+      max-height: 520px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      scroll-behavior: smooth;
+    }
+
     /* Toast Notification */
     #toast {
       position: fixed;
@@ -691,7 +755,6 @@ export function dashboardHtml(): string {
       <div class="header-actions">
         <button class="btn btn-sm" id="lang-btn" onclick="toggleLanguage()">🇻🇳 Tiếng Việt</button>
         <button class="btn btn-sm" onclick="triggerRefresh()" id="hdr-refresh-btn">🔄 Làm mới</button>
-        <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()" id="hdr-add-key-btn">➕ Thêm API Key</button>
         <button class="btn btn-success btn-sm" onclick="openSyncModal()" id="hdr-sync-btn" style="display:none;">⚡ Nhập Key Có Sẵn</button>
       </div>
     </header>
@@ -765,12 +828,19 @@ export function dashboardHtml(): string {
         <div class="card-header">
           <div class="card-title">
             <span id="title-recent-stream">Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)</span>
+            <span class="badge badge-gray" id="stream-count-badge" style="font-size:11px; margin-left:6px;">0 sự kiện</span>
           </div>
-          <div style="font-size:12px; color:var(--text-muted);" id="lbl-live-polling">
-            🟢 Tự động cập nhật mỗi 10s
+          <div style="display:flex; align-items:center; gap:16px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--text-muted); font-size:12px; user-select:none;">
+              <input type="checkbox" id="chk-stream-autoscroll" checked>
+              <span id="lbl-stream-autoscroll">Tự động cuộn mới nhất</span>
+            </label>
+            <div style="font-size:12px; color:var(--text-muted);" id="lbl-live-polling">
+              🟢 Tự động cập nhật mỗi 10s
+            </div>
           </div>
         </div>
-        <div class="table-wrap">
+        <div class="stream-scroll-box" id="stream-scroll-container">
           <table>
             <thead>
               <tr>
@@ -927,38 +997,66 @@ export function dashboardHtml(): string {
     <div class="tab-pane" id="pane-playground">
       <div class="card">
         <div class="card-header">
-          <div class="card-title" id="title-play">Thử Nghiệm Định Tuyến Prompt</div>
-        </div>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-bottom:16px;">
-          <div class="form-group">
-            <label id="lbl-play-model">Hồ Sơ / Model / Combo Mục Tiêu</label>
-            <select class="form-control" id="play-model-select">
-              <optgroup label="Hồ Sơ Tự Động (Auto Profiles)" id="optgrp-play-auto">
-                <option value="auto:free" id="opt-play-free">auto:free (Ưu tiên mô hình miễn phí)</option>
-                <option value="auto:fast" id="opt-play-fast">auto:fast (Tối ưu tốc độ cao Cerebras/Groq)</option>
-                <option value="auto:code" id="opt-play-code">auto:code (Lập trình & Tools)</option>
-                <option value="auto:long-context" id="opt-play-long">auto:long-context (Ngữ cảnh dài Gemini 1M+)</option>
-              </optgroup>
-              <optgroup label="Custom Combos" id="play-combos-group">
-                <!-- Populated dynamically -->
-              </optgroup>
-            </select>
+          <div>
+            <div class="card-title" id="title-play">Thử Nghiệm Định Tuyến Prompt (Streaming Console)</div>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:3px;" id="desc-play">
+              Kiểm tra trực tiếp tốc độ streaming và khả năng tự động Fallback khi model gặp sự cố.
+            </div>
           </div>
-          <div class="form-group">
-            <label id="lbl-play-temp">Nhiệt Độ (Temperature): <span id="temp-val">0.7</span> <span id="temp-hint" style="font-size:11px; color:var(--accent); font-weight:normal;">(Cân bằng / Chat)</span></label>
-            <input type="range" min="0" max="1" step="0.1" value="0.7" class="form-control" id="play-temp" oninput="updateTempDisplay(this.value)">
-            <div id="temp-desc" style="font-size:11px; color:var(--text-muted); margin-top:5px; line-height:1.5;"></div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge badge-blue" id="play-target-badge" style="font-family:var(--font-mono);">auto:code</span>
           </div>
         </div>
-        <div class="form-group">
-          <label id="lbl-play-prompt">Prompt Thử Nghiệm</label>
-          <textarea class="form-control" id="play-prompt" rows="3" placeholder="Nhập câu hỏi tại đây...">Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.</textarea>
-        </div>
-        <button class="btn btn-primary" onclick="sendTestChat()" id="btn-play-send">🚀 Gửi Thử Nghiệm (Streaming)</button>
 
-        <div style="margin-top:20px;">
-          <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:6px;" id="lbl-play-res">Kết quả phản hồi:</label>
-          <div class="code-box" id="play-output" style="min-height:100px; max-height:300px;">Chờ gửi prompt...</div>
+        <div class="play-layout">
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label id="lbl-play-model" style="font-weight:600;">Hồ Sơ / Model / Combo Mục Tiêu</label>
+              <select class="form-control" id="play-model-select" onchange="onPlayModelChange()">
+                <optgroup label="Hồ Sơ Tự Động (Auto Profiles)" id="optgrp-play-auto">
+                  <option value="auto:free" id="opt-play-free">auto:free (Ưu tiên mô hình miễn phí)</option>
+                  <option value="auto:fast" id="opt-play-fast">auto:fast (Tối ưu tốc độ cao Cerebras/Groq)</option>
+                  <option value="auto:code" id="opt-play-code" selected>auto:code (Lập trình & Tools)</option>
+                  <option value="auto:long-context" id="opt-play-long">auto:long-context (Ngữ cảnh dài Gemini 1M+)</option>
+                </optgroup>
+                <optgroup label="Custom Combos" id="play-combos-group">
+                  <!-- Populated dynamically -->
+                </optgroup>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label id="lbl-play-temp" style="font-weight:600;">Nhiệt Độ (Temperature): <span id="temp-val">0.7</span> <span id="temp-hint" style="font-size:11px; color:var(--accent); font-weight:normal;">(Cân bằng / Chat)</span></label>
+              <input type="range" min="0" max="1" step="0.1" value="0.7" class="form-control" id="play-temp" oninput="updateTempDisplay(this.value)">
+              <div id="temp-desc" style="font-size:11px; color:var(--text-muted); margin-top:5px; line-height:1.4;"></div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label id="lbl-play-prompt" style="font-weight:600; margin-bottom:0;">Prompt Thử Nghiệm</label>
+              <span style="font-size:11px; color:var(--text-dim);">Nhấn <kbd style="background:var(--card-border); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); color:var(--text);">Ctrl + Enter</kbd> để gửi</span>
+            </div>
+            <textarea class="form-control" id="play-prompt" rows="3" placeholder="Nhập câu hỏi tại đây..." style="font-family:var(--font); resize:vertical;">Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.</textarea>
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button class="btn btn-primary" onclick="sendTestChat()" id="btn-play-send" style="padding:9px 20px;">🚀 Gửi Thử Nghiệm (Streaming)</button>
+            <button class="btn btn-outline" onclick="clearPlayOutput()" id="btn-play-clear" style="padding:9px 16px;">🗑️ Xóa Màn Hình</button>
+          </div>
+
+          <!-- VERTICAL STREAMING CONSOLE -->
+          <div class="play-response-card">
+            <div class="play-response-header">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span id="play-stream-status" class="badge badge-gray">⚪ Chờ gửi prompt...</span>
+                <span id="play-stream-latency" style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);"></span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button class="btn btn-outline btn-sm" onclick="copyPlayResponse()" id="btn-play-copy">📋 Sao chép kết quả</button>
+              </div>
+            </div>
+            <div class="play-response-body" id="play-output">Chờ gửi prompt... Nhấn "🚀 Gửi Thử Nghiệm" hoặc tổ hợp phím Ctrl + Enter để bắt đầu stream trực tiếp.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1281,7 +1379,18 @@ print(response.choices[0].message.content)</div>
         statusHealthy: 'Khỏe mạnh',
         statusCooldown: 'Hạ nhiệt',
         statusError: 'Lỗi',
-        statusUnconfigured: 'Chưa kết nối'
+        statusUnconfigured: 'Chưa kết nối',
+        streamAutoScroll: 'Tự động cuộn mới nhất',
+        streamCountBadge: (n) => n + ' sự kiện',
+        btnSetupKey: 'Thiết lập ➔',
+        btnManageKey: 'Quản lý ➔',
+        playStatusWaiting: '⚪ Chờ gửi prompt...',
+        playStatusStreaming: '🟢 Đang stream phản hồi...',
+        playStatusDone: '✅ Phản hồi hoàn tất',
+        playStatusError: '❌ Gặp sự cố',
+        btnCopyOutput: '📋 Sao chép kết quả',
+        btnClearOutput: '🗑️ Xóa Màn Hình',
+        playConsoleInitial: 'Chờ gửi prompt... Nhấn "🚀 Gửi Thử Nghiệm" hoặc tổ hợp phím Ctrl + Enter để bắt đầu stream trực tiếp.'
       },
       en: {
         langBtn: '🇬🇧 English',
@@ -1384,7 +1493,18 @@ print(response.choices[0].message.content)</div>
         statusHealthy: 'Healthy',
         statusCooldown: 'Cooldown',
         statusError: 'Error',
-        statusUnconfigured: 'Not Configured'
+        statusUnconfigured: 'Not Configured',
+        streamAutoScroll: 'Auto-scroll to latest',
+        streamCountBadge: (n) => n + ' events',
+        btnSetupKey: 'Configure ➔',
+        btnManageKey: 'Manage ➔',
+        playStatusWaiting: '⚪ Waiting for prompt...',
+        playStatusStreaming: '🟢 Streaming response...',
+        playStatusDone: '✅ Stream completed',
+        playStatusError: '❌ Request error',
+        btnCopyOutput: '📋 Copy response',
+        btnClearOutput: '🗑️ Clear',
+        playConsoleInitial: 'Waiting for prompt... Click "🚀 Send Request" or press Ctrl + Enter to stream live.'
       }
     };
 
@@ -1404,6 +1524,15 @@ print(response.choices[0].message.content)</div>
       ]);
       void fetchImportSources();
       setInterval(refreshMonitoring, 10000);
+      const promptEl = document.getElementById('play-prompt');
+      if (promptEl) {
+        promptEl.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            sendTestChat();
+          }
+        });
+      }
     });
 
     function toggleLanguage() {
@@ -1422,7 +1551,8 @@ print(response.choices[0].message.content)</div>
       document.getElementById('lang-btn').textContent = t('langBtn');
       document.getElementById('hdr-subtitle').textContent = t('subtitle');
       document.getElementById('hdr-refresh-btn').textContent = t('refresh');
-      document.getElementById('hdr-add-key-btn').textContent = t('addKey');
+      const hdrAddKey = document.getElementById('hdr-add-key-btn');
+      if (hdrAddKey) hdrAddKey.textContent = t('addKey');
       document.getElementById('hdr-sync-btn').textContent = t('syncKey');
 
       document.getElementById('kpi-lbl-providers').textContent = t('kpiProviders');
@@ -1444,6 +1574,8 @@ print(response.choices[0].message.content)</div>
       document.getElementById('title-health-matrix').textContent = t('healthTitle');
       document.getElementById('lbl-live-polling').textContent = t('healthAutoPoll');
       document.getElementById('title-recent-stream').textContent = t('recentStreamTitle');
+      const lblStreamAuto = document.getElementById('lbl-stream-autoscroll');
+      if (lblStreamAuto) lblStreamAuto.textContent = t('streamAutoScroll');
 
       document.getElementById('th-ev-time').textContent = t('thTime');
       document.getElementById('th-ev-reqid').textContent = t('thReqId');
@@ -1486,8 +1618,11 @@ print(response.choices[0].message.content)</div>
       document.getElementById('title-play').textContent = t('playTitle');
       document.getElementById('lbl-play-model').textContent = t('lblPlayModel');
       document.getElementById('lbl-play-prompt').textContent = t('lblPlayPrompt');
-      document.getElementById('lbl-play-res').textContent = t('lblPlayRes');
       document.getElementById('btn-play-send').textContent = t('playSend');
+      const btnPlayCopy = document.getElementById('btn-play-copy');
+      if (btnPlayCopy) btnPlayCopy.textContent = t('btnCopyOutput');
+      const btnPlayClear = document.getElementById('btn-play-clear');
+      if (btnPlayClear) btnPlayClear.textContent = t('btnClearOutput');
 
       const optgrpAuto = document.getElementById('optgrp-play-auto');
       if (optgrpAuto) optgrpAuto.label = t('optgrpAuto');
@@ -1792,14 +1927,20 @@ print(response.choices[0].message.content)</div>
 
     function renderEvents() {
       const tbody = document.getElementById('events-tbody');
+      const countBadge = document.getElementById('stream-count-badge');
+      if (countBadge) {
+        countBadge.textContent = t('streamCountBadge', eventsData ? eventsData.length : 0);
+      }
       if (!eventsData || eventsData.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">' + t('noEvents') + '</td></tr>';
         return;
       }
 
-      const recent = eventsData.slice(-20).reverse();
+      const recent = eventsData.slice(-30);
       let html = '';
-      for (const ev of recent) {
+      for (let i = 0; i < recent.length; i++) {
+        const ev = recent[i];
+        const isLatest = (i === recent.length - 1);
         const timeStr = ev.occurredAt ? new Date(ev.occurredAt).toLocaleTimeString() : '—';
         const reqId = ev.requestId ? ev.requestId.slice(0, 8) + '...' : '—';
         const target = ev.profile || ev.requestedModel || 'auto:free';
@@ -1809,7 +1950,7 @@ print(response.choices[0].message.content)</div>
         const isOk = !ev.errorCode;
 
         html += \`
-          <tr>
+          <tr class="\${isLatest ? 'newest-stream-row' : ''}">
             <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:12px;">\${timeStr}</td>
             <td style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">\${reqId}</td>
             <td><code>\${target}</code></td>
@@ -1829,6 +1970,14 @@ print(response.choices[0].message.content)</div>
         \`;
       }
       tbody.innerHTML = html;
+
+      const chk = document.getElementById('chk-stream-autoscroll');
+      if (!chk || chk.checked) {
+        const box = document.getElementById('stream-scroll-container');
+        if (box) {
+          box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        }
+      }
     }
 
     // TAB 2: PROVIDER DIRECTORY
@@ -1918,13 +2067,10 @@ print(response.choices[0].message.content)</div>
               </div>
             </div>
             <div class="preset-actions">
-              \${p.apiKeyUrl ? \`<a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-sm">\${t('getKeyLink')}</a>\` : ''}
+              \${p.apiKeyUrl ? \`<a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-sm btn-outline" style="font-size:11px;">\${t('getKeyLink')}</a>\` : '<span style="font-size:11px; color:var(--text-dim);">Local / Free</span>'}
               \${isConfigured 
-                ? \`<div style="display:flex; gap:6px;">
-                    <button class="btn btn-sm btn-outline" onclick="goToCredentialsFor('\${p.id}')">\${t('btnManageKeys', keyCount)}</button>
-                    <button class="btn btn-sm btn-primary" onclick="openAddKeyModal('\${p.id}')" title="\${t('btnAddKeyShort')}">+</button>
-                  </div>\`
-                : \`<button class="btn btn-sm btn-primary" onclick="openAddKeyModal('\${p.id}')">➕ \${t('connectBtn')}</button>\`
+                ? \`<button class="btn btn-sm btn-outline" onclick="switchTab('credentials')">⚙️ \${t('btnManageKey')}</button>\`
+                : \`<button class="btn btn-sm btn-outline" onclick="openAddKeyModal('\${p.id}')">\${t('btnSetupKey')}</button>\`
               }
             </div>
           </div>
@@ -2376,10 +2522,7 @@ print(response.choices[0].message.content)</div>
             </td>
             <td style="color:var(--text-muted); font-size:12px;">\${updatedStr}</td>
             <td style="text-align:right;">
-              <div style=\"display:inline-flex; gap:6px;\">
-                <button class=\"btn btn-sm btn-primary\" onclick=\"openAddKeyModal('\${c.providerId}')\" title=\"Thêm key phụ\">+ Key</button>
-                <button class=\"btn btn-danger btn-sm\" onclick=\"deleteKey('\${c.providerId}', '\${c.credentialId}')\">\${t('deleteBtn')}</button>
-              </div>
+              <button class="btn btn-danger btn-sm" onclick="deleteKey('\${c.providerId}', '\${c.credentialId}')">\${t('deleteBtn')}</button>
             </td>
           </tr>
         \`;
@@ -2564,14 +2707,58 @@ print(response.choices[0].message.content)</div>
     }
 
     // TAB 6: TEST PLAYGROUND
+    function onPlayModelChange() {
+      const sel = document.getElementById('play-model-select');
+      const badge = document.getElementById('play-target-badge');
+      if (sel && badge) {
+        badge.textContent = sel.value;
+      }
+    }
+
+    function clearPlayOutput() {
+      const output = document.getElementById('play-output');
+      const statusEl = document.getElementById('play-stream-status');
+      const latEl = document.getElementById('play-stream-latency');
+      if (output) output.textContent = t('playConsoleInitial');
+      if (statusEl) {
+        statusEl.className = 'badge badge-gray';
+        statusEl.textContent = t('playStatusWaiting');
+      }
+      if (latEl) latEl.textContent = '';
+    }
+
+    function copyPlayResponse() {
+      const output = document.getElementById('play-output');
+      if (!output) return;
+      const text = output.innerText || output.textContent || '';
+      if (!text || text === t('playConsoleInitial')) {
+        showToast(currentLang === 'vi' ? 'Chưa có nội dung để sao chép!' : 'Nothing to copy yet!', true);
+        return;
+      }
+      copyToClipboard(text);
+    }
+
     async function sendTestChat() {
       const model = document.getElementById('play-model-select').value;
       const prompt = document.getElementById('play-prompt').value.trim();
       const temp = parseFloat(document.getElementById('play-temp').value) || 0.7;
       const output = document.getElementById('play-output');
+      const statusEl = document.getElementById('play-stream-status');
+      const latEl = document.getElementById('play-stream-latency');
+      const sendBtn = document.getElementById('btn-play-send');
+
       if (!prompt) return;
 
-      output.textContent = currentLang === 'vi' ? 'Đang kết nối và định tuyến request...' : 'Routing request...';
+      sendBtn.disabled = true;
+      if (statusEl) {
+        statusEl.className = 'badge badge-yellow';
+        statusEl.textContent = t('playStatusStreaming');
+      }
+      output.textContent = '';
+      if (latEl) latEl.textContent = '...';
+
+      const startTime = performance.now();
+      let firstTokenTime = null;
 
       try {
         const res = await fetch('/v1/chat/completions', {
@@ -2588,10 +2775,14 @@ print(response.choices[0].message.content)</div>
         if (!res.ok) {
           const errJson = await res.json().catch(() => ({}));
           output.textContent = 'Error ' + res.status + ': ' + (errJson.error?.message || res.statusText);
+          if (statusEl) {
+            statusEl.className = 'badge badge-red';
+            statusEl.textContent = t('playStatusError');
+          }
+          sendBtn.disabled = false;
           return;
         }
 
-        output.textContent = '';
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
@@ -2599,6 +2790,11 @@ print(response.choices[0].message.content)</div>
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (!firstTokenTime) {
+            firstTokenTime = performance.now();
+            const ttft = Math.round(firstTokenTime - startTime);
+            if (latEl) latEl.textContent = 'TTFT: ' + ttft + 'ms';
+          }
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\\n');
           buffer = lines.pop();
@@ -2611,13 +2807,30 @@ print(response.choices[0].message.content)</div>
             try {
               const parsed = JSON.parse(dataStr);
               const delta = parsed.choices?.[0]?.delta?.content || '';
-              output.textContent += delta;
+              if (delta) {
+                output.textContent += delta;
+                output.scrollTop = output.scrollHeight;
+              }
             } catch (e) {}
           }
+        }
+
+        const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        const ttft = firstTokenTime ? Math.round(firstTokenTime - startTime) : Math.round(performance.now() - startTime);
+        if (latEl) latEl.textContent = 'TTFT: ' + ttft + 'ms • Total: ' + totalTime + 's';
+        if (statusEl) {
+          statusEl.className = 'badge badge-green';
+          statusEl.textContent = t('playStatusDone');
         }
         await refreshMonitoring();
       } catch (err) {
         output.textContent = 'Request failed: ' + err.message;
+        if (statusEl) {
+          statusEl.className = 'badge badge-red';
+          statusEl.textContent = t('playStatusError');
+        }
+      } finally {
+        sendBtn.disabled = false;
       }
     }
 
