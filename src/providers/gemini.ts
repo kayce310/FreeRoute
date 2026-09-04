@@ -48,10 +48,21 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
   }
 
   async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
-    const response = await this.fetcher(this.url(input.modelId, 'generateContent'), {
-      method: 'POST', headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify(toGeminiRequest(input.request)),
-    });
+    let response: Response;
+    try {
+      const headers = await this.headers(input.credentialId);
+      response = await this.fetcher(this.url(input.modelId, 'generateContent'), {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify(toGeminiRequest(input.request)),
+      });
+    } catch (err: unknown) {
+      if (err instanceof ProviderInvocationError) throw err;
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`Gemini connection error: ${msg}`, { kind: 'temporary' });
+    }
+
     if (!response.ok) throw await providerError(response);
     const body = await response.json() as GeminiResponse;
     const content = textFrom(body);
@@ -62,10 +73,21 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
     const url = new URL(this.url(input.modelId, 'streamGenerateContent'));
     url.searchParams.set('alt', 'sse');
-    const response = await this.fetcher(url, {
-      method: 'POST', headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify(toGeminiRequest(input.request)),
-    });
+    let response: Response;
+    try {
+      const headers = await this.headers(input.credentialId);
+      response = await this.fetcher(url, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify(toGeminiRequest(input.request)),
+      });
+    } catch (err: unknown) {
+      if (err instanceof ProviderInvocationError) throw err;
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, { kind: 'temporary' });
+    }
+
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('Gemini returned no streaming response body', { kind: 'temporary' });
     const decoder = new TextDecoder();

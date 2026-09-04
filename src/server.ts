@@ -572,6 +572,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
             'x-freeroute-provider': result.decision.candidate.providerId,
             'x-freeroute-model': result.decision.candidate.modelId,
+            'x-freeroute-fallback-count': String(result.fallbackCount ?? 0),
           });
           for await (const event of result.events) {
             response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }] })}\n\n`);
@@ -708,7 +709,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
       if (error instanceof Error && error.message === 'no eligible route candidates') {
-        sendJson(response, 503, { error: { message: 'no eligible route candidate for the requested capabilities', type: 'server_error' } });
+        sendJson(response, 503, {
+          error: {
+            message: 'Chưa có API key nào khả dụng cho profile/model này (hoặc tất cả upstream đều lỗi). Vui lòng truy cập http://127.0.0.1:8787 để kiểm tra hoặc thêm key! / No active route candidates available. Please open http://127.0.0.1:8787 to configure credentials.',
+            type: 'no_route_candidates',
+            code: 'no_candidates',
+          },
+        });
         return;
       }
       if (error instanceof ProviderInvocationError) {
@@ -723,7 +730,11 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         sendJson(response, error.failure.kind === 'authentication' ? 401 : 502, {
-          error: { message: error.message, type: error.failure.kind === 'authentication' ? 'authentication_error' : 'upstream_error' },
+          error: {
+            message: `Tất cả nhà cung cấp dự phòng đều thất bại: ${error.message} / All upstream fallback routes failed: ${error.message}`,
+            type: error.failure.kind === 'authentication' ? 'authentication_error' : 'upstream_error',
+            code: 'upstream_failed',
+          },
         });
         return;
       }
@@ -731,7 +742,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         sendJson(response, 400, { error: { message: error.message, type: 'invalid_request_error' } });
         return;
       }
-      sendJson(response, 500, { error: { message: 'internal server error', type: 'server_error' } });
+      console.error('SERVER CHAT ERROR:', error);
+      sendJson(response, 500, {
+        error: {
+          message: error instanceof Error ? error.message : 'internal server error',
+          type: 'server_error',
+        },
+      });
     }
   });
 }

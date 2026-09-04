@@ -1,4 +1,5 @@
 import type { Capability, FreeTierClass, ModelRecord } from './contracts.js';
+import { PROVIDER_PRESETS } from './presets.js';
 
 export interface DiscoveredModel {
   modelId: string;
@@ -67,15 +68,19 @@ export class CatalogService {
 
       try {
         const discovered = await adapter.discoverModels(credentialId);
-        const models = discovered.map((model): ModelRecord => ({
-          providerId: adapter.providerId,
-          modelId: model.modelId,
-          capabilities: model.capabilities,
-          freeTier: model.freeTier,
-          checkedAt,
-          expiresAt: model.expiresAt,
-          priority: model.priority ?? 0,
-        }));
+        const preset = PROVIDER_PRESETS.find((p) => p.id === adapter.providerId);
+        const models = discovered.map((model): ModelRecord => {
+          const presetModel = preset?.seedModels.find((sm) => sm.modelId === model.modelId);
+          return {
+            providerId: adapter.providerId,
+            modelId: model.modelId,
+            capabilities: model.capabilities,
+            freeTier: (model.freeTier === 'free_unverified' && presetModel?.freeTier) ? presetModel.freeTier : model.freeTier,
+            checkedAt,
+            expiresAt: model.expiresAt,
+            priority: model.priority ?? presetModel?.priority ?? 0,
+          };
+        });
         await this.store.replaceProvider(adapter.providerId, models);
         return { providerId: adapter.providerId, status: 'updated', modelCount: models.length };
       } catch (error) {

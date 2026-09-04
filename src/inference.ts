@@ -141,6 +141,7 @@ export class ChatService {
     let fallbackCount = 0;
     let contextOverflowCount = 0;
     let totalAttempts = 0;
+    let lastError: unknown = null;
 
     while (true) {
       const decision = chooseRoute(request, candidates, this.now());
@@ -148,6 +149,7 @@ export class ChatService {
         if (totalAttempts > 0 && contextOverflowCount === totalAttempts) {
           throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
         }
+        if (lastError) throw lastError;
         throw new Error('no eligible route candidates');
       }
       const adapter = this.options.adapters.get(decision.candidate.providerId);
@@ -177,18 +179,25 @@ export class ChatService {
         return completed;
       } catch (error) {
         if (!(error instanceof ProviderInvocationError)) throw error;
+        lastError = error;
         const { kind } = error.failure;
         totalAttempts += 1;
         if (kind === 'context_overflow') {
           contextOverflowCount += 1;
         }
-        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow') {
+        if (request.profile === 'named' && (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent')) {
+          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
+          throw error;
+        }
+        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow' && kind !== 'authentication' && kind !== 'unsupported' && kind !== 'permanent') {
           await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
           throw error;
         }
         const failureCount = (this.options.routeState?.getFailureCount(decision.candidate) ?? 0) + 1;
         candidates = candidates.map((candidate) => candidate === decision.candidate
-          ? applyFailureCooldown(candidate, error.failure, this.now(), failureCount)
+          ? (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent'
+              ? { ...candidate, preference: 'block' as const }
+              : applyFailureCooldown(candidate, error.failure, this.now(), failureCount))
           : candidate);
         this.options.routeState?.recordFailure(decision.candidate, error.failure, this.now());
         fallbackCount += 1;
@@ -196,19 +205,84 @@ export class ChatService {
     }
   }
 
-  async stream(request: NormalizedChatRequest): Promise<{ decision: RouteDecision; events: AsyncIterable<NormalizedChatStreamEvent> }> {
-    const decision = chooseRoute(request, this.withRouteState(await this.options.candidates(request)), this.now());
-    if (!decision) throw new Error('no eligible route candidates');
-    const adapter = this.options.adapters.get(decision.candidate.providerId);
-    if (!adapter?.streamChat) throw new ProviderInvocationError('streaming is not supported by the selected provider', { kind: 'unsupported' });
-    return {
-      decision,
-      events: adapter.streamChat({
-        credentialId: decision.candidate.credentialId,
-        modelId: decision.candidate.modelId,
-        request: { ...request, responseFormat: request.responseFormat },
-      }),
-    };
+  async stream(request: NormalizedChatRequest): Promise<{ decision: RouteDecision; events: AsyncIterable<NormalizedChatStreamEvent>; fallbackCount: number }> {
+    let candidates = this.withRouteState(await this.options.candidates(request));
+    let fallbackCount = 0;
+    let totalAttempts = 0;
+    let contextOverflowCount = 0;
+    let lastError: unknown = null;
+
+    while (true) {
+      const decision = chooseRoute(request, candidates, this.now());
+      if (!decision) {
+        if (totalAttempts > 0 && contextOverflowCount === totalAttempts) {
+          throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
+        }
+        if (lastError) throw lastError;
+        throw new Error('no eligible route candidates');
+      }
+      const adapter = this.options.adapters.get(decision.candidate.providerId);
+      if (!adapter?.streamChat) {
+        candidates = candidates.map((candidate) => candidate === decision.candidate ? { ...candidate, preference: 'block' as const } : candidate);
+        fallbackCount += 1;
+        continue;
+      }
+
+      try {
+        const streamIterable = adapter.streamChat({
+          credentialId: decision.candidate.credentialId,
+          modelId: decision.candidate.modelId,
+          request: { ...request, responseFormat: request.responseFormat },
+        });
+        const iterator = streamIterable[Symbol.asyncIterator]();
+        const first = await iterator.next();
+
+        async function* eventsGenerator() {
+          if (!first.done) {
+            yield first.value;
+          }
+          while (true) {
+            const next = await iterator.next();
+            if (next.done) break;
+            yield next.value;
+          }
+        }
+
+        this.options.routeState?.recordSuccess(decision.candidate);
+        void this.emitEvent(request, decision.candidate, fallbackCount, 'success');
+        return {
+          decision,
+          events: eventsGenerator(),
+          fallbackCount,
+        };
+      } catch (error) {
+        const invocationError = error instanceof ProviderInvocationError
+          ? error
+          : new ProviderInvocationError(error instanceof Error ? error.message : 'upstream streaming failed', { kind: 'temporary' });
+        lastError = invocationError;
+        const { kind } = invocationError.failure;
+        totalAttempts += 1;
+        if (kind === 'context_overflow') {
+          contextOverflowCount += 1;
+        }
+        if (request.profile === 'named' && (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent')) {
+          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
+          throw invocationError;
+        }
+        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow' && kind !== 'authentication' && kind !== 'unsupported' && kind !== 'permanent') {
+          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
+          throw invocationError;
+        }
+        const failureCount = (this.options.routeState?.getFailureCount(decision.candidate) ?? 0) + 1;
+        candidates = candidates.map((candidate) => candidate === decision.candidate
+          ? (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent'
+              ? { ...candidate, preference: 'block' as const }
+              : applyFailureCooldown(candidate, invocationError.failure, this.now(), failureCount))
+          : candidate);
+        this.options.routeState?.recordFailure(decision.candidate, invocationError.failure, this.now());
+        fallbackCount += 1;
+      }
+    }
   }
 
   private withRouteState(candidates: RouteCandidate[]): RouteCandidate[] {

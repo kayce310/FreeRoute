@@ -764,21 +764,10 @@ export function dashboardHtml(): string {
       <div class="card">
         <div class="card-header">
           <div class="card-title">
-            <span id="title-health-matrix">Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)</span>
+            <span id="title-recent-stream">Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)</span>
           </div>
           <div style="font-size:12px; color:var(--text-muted);" id="lbl-live-polling">
             🟢 Tự động cập nhật mỗi 10s
-          </div>
-        </div>
-        <div class="health-matrix" id="health-matrix-container">
-          <!-- Rendered dynamically -->
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span id="title-recent-stream">Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)</span>
           </div>
         </div>
         <div class="table-wrap">
@@ -800,6 +789,17 @@ export function dashboardHtml(): string {
           </table>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span id="title-health-matrix">Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)</span>
+          </div>
+        </div>
+        <div class="health-matrix" id="health-matrix-container">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
     </div>
 
     <!-- TAB 2: PROVIDER DIRECTORY (70+ PRESETS) -->
@@ -817,8 +817,23 @@ export function dashboardHtml(): string {
       </div>
     </div>
 
-    <!-- TAB 3: MODEL CATALOG (WITH SORTING & FILTERING) -->
+    <!-- TAB 3: MODEL CATALOG (WITH SORTING & FILTERING & COMBOS) -->
     <div class="tab-pane" id="pane-models">
+      <!-- COMBO & AUTO PROFILES SHOWCASE -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="title-catalog-combos">🔀 Chuỗi Fallback Dự Phòng & Profile Khuyên Dùng Cho IDE / Tool</div>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="desc-catalog-combos">
+              Cấu hình các Model ID này vào VS Code Copilot, Cursor, Continue.dev... để tận hưởng tự động chuyển vùng fallback khi có sự cố.
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="switchTab('combos')" id="btn-goto-combos">⚙️ Quản Lý / Tạo Combo Mới</button>
+        </div>
+        <div class="combos-grid" id="catalog-combos-container" style="margin-top:10px;">
+          <!-- Dynamically rendered -->
+        </div>
+      </div>
       <div class="filter-bar">
         <div class="filter-group">
           <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; cursor:pointer; background:var(--card-hover); padding:6px 12px; border-radius:var(--radius-sm); border:1px solid var(--card-border);">
@@ -1223,6 +1238,11 @@ print(response.choices[0].message.content)</div>
         thPriority: 'Độ Ưu Tiên',
         thCaps: 'Tính Năng Hỗ Trợ',
         thPref: 'Định Tuyến',
+        titleCatalogCombos: '🔀 Chuỗi Fallback Dự Phòng & Profile Khuyên Dùng Cho IDE / Tool',
+        descCatalogCombos: 'Cấu hình các Model ID này vào VS Code Copilot, Cursor, Continue.dev... để tận hưởng tự động chuyển vùng fallback khi có sự cố.',
+        btnGotoCombos: '⚙️ Quản Lý / Tạo Combo Mới',
+        btnCopyId: '📋 Sao Chép ID',
+        btnTestCombo: '🧪 Thử Nghiệm',
         titleCombos: 'Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)',
         descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
         btnCreateCombo: '➕ Tạo Combo Mới',
@@ -1321,6 +1341,11 @@ print(response.choices[0].message.content)</div>
         thPriority: 'Priority',
         thCaps: 'Capabilities',
         thPref: 'Routing',
+        titleCatalogCombos: '🔀 Recommended Fallback Chains & Auto Profiles for IDEs / Tools',
+        descCatalogCombos: 'Use these Model IDs in VS Code Copilot, Cursor, Continue.dev... to automatically failover to secondary models when errors or rate limits occur.',
+        btnGotoCombos: '⚙️ Manage / Create Combos',
+        btnCopyId: '📋 Copy ID',
+        btnTestCombo: '🧪 Test Model',
         titleCombos: 'Custom Fallback Routing Chains (Combos)',
         descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
         btnCreateCombo: '➕ Create Combo',
@@ -1436,6 +1461,13 @@ print(response.choices[0].message.content)</div>
       document.getElementById('th-model-priority').innerHTML = t('thPriority') + ' ' + (modelSortField === 'priority' ? (modelSortAsc ? '▲' : '▼') : '⇕');
       document.getElementById('th-model-caps').textContent = t('thCaps');
       document.getElementById('th-model-pref').textContent = t('thPref');
+
+      const titleCat = document.getElementById('title-catalog-combos');
+      if (titleCat) titleCat.textContent = t('titleCatalogCombos');
+      const descCat = document.getElementById('desc-catalog-combos');
+      if (descCat) descCat.textContent = t('descCatalogCombos');
+      const btnGoCombos = document.getElementById('btn-goto-combos');
+      if (btnGoCombos) btnGoCombos.textContent = t('btnGotoCombos');
 
       document.getElementById('title-combos').textContent = t('titleCombos');
       document.getElementById('desc-combos').textContent = t('descCombos');
@@ -1768,7 +1800,7 @@ print(response.choices[0].message.content)</div>
       for (const ev of recent) {
         const timeStr = ev.occurredAt ? new Date(ev.occurredAt).toLocaleTimeString() : '—';
         const reqId = ev.requestId ? ev.requestId.slice(0, 8) + '...' : '—';
-        const target = ev.requestedModel || 'auto:free';
+        const target = ev.profile || ev.requestedModel || 'auto:free';
         const served = (ev.providerId || '—') + ' / ' + (ev.modelId || '—');
         const fallbacks = ev.fallbackCount || ev.fallbacks || 0;
         const latency = ev.latencyMs ? ev.latencyMs + 'ms' : '—';
@@ -1987,45 +2019,185 @@ print(response.choices[0].message.content)</div>
       tbody.innerHTML = html;
     }
 
-    // TAB 4: CUSTOM COMBOS
+    // UTILS: CLIPBOARD & PLAYGROUND SELECTION
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast((currentLang === 'vi' ? 'Đã sao chép: ' : 'Copied: ') + text);
+        }).catch(() => {
+          prompt(currentLang === 'vi' ? 'Sao chép giá trị này:' : 'Copy this value:', text);
+        });
+      } else {
+        prompt(currentLang === 'vi' ? 'Sao chép giá trị này:' : 'Copy this value:', text);
+      }
+    }
+
+    function testModelId(modelId) {
+      switchTab('playground');
+      const sel = document.getElementById('play-model-select');
+      if (sel) {
+        let optExists = false;
+        for (let i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === modelId) {
+            sel.selectedIndex = i;
+            optExists = true;
+            break;
+          }
+        }
+        if (!optExists) {
+          const opt = document.createElement('option');
+          opt.value = modelId;
+          opt.textContent = modelId;
+          sel.appendChild(opt);
+          sel.value = modelId;
+        }
+      }
+    }
+
+    // TAB 4 & TAB 3: CUSTOM COMBOS & AUTO PROFILES SHOWCASE
     function renderCombos() {
+      // 1. Render Tab 4: Custom Combos Manager
       const container = document.getElementById('combos-container');
-      if (combos.length === 0) {
-        container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); padding:30px;">' + (currentLang === 'vi' ? 'Chưa có combo nào. Hãy bấm Tạo Combo Mới!' : 'No combos configured. Click Create Combo!') + '</div>';
-        return;
-      }
+      if (container) {
+        if (combos.length === 0) {
+          container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); padding:30px;">' + (currentLang === 'vi' ? 'Chưa có combo nào. Hãy bấm Tạo Combo Mới!' : 'No combos configured. Click Create Combo!') + '</div>';
+        } else {
+          let html = '';
+          for (const cb of combos) {
+            const chainHtml = (cb.models || []).map((m, idx) => \`
+              <div class="chain-step">
+                <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
+                <span>\${m}</span>
+              </div>
+            \`).join('<div class="chain-arrow">↓ fallback</div>');
 
-      let html = '';
-      for (const cb of combos) {
-        const chainHtml = (cb.models || []).map((m, idx) => \`
-          <div class="chain-step">
-            <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
-            <span>\${m}</span>
-          </div>
-        \`).join('<div class="chain-arrow">↓ fallback</div>');
-
-        html += \`
-          <div class="combo-card">
-            <div>
-              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            html += \`
+              <div class="combo-card">
                 <div>
-                  <h3 style="font-size:16px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
-                  <code style="font-size:11px; color:var(--text-muted);">combo:\${cb.comboId}</code>
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                      <h3 style="font-size:16px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
+                      <code style="font-size:11px; color:var(--text-muted);">combo:\${cb.comboId}</code>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="deleteCombo('\\\${cb.comboId}')" title="Delete">✕</button>
+                  </div>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
+                  <div class="combo-chain">
+                    \${chainHtml}
+                  </div>
                 </div>
-                <button class="btn btn-danger btn-sm" onclick="deleteCombo('\${cb.comboId}')">✕</button>
+                <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
+                  <button class="btn btn-sm btn-outline" onclick="copyToClipboard('combo:\\\${cb.comboId}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
+                  <button class="btn btn-sm btn-primary" onclick="testCombo('\\\${cb.comboId}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+                </div>
               </div>
-              <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
-              <div class="combo-chain">
-                \${chainHtml}
-              </div>
-            </div>
-            <div style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--card-border); padding-top:10px;">
-              <button class="btn btn-sm btn-primary" onclick="testCombo('\${cb.comboId}')">🧪 Test Combo</button>
-            </div>
-          </div>
-        \`;
+            \`;
+          }
+          container.innerHTML = html;
+        }
       }
-      container.innerHTML = html;
+
+      // 2. Render Tab 3: Model Catalog Combos & Auto Profiles Showcase
+      const catalogContainer = document.getElementById('catalog-combos-container');
+      if (catalogContainer) {
+        const autoProfiles = [
+          {
+            id: 'auto:code',
+            name: currentLang === 'vi' ? 'Lập Trình & Tools (Coding & Agents)' : 'Coding & Function Calling',
+            desc: currentLang === 'vi' ? 'Chuỗi định tuyến tối ưu nhất cho VS Code Copilot, Cursor, Continue.dev, Roo Code.' : 'Top priority fallback chain for coding agents, function calling and tools.',
+            badge: currentLang === 'vi' ? 'Khuyên dùng cho IDE' : 'Recommended for IDEs',
+            steps: ['groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'gemini/gemini-2.5-flash', 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free']
+          },
+          {
+            id: 'auto:free',
+            name: currentLang === 'vi' ? '100% Miễn Phí (Zero Cost)' : '100% Free Fallback',
+            desc: currentLang === 'vi' ? 'Tự động chọn model miễn phí có trạng thái tốt nhất từ Groq, Gemini, OpenRouter, Cerebras.' : 'Automatically selects the best-health model from completely free tiers.',
+            badge: currentLang === 'vi' ? 'Miễn phí' : '100% Free',
+            steps: ['gemini/gemini-2.5-flash', 'groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'openrouter:free']
+          },
+          {
+            id: 'auto:fast',
+            name: currentLang === 'vi' ? 'Siêu Tốc Độ (Ultra Fast 500-1800 tps)' : 'Ultra-Fast Inference (500-1800 tps)',
+            desc: currentLang === 'vi' ? 'Tối ưu độ trễ thấp nhất cho autocomplete và inline chat tức thì.' : 'Optimized for minimum latency, ideal for inline completion and rapid chat.',
+            badge: currentLang === 'vi' ? 'Tốc độ' : 'Ultra Fast',
+            steps: ['cerebras/llama-3.3-70b', 'groq/llama-3.1-8b-instant', 'cerebras/llama-3.1-8b']
+          },
+          {
+            id: 'auto:long-context',
+            name: currentLang === 'vi' ? 'Ngữ Cảnh Siêu Lớn (Long Context 1M+)' : 'Massive Context (1M+ Tokens)',
+            desc: currentLang === 'vi' ? 'Đọc toàn bộ codebase hoặc tài liệu khổng lồ với Gemini Flash 1M tokens.' : 'Process entire code repositories and massive books with 1M+ context window.',
+            badge: currentLang === 'vi' ? 'Ngữ cảnh' : '1M+ Context',
+            steps: ['gemini/gemini-2.5-flash (1M)', 'openrouter/google/gemini-2.0-flash-exp:free', 'openrouter/minimax/minimax-m2.7:free']
+          }
+        ];
+
+        let catHtml = '';
+        // Render Auto Profiles
+        for (const ap of autoProfiles) {
+          const chainSteps = ap.steps.map((s, idx) => \`
+            <div class="chain-step">
+              <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
+              <span>\${s}</span>
+            </div>
+          \`).join('<div class="chain-arrow">↓ fallback</div>');
+
+          catHtml += \`
+            <div class="combo-card" style="border-left: 3px solid var(--accent);">
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                  <div>
+                    <h3 style="font-size:15px; font-weight:600; color:var(--accent);">\${ap.name}</h3>
+                    <code style="font-size:12px; color:var(--accent); background:var(--card-hover); padding:2px 6px; border-radius:4px; font-weight:bold;">\${ap.id}</code>
+                  </div>
+                  <span class="badge badge-blue">\${ap.badge}</span>
+                </div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${ap.desc}</div>
+                <div class="combo-chain">
+                  \${chainSteps}
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
+                <button class="btn btn-sm btn-outline" onclick="copyToClipboard('\\\${ap.id}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
+                <button class="btn btn-sm btn-primary" onclick="testModelId('\\\${ap.id}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+              </div>
+            </div>
+          \`;
+        }
+
+        // Render Custom Combos
+        for (const cb of combos) {
+          const chainHtml = (cb.models || []).map((m, idx) => \`
+            <div class="chain-step">
+              <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
+              <span>\${m}</span>
+            </div>
+          \`).join('<div class="chain-arrow">↓ fallback</div>');
+
+          catHtml += \`
+            <div class="combo-card">
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                  <div>
+                    <h3 style="font-size:15px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
+                    <code style="font-size:12px; color:var(--success); background:var(--card-hover); padding:2px 6px; border-radius:4px; font-weight:bold;">combo:\${cb.comboId}</code>
+                  </div>
+                  <span class="badge badge-green">Custom Combo</span>
+                </div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
+                <div class="combo-chain">
+                  \${chainHtml}
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
+                <button class="btn btn-sm btn-outline" onclick="copyToClipboard('combo:\\\${cb.comboId}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
+                <button class="btn btn-sm btn-primary" onclick="testCombo('\\\${cb.comboId}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+              </div>
+            </div>
+          \`;
+        }
+
+        catalogContainer.innerHTML = catHtml;
+      }
     }
 
     function populatePlaygroundCombos() {

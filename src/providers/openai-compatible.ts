@@ -65,18 +65,28 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
   }
 
   async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
-    const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: input.modelId,
-        messages: input.request.messages,
-        temperature: input.request.temperature,
-        ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
-        stream: false,
-        ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}),
-      }),
-    });
+    let response: Response;
+    try {
+      const headers = await this.headers(input.credentialId);
+      response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          model: input.modelId,
+          messages: input.request.messages,
+          temperature: input.request.temperature,
+          ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
+          stream: false,
+          ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}),
+        }),
+      });
+    } catch (err: unknown) {
+      if (err instanceof ProviderInvocationError) throw err;
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`upstream connection error to ${this.providerId}: ${msg}`, { kind: 'temporary' });
+    }
+
     if (!response.ok) throw await providerError(response);
     const body = await response.json() as OpenAIChatCompletion;
     const content = contentToText(body.choices?.[0]?.message?.content);
@@ -86,11 +96,21 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
-    const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { ...(await this.headers(input.credentialId)), 'content-type': 'application/json' },
-      body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
-    });
+    let response: Response;
+    try {
+      const headers = await this.headers(input.credentialId);
+      response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
+      });
+    } catch (err: unknown) {
+      if (err instanceof ProviderInvocationError) throw err;
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`upstream streaming connection error to ${this.providerId}: ${msg}`, { kind: 'temporary' });
+    }
+
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });
     const decoder = new TextDecoder();

@@ -352,6 +352,41 @@ In `~/.continue/config.json`:
 }
 ```
 
+#### 5. GitHub Copilot Custom Endpoint (VS Code)
+In your VS Code `settings.json`:
+```json
+{
+  "github.copilot.chat.customEndpoints": [
+    {
+      "name": "FreeRoute",
+      "vendor": "customendpoint",
+      "apiKey": "freeroute-local",
+      "apiType": "chat-completions",
+      "models": [
+        {
+          "id": "auto:code",
+          "name": "FreeRoute Auto Code",
+          "url": "http://127.0.0.1:8787/v1",
+          "toolCalling": true,
+          "vision": true,
+          "maxInputTokens": 128000,
+          "maxOutputTokens": 16000
+        }
+      ]
+    }
+  ]
+}
+```
+
+> [!TIP]
+> **Cloning FreeRoute to a New Machine:**
+> The `data/` directory (SQLite database and master encryption key) is intentionally excluded from Git (`.gitignore`) to keep your API tokens 100% private.
+> When cloning to a new machine:
+> 1. Run `npm install` and start the server: `npm start`
+> 2. Open `http://127.0.0.1:8787` in your browser.
+> 3. Click **"⚡ Nhập Khóa Từ 9router & OmniRoute"** (or **"➕ Thêm Key Mới"**) to configure your free keys (e.g. Google Gemini, Groq, OpenRouter).
+> 4. Once at least one key is configured, your IDE will immediately connect and stream smoothly with zero 502 errors!
+
 ---
 
 ## Milestones
