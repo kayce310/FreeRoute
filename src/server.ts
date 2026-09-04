@@ -18,11 +18,6 @@ export interface FreeRouteServerOptions {
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
   return createServer(async (request, response) => {
     try {
-      if (!isAuthorized(request, options.apiToken)) {
-        sendJson(response, 401, { error: { message: 'invalid API key', type: 'authentication_error' } });
-        return;
-      }
-
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (request.method === 'GET' && path === '/') {
         sendHtml(response, dashboardHtml());
@@ -30,6 +25,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
       if (request.method === 'GET' && path === '/health') {
         sendJson(response, 200, { status: 'ok' });
+        return;
+      }
+      if (!isAuthorized(request, options.apiToken)) {
+        sendJson(response, 401, { error: { message: 'invalid API key', type: 'authentication_error' } });
         return;
       }
 

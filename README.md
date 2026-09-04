@@ -242,6 +242,92 @@ src/
 
 ---
 
+## Comparison with Related Projects
+
+| Feature | FreeRoute | 9router | OmniRoute | FreeLLMAPI |
+|---|---|---|---|---|
+| **Focus** | Free-tier routing | Multi-provider proxy | Enterprise routing | Free-tier aggregation |
+| **Dashboard** | ⚠️ Basic | ✅ Full UI | ✅ Full UI | ✅ Full UI |
+| **Auth flow** | Token upfront | Optional login | JWT auth | Setup wizard |
+| **Add keys via UI** | ❌ CLI only | ✅ Modal | ✅ Settings | ✅ UI |
+| **Public endpoints** | ❌ All protected | ✅ Yes | ✅ Yes | ✅ Yes |
+| **First-run UX** | ❌ Token required | ✅ Open dashboard | ✅ Open dashboard | ✅ Setup wizard |
+| **9Router import** | ✅ CLI only | N/A | ✅ Yes | ❌ No |
+| **Tech stack** | Node.js | Next.js | Next.js | Node.js + React |
+| **Complexity** | Simple | Medium | Complex | Medium |
+
+---
+
+## UX Issues (TODO)
+
+### Current Problem
+
+Requires `.env` with token **before** accessing dashboard. Compare:
+
+| Project | Start → Dashboard | See Status | Add Keys |
+|---------|------------------|------------|----------|
+| 9router | ✅ Immediate | ✅ Yes | ✅ UI |
+| FreeLLMAPI | ✅ Immediate | ✅ Yes | ✅ UI |
+| FreeRoute | ❌ Token required | ❌ No | ❌ CLI only |
+
+### Reference: Key Patterns
+
+| Project | Public Endpoints | Auth | Add Keys |
+|---------|-----------------|------|----------|
+| 9router | `/api/health`, `/api/init`, `/api/auth/status` | Optional | Dashboard UI |
+| FreeLLMAPI | `/api/auth/status` (with `needsSetup`) | Setup wizard | Dashboard UI |
+
+### Migration Path
+
+```bash
+# Current (bad):
+freeroute add-key openrouter sk-or-...  # CLI first
+freeroute serve                         # Then start
+
+# Proposed (good):
+freeroute serve                         # Start server
+# Open http://127.0.0.1:8787/          # Dashboard works immediately
+# Add key via dashboard or CLI
+```
+
+### Reference: Key Code Patterns
+
+**FreeLLMAPI** (`/api/auth/status`):
+```typescript
+authRouter.get('/status', (req, res) => {
+  res.json({
+    needsSetup: userCount() === 0,
+    authenticated: !!session
+  });
+});
+```
+
+**9router** (public paths):
+```javascript
+const PUBLIC_API_PATHS = ["/api/health", "/api/init", "/api/auth/status"];
+```
+
+**FreeLLMAPI** (health):
+```typescript
+res.json({ platforms: [...], keys: [...], healthy: boolean });
+```
+
+---
+
+## Roadmap
+
+| Priority | Item | Description |
+|---|---|---|
+| P0 | Public endpoints | Add `/api/status`; make dashboard + health public |
+| P0 | Dashboard UX | Show empty state + setup instructions |
+| P1 | Add key via UI | Modal to add API key from dashboard |
+| P1 | Auto-generate token | Generate default token on first start |
+| P2 | First-run wizard | Guide user to add first key |
+| P2 | Real-time stats | Poll health endpoint every 30s |
+| P3 | Web redesign | Modern UI with Tailwind/Bootstrap |
+
+---
+
 ## License
 
 MIT — see `LICENSE` file.
