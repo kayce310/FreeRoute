@@ -106,8 +106,9 @@ All endpoints require `Authorization: Bearer <token>`, unless `FREEROUTE_API_TOK
 | `GET` | `/` | Dashboard (HTML) |
 | `GET` | `/health` | Health check |
 | `GET` | `/v1/auth/status` | Setup status & configured providers (Public) |
+| `GET` | `/v1/providers/presets` | Curated provider directory with direct API key links and seed models (Public) |
 | `GET` | `/v1/credentials` | List stored credential metadata (no secrets exposed) |
-| `POST` | `/v1/credentials` | Add or update provider API key |
+| `POST` | `/v1/credentials` | Add or update provider API key (auto-seeds catalog models) |
 | `DELETE` | `/v1/credentials` | Remove provider credential |
 | `GET` | `/v1/providers/custom` | List custom registered providers |
 | `POST` | `/v1/providers/custom` | Add custom OpenAI-compatible or Gemini provider |
@@ -122,6 +123,26 @@ All endpoints require `Authorization: Bearer <token>`, unless `FREEROUTE_API_TOK
 | `GET` | `/v1/quota-observations` | Observed rate-limit data |
 | `GET` | `/v1/preferences` | Model/provider preferences |
 | `PUT` | `/v1/preferences` | Set preference for a model (`prefer` / `neutral` / `limit` / `block`) |
+
+---
+
+## 🌐 Supported Free Providers Directory
+
+FreeRoute bundles curated presets extracted from battle-tested open-source routers (*9router, OmniRoute, freellmapi, CLIProxyAPI*):
+
+| Provider | Default Base URL | Free Tier Highlights | Direct API Key Link |
+| :--- | :--- | :--- | :--- |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | 20+ `:free` models | [Get OpenRouter Key](https://openrouter.ai/keys) |
+| **Groq Cloud** | `https://api.groq.com/openai/v1` | Ultra-fast LPU (Llama 3.3, Mixtral) | [Get Groq Key](https://console.groq.com/keys) |
+| **Google Gemini** | Google AI Studio | Gemini 2.5 Flash, 1M+ context window | [Get Gemini Key](https://aistudio.google.com/app/apikey) |
+| **Cerebras** | `https://api.cerebras.ai/v1` | World-record speed (1800+ tok/s) | [Get Cerebras Key](https://cloud.cerebras.ai/platform) |
+| **GitHub Models** | `https://models.github.ai/inference` | Azure AI / GPT-4o & Llama via PAT | [Generate GitHub Token](https://github.com/settings/tokens) |
+| **Mistral AI** | `https://api.mistral.ai/v1` | Codestral & Mistral Small/Nemo | [Get Mistral Key](https://console.mistral.ai/api-keys/) |
+| **SiliconFlow** | `https://api.siliconflow.cn/v1` | Qwen 2.5, DeepSeek V3/R1 | [Get SiliconFlow Key](https://cloud.siliconflow.cn/account/ak) |
+| **Hugging Face** | `https://api-inference.huggingface.co/v1` | Serverless Open LLM inference | [Get HuggingFace Token](https://huggingface.co/settings/tokens) |
+| **Cohere** | `https://api.cohere.com/v1` | Command R / R+ trial tier | [Get Cohere Key](https://dashboard.cohere.com/api-keys) |
+| **Ollama Local** | `http://127.0.0.1:11434/v1` | 100% Offline on localhost | None needed |
+
 
 **Requesting a model:**
 
@@ -346,6 +367,8 @@ res.json({ platforms: [...], keys: [...], healthy: boolean });
 | P2 | First-run wizard | ✅ Done | Step-by-step onboarding guide on initial launch |
 | P2 | Real-time stats | ✅ Done | Poll health, quota, and events every 30s with toggle |
 | P3 | Web redesign | ✅ Done | Modern dark lab UI with analytics, test playground & quick connect |
+| P4 | Bilingual & Presets | ✅ Done | 🇻🇳 Tiếng Việt & 🇬🇧 English UI, 10 Curated Providers, Auto-Model Seeding |
+
 
 ---
 
