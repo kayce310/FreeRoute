@@ -344,3 +344,66 @@ test('manages credentials via /v1/credentials endpoints', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('manages custom providers via /v1/providers/custom', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createSqliteProviderStore } = await import('../src/storage/sqlite-provider-store.js');
+
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-server-providers-'));
+  const dbFile = join(dir, 'test.sqlite');
+  const providerStore = createSqliteProviderStore(dbFile);
+
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'local-token',
+    providerStore,
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  try {
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    // Add custom provider
+    const addRes = await fetch(`${baseUrl}/v1/providers/custom`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        providerId: 'ollama-local',
+        adapterType: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        classifyAsFree: 'free_verified',
+      }),
+    });
+    assert.equal(addRes.status, 200);
+
+    // List custom providers
+    const listRes = await fetch(`${baseUrl}/v1/providers/custom`, {
+      headers: { authorization: 'Bearer local-token' },
+    });
+    assert.equal(listRes.status, 200);
+    const listBody = await listRes.json() as { data: Array<{ providerId: string; baseUrl: string }> };
+    assert.equal(listBody.data.length, 1);
+    assert.equal(listBody.data[0]?.providerId, 'ollama-local');
+
+    // Remove custom provider
+    const delRes = await fetch(`${baseUrl}/v1/providers/custom?providerId=ollama-local`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer local-token' },
+    });
+    assert.equal(delRes.status, 200);
+
+    // Verify removed
+    const listRes2 = await fetch(`${baseUrl}/v1/providers/custom`, {
+      headers: { authorization: 'Bearer local-token' },
+    });
+    const listBody2 = await listRes2.json() as { data: unknown[] };
+    assert.equal(listBody2.data.length, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    providerStore.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

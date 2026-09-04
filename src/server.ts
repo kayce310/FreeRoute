@@ -5,8 +5,9 @@ import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-sto
 import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import type { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
-import type { ProviderDefinition } from './storage/sqlite-provider-store.js';
+import type { SqliteProviderStore } from './storage/sqlite-provider-store.js';
 import type { Preference } from './contracts.js';
+import { dashboardHtml } from './dashboard.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -16,7 +17,7 @@ export interface FreeRouteServerOptions {
   quotas?: SqliteQuotaObservationStore;
   preferences?: SqlitePreferenceStore;
   credentials?: SqliteCredentialStore;
-  providerStore?: { list: () => ProviderDefinition[] };
+  providerStore?: SqliteProviderStore;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
 }
 
@@ -180,6 +181,69 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           }
         }
         sendJson(response, 200, { status: 'ok', deleted, providerId: providerId.trim(), credentialId: credentialId.trim() });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/providers/custom') {
+        if (!options.providerStore) { sendJson(response, 503, { error: { message: 'provider storage is not configured', type: 'server_error' } }); return; }
+        sendJson(response, 200, { object: 'list', data: options.providerStore.list() });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/providers/custom') {
+        if (!options.providerStore) { sendJson(response, 503, { error: { message: 'provider storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { providerId?: string; adapterType?: 'openai-compatible' | 'gemini'; baseUrl?: string; classifyAsFree?: string; enabled?: boolean };
+        if (!body.providerId || !body.adapterType || !body.baseUrl) {
+          sendJson(response, 400, { error: { message: 'providerId, adapterType, and baseUrl are required', type: 'invalid_request_error' } });
+          return;
+        }
+        options.providerStore.put({
+          providerId: body.providerId.trim(),
+          adapterType: body.adapterType,
+          baseUrl: body.baseUrl.trim(),
+          classifyAsFree: body.classifyAsFree,
+          enabled: body.enabled ?? true,
+        });
+        sendJson(response, 200, { status: 'ok', provider: body });
+        return;
+      }
+
+      if (request.method === 'DELETE' && path === '/v1/providers/custom') {
+        if (!options.providerStore) { sendJson(response, 503, { error: { message: 'provider storage is not configured', type: 'server_error' } }); return; }
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        const providerId = url.searchParams.get('providerId') ?? url.searchParams.get('provider_id');
+        if (!providerId) {
+          sendJson(response, 400, { error: { message: 'providerId is required', type: 'invalid_request_error' } });
+          return;
+        }
+        options.providerStore.remove(providerId);
+        sendJson(response, 200, { status: 'ok', providerId });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/import/9router') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credentials store not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { sourceDatabasePath?: string; providerId?: string; credentialId?: string };
+        if (!body.sourceDatabasePath || !body.providerId) {
+          sendJson(response, 400, { error: { message: 'sourceDatabasePath and providerId are required', type: 'invalid_request_error' } });
+          return;
+        }
+        const { importNineRouterApiKey } = await import('./importers/9router.js');
+        try {
+          const result = await importNineRouterApiKey({
+            sourceDatabasePath: body.sourceDatabasePath,
+            providerId: body.providerId,
+            credentials: options.credentials,
+            credentialId: body.credentialId,
+          });
+          if (options.onCredentialChanged) {
+            void options.onCredentialChanged(result.providerId, result.credentialId);
+          }
+          sendJson(response, 200, { status: 'ok', ...result });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Import failed';
+          sendJson(response, 400, { error: { message, type: 'import_error' } });
+        }
         return;
       }
 
@@ -552,9 +616,7 @@ function writeAnthropicEvent(response: ServerResponse, event: string, body: unkn
   response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
 }
 
-function dashboardHtml(): string {
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FreeRoute</title><style>body{font:14px system-ui;max-width:1100px;margin:32px auto;padding:0 16px}input,button,select{padding:7px;margin:3px}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border-bottom:1px solid #ddd;padding:7px;text-align:left}.muted{color:#666}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}</style><h1>FreeRoute</h1><p class="muted">Local catalog and redacted route history. Prompts and provider secrets are never shown.</p><label>Local API token <input id="token" type="password" autocomplete="off"><button onclick="load()">Load</button></label><p id="status"></p><div class="grid"><section><h2>Provider health</h2><table><thead><tr><th>Provider</th><th>Success</th><th>Recent requests</th></tr></thead><tbody id="health"></tbody></table></section><section><h2>Quota observations</h2><table><thead><tr><th>Route</th><th>Requests</th><th>Tokens</th><th>Reset</th></tr></thead><tbody id="quota"></tbody></table></section></div><h2>Models</h2><table><thead><tr><th>Model</th><th>Tier</th><th>Capabilities</th><th>Preference</th></tr></thead><tbody id="models"></tbody></table><h2>Recent routing</h2><table><thead><tr><th>Time</th><th>Route</th><th>Outcome</th><th>Fallbacks</th></tr></thead><tbody id="events"></tbody></table><script>const e=s=>document.querySelector(s),cell=(r,v)=>{let d=document.createElement('td');d.textContent=String(v??'');r.append(d);return d},row=(id,vs)=>{let r=document.createElement('tr');vs.forEach(v=>cell(r,v));e(id).append(r);return r};function token(){return e('#token').value}async function api(p,o={}){let r=await fetch(p,{...o,headers:{...o.headers,authorization:'Bearer '+token()}});if(!r.ok){let b=await r.json().catch(()=>({}));throw Error(b.error?.message||r.statusText)}return r.json()}function preference(model,items){return items.find(x=>x.providerId===model.owned_by&&x.modelId===model.id.slice(model.owned_by.length+1))?.preference||'neutral'}async function setPreference(select,provider,model){try{select.disabled=true;await api('/v1/preferences',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({provider_id:provider,model_id:model,preference:select.value})});e('#status').textContent='Preference saved.'}catch(x){e('#status').textContent='Error: '+x.message}finally{select.disabled=false}}async function load(){try{e('#status').textContent='Loading…';let[m,h,q,p,ph]=await Promise.all([api('/v1/models'),api('/v1/routing-events'),api('/v1/quota-observations'),api('/v1/preferences'),api('/v1/provider-health')]);e('#models').replaceChildren();e('#events').replaceChildren();e('#quota').replaceChildren();e('#health').replaceChildren();m.data.forEach(x=>{let r=row('#models',[x.id,x.freeroute.free_tier,x.freeroute.capabilities.join(', ')]),s=document.createElement('select');['prefer','neutral','limit','block'].forEach(v=>{let o=document.createElement('option');o.value=o.textContent=v;o.selected=v===preference(x,p.data);s.append(o)});s.onchange=()=>setPreference(s,x.owned_by,x.id.slice(x.owned_by.length+1));cell(r,'').append(s)});h.data.forEach(x=>row('#events',[new Date(x.occurredAt).toLocaleString(),x.providerId+'/'+x.modelId,x.outcome,x.fallbackCount]));q.data.forEach(x=>row('#quota',[x.providerId+'/'+x.modelId,x.remainingRequests??'unknown',x.remainingTokens??'unknown',x.resetAt?new Date(x.resetAt).toLocaleString():'unknown']));ph.data.forEach(x=>row('#health',[x.providerId,(x.successRate*100).toFixed(0)+'%',x.requestCount]));e('#status').textContent='Loaded.'}catch(x){e('#status').textContent='Error: '+x.message}}</script>`;
-}
+
 
 function summarizeProviderHealth(events: Array<{ providerId: string; outcome: 'success' | 'failure'; latencyMs?: number }>): Array<{ providerId: string; requestCount: number; successRate: number; latencyP50Ms?: number; latencyP95Ms?: number }> {
   const totals = new Map<string, { requestCount: number; successes: number; latencies: number[] }>();

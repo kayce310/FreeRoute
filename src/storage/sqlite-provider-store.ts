@@ -27,8 +27,21 @@ export function createSqliteProviderStore(filename: string): SqliteProviderStore
     ) STRICT;
   `);
   return {
-    list() {
-      return db.prepare('SELECT * FROM providers ORDER BY provider_id').all() as unknown as ProviderDefinition[];
+    list(): ProviderDefinition[] {
+      const rows = db.prepare('SELECT provider_id, adapter_type, base_url, classify_as_free, enabled FROM providers ORDER BY provider_id').all() as unknown as Array<{
+        provider_id: string;
+        adapter_type: 'openai-compatible' | 'gemini';
+        base_url: string;
+        classify_as_free: string | null;
+        enabled: number;
+      }>;
+      return rows.map((r) => ({
+        providerId: r.provider_id,
+        adapterType: r.adapter_type,
+        baseUrl: r.base_url,
+        classifyAsFree: r.classify_as_free ?? undefined,
+        enabled: Boolean(r.enabled),
+      }));
     },
     put(def) {
       db.prepare(`
