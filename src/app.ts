@@ -13,7 +13,7 @@ import { createSqliteProviderStore, type ProviderDefinition } from './storage/sq
 export interface OpenRouterRuntimeOptions {
   databasePath: string;
   masterSecret: string;
-  apiToken: string;
+  apiToken?: string;
   baseUrl?: string;
   groqBaseUrl?: string;
   geminiBaseUrl?: string;

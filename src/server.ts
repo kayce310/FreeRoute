@@ -8,7 +8,7 @@ import type { Preference } from './contracts.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
-  apiToken?: string;
+  apiToken?: string; // optional — / and /health are public
   chat?: ChatService;
   events?: SqliteRoutingEventStore;
   quotas?: SqliteQuotaObservationStore;

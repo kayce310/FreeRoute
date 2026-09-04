@@ -135,7 +135,7 @@ async function restore(args: string[]): Promise<void> {
 }
 
 async function refreshCatalog(): Promise<void> {
-  const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: requiredEnv('FREEROUTE_API_TOKEN'), baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+  const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
   try {
     const results = await runtime.refreshProviders();
     for (const result of results) {
@@ -152,7 +152,7 @@ async function keyValidate(args: string[]): Promise<void> {
   try {
     const secret = await store.get(providerId, credentialId);
     if (!secret) { console.error(`No credential found for '${providerId}/${credentialId}'.`); process.exitCode = 1; return; }
-    const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: requiredEnv('FREEROUTE_API_TOKEN'), baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+    const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
     try {
       const results = await runtime.refreshProviders();
       const result = results.find(r => r.providerId === providerId);
@@ -167,7 +167,7 @@ async function serve(): Promise<void> {
   const runtime = createOpenRouterRuntime({
     databasePath: await localDatabasePath(),
     masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'),
-    apiToken: requiredEnv('FREEROUTE_API_TOKEN'),
+    apiToken: process.env.FREEROUTE_API_TOKEN,
     baseUrl: process.env.OPENROUTER_BASE_URL,
     groqBaseUrl: process.env.GROQ_BASE_URL,
     geminiBaseUrl: process.env.GEMINI_BASE_URL,
