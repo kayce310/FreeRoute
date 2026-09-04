@@ -26,8 +26,32 @@ async function main(): Promise<void> {
   else printUsage();
 }
 
+async function getOrCreateMasterSecret(): Promise<string> {
+  if (process.env.FREEROUTE_MASTER_SECRET) {
+    return process.env.FREEROUTE_MASTER_SECRET;
+  }
+  const dataDir = resolve(process.env.FREEROUTE_DATA_DIR ?? 'data');
+  await mkdir(dataDir, { recursive: true });
+  const secretFile = resolve(dataDir, '.master_secret');
+  try {
+    const existing = (await readFile(secretFile, 'utf8')).trim();
+    if (existing.length >= 16) {
+      process.env.FREEROUTE_MASTER_SECRET = existing;
+      return existing;
+    }
+  } catch {
+    // Generate new secret
+  }
+  const { randomBytes } = await import('node:crypto');
+  const generated = randomBytes(32).toString('hex');
+  await writeFile(secretFile, generated, 'utf8');
+  process.env.FREEROUTE_MASTER_SECRET = generated;
+  console.log(`Initialized local master secret at ${secretFile}`);
+  return generated;
+}
+
 async function credentialStore(): Promise<SqliteCredentialStore> {
-  return new SqliteCredentialStore(await localDatabasePath(), requiredEnv('FREEROUTE_MASTER_SECRET'));
+  return new SqliteCredentialStore(await localDatabasePath(), await getOrCreateMasterSecret());
 }
 
 async function addKey(args: string[]): Promise<void> {
@@ -134,7 +158,7 @@ async function restore(args: string[]): Promise<void> {
 }
 
 async function refreshCatalog(): Promise<void> {
-  const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+  const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: await getOrCreateMasterSecret(), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
   try {
     const results = await runtime.refreshProviders();
     for (const result of results) {
@@ -151,7 +175,7 @@ async function keyValidate(args: string[]): Promise<void> {
   try {
     const secret = await store.get(providerId, credentialId);
     if (!secret) { console.error(`No credential found for '${providerId}/${credentialId}'.`); process.exitCode = 1; return; }
-    const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
+    const runtime = createOpenRouterRuntime({ databasePath: await localDatabasePath(), masterSecret: await getOrCreateMasterSecret(), apiToken: process.env.FREEROUTE_API_TOKEN, baseUrl: process.env.OPENROUTER_BASE_URL, groqBaseUrl: process.env.GROQ_BASE_URL, geminiBaseUrl: process.env.GEMINI_BASE_URL });
     try {
       const results = await runtime.refreshProviders();
       const result = results.find(r => r.providerId === providerId);
@@ -165,7 +189,7 @@ async function keyValidate(args: string[]): Promise<void> {
 async function serve(): Promise<void> {
   const runtime = createOpenRouterRuntime({
     databasePath: await localDatabasePath(),
-    masterSecret: requiredEnv('FREEROUTE_MASTER_SECRET'),
+    masterSecret: await getOrCreateMasterSecret(),
     apiToken: process.env.FREEROUTE_API_TOKEN,
     baseUrl: process.env.OPENROUTER_BASE_URL,
     groqBaseUrl: process.env.GROQ_BASE_URL,

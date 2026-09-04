@@ -4,6 +4,8 @@ import { ChatService, ProviderInvocationError, type ChatMessage } from './infere
 import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
 import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
+import type { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
+import type { ProviderDefinition } from './storage/sqlite-provider-store.js';
 import type { Preference } from './contracts.js';
 
 export interface FreeRouteServerOptions {
@@ -13,6 +15,9 @@ export interface FreeRouteServerOptions {
   events?: SqliteRoutingEventStore;
   quotas?: SqliteQuotaObservationStore;
   preferences?: SqlitePreferenceStore;
+  credentials?: SqliteCredentialStore;
+  providerStore?: { list: () => ProviderDefinition[] };
+  onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -25,6 +30,20 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
       if (request.method === 'GET' && path === '/health') {
         sendJson(response, 200, { status: 'ok' });
+        return;
+      }
+      if (request.method === 'GET' && path === '/v1/auth/status') {
+        const creds = options.credentials ? await options.credentials.list() : [];
+        const customProviders = options.providerStore?.list().map((p) => p.providerId) ?? [];
+        const supported = ['openrouter', 'groq', 'gemini', ...customProviders];
+        sendJson(response, 200, {
+          status: 'ok',
+          needsSetup: creds.length === 0,
+          hasToken: Boolean(options.apiToken),
+          configuredProviders: [...new Set(creds.map((c) => c.providerId))],
+          supportedProviders: [...new Set(supported)],
+          keyCount: creds.length,
+        });
         return;
       }
       if (!isAuthorized(request, options.apiToken)) {
@@ -85,6 +104,82 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const input = await readPreferenceRequest(request);
         await options.preferences.set(input.providerId, input.modelId, input.preference);
         sendJson(response, 200, { provider_id: input.providerId, model_id: input.modelId, preference: input.preference });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/credentials') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const creds = await options.credentials.list();
+        sendJson(response, 200, {
+          object: 'list',
+          data: creds.map((c) => ({
+            providerId: c.providerId,
+            credentialId: c.credentialId,
+            createdAt: c.createdAt.toISOString(),
+            updatedAt: c.updatedAt.toISOString(),
+          })),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/credentials') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { providerId?: unknown; provider_id?: unknown; credentialId?: unknown; credential_id?: unknown; secret?: unknown; apiKey?: unknown; api_key?: unknown };
+        const providerId = (body.providerId ?? body.provider_id) as string | undefined;
+        const credentialId = ((body.credentialId ?? body.credential_id) as string | undefined) || 'default';
+        const secret = (body.secret ?? body.apiKey ?? body.api_key) as string | undefined;
+
+        if (typeof providerId !== 'string' || !providerId.trim()) {
+          sendJson(response, 400, { error: { message: 'providerId is required', type: 'invalid_request_error' } });
+          return;
+        }
+        if (typeof secret !== 'string' || !secret.trim()) {
+          sendJson(response, 400, { error: { message: 'secret is required', type: 'invalid_request_error' } });
+          return;
+        }
+
+        await options.credentials.put(providerId.trim(), credentialId.trim(), secret.trim());
+        if (options.onCredentialChanged) {
+          try {
+            await options.onCredentialChanged(providerId.trim(), credentialId.trim());
+          } catch {
+            // Background refresh error should not fail the credential saving
+          }
+        }
+        sendJson(response, 200, {
+          status: 'ok',
+          providerId: providerId.trim(),
+          credentialId: credentialId.trim(),
+        });
+        return;
+      }
+
+      if (request.method === 'DELETE' && path === '/v1/credentials') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        let providerId = url.searchParams.get('providerId') ?? url.searchParams.get('provider_id');
+        let credentialId = url.searchParams.get('credentialId') ?? url.searchParams.get('credential_id') ?? 'default';
+
+        if (!providerId) {
+          const body = await readJsonBody(request).catch(() => ({})) as { providerId?: unknown; provider_id?: unknown; credentialId?: unknown; credential_id?: unknown };
+          providerId = ((body.providerId ?? body.provider_id) as string | undefined) ?? null;
+          credentialId = (((body.credentialId ?? body.credential_id) as string | undefined) || 'default');
+        }
+
+        if (!providerId || typeof providerId !== 'string') {
+          sendJson(response, 400, { error: { message: 'providerId is required', type: 'invalid_request_error' } });
+          return;
+        }
+
+        const deleted = await options.credentials.delete(providerId.trim(), credentialId.trim());
+        if (options.onCredentialChanged) {
+          try {
+            await options.onCredentialChanged(providerId.trim(), credentialId.trim());
+          } catch {
+            // ignore
+          }
+        }
+        sendJson(response, 200, { status: 'ok', deleted, providerId: providerId.trim(), credentialId: credentialId.trim() });
         return;
       }
 

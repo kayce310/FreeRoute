@@ -65,9 +65,22 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
 
   const adapters = [...builtIn, ...custom];
   const chat = createCatalogChatService({ catalog, credentials, adapters, routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores(), healthScores: () => events.scores(), preferences: () => preferences.map() });
-  const server = createFreeRouteServer({ catalog, apiToken: options.apiToken, chat, events, quotas, preferences });
   const discoveryAdapters = adapters as unknown as import('./catalog.js').ProviderDiscoveryAdapter[];
   const discovery = new CatalogService(catalog, discoveryAdapters);
+  const server = createFreeRouteServer({
+    catalog,
+    apiToken: options.apiToken,
+    chat,
+    events,
+    quotas,
+    preferences,
+    credentials,
+    providerStore,
+    onCredentialChanged: async () => {
+      const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
+      void discovery.refresh(credentialIds);
+    },
+  });
 
   return {
     server,

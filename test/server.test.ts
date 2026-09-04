@@ -244,3 +244,103 @@ test('rejects a request with an invalid response_format type', async () => {
     assert.match(body.error.message, /response_format/);
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
+
+test('public /v1/auth/status reports needsSetup and provider configurations without token', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/auth/status`);
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      status: string;
+      needsSetup: boolean;
+      hasToken: boolean;
+      configuredProviders: string[];
+      supportedProviders: string[];
+    };
+    assert.equal(body.status, 'ok');
+    assert.equal(body.needsSetup, true);
+    assert.equal(body.hasToken, true);
+    assert.ok(body.supportedProviders.includes('openrouter'));
+    assert.ok(body.supportedProviders.includes('groq'));
+    assert.ok(body.supportedProviders.includes('gemini'));
+  });
+});
+
+test('manages credentials via /v1/credentials endpoints', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { SqliteCredentialStore } = await import('../src/storage/sqlite-credential-store.js');
+
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-server-creds-'));
+  const dbFile = join(dir, 'test.sqlite');
+  const credentials = new SqliteCredentialStore(dbFile, 'server-test-secret-123456');
+
+  let refreshed = false;
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'local-token',
+    credentials,
+    onCredentialChanged: async () => { refreshed = true; },
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  try {
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    // 1. Initial list is empty
+    const listRes1 = await fetch(`${baseUrl}/v1/credentials`, { headers: { authorization: 'Bearer local-token' } });
+    assert.equal(listRes1.status, 200);
+    const listBody1 = await listRes1.json() as { object: string; data: unknown[] };
+    assert.equal(listBody1.data.length, 0);
+
+    // 2. Auth status reports needsSetup: true
+    const statusRes1 = await fetch(`${baseUrl}/v1/auth/status`);
+    const statusBody1 = await statusRes1.json() as { needsSetup: boolean; keyCount: number };
+    assert.equal(statusBody1.needsSetup, true);
+    assert.equal(statusBody1.keyCount, 0);
+
+    // 3. Add a key via POST /v1/credentials
+    const addRes = await fetch(`${baseUrl}/v1/credentials`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ providerId: 'openrouter', secret: 'sk-or-test-key-123' }),
+    });
+    assert.equal(addRes.status, 200);
+    const addBody = await addRes.json() as { status: string; providerId: string; credentialId: string };
+    assert.equal(addBody.status, 'ok');
+    assert.equal(addBody.providerId, 'openrouter');
+    assert.equal(refreshed, true);
+
+    // 4. Verify in list
+    const listRes2 = await fetch(`${baseUrl}/v1/credentials`, { headers: { authorization: 'Bearer local-token' } });
+    const listBody2 = await listRes2.json() as { data: Array<{ providerId: string; credentialId: string }> };
+    assert.equal(listBody2.data.length, 1);
+    assert.equal(listBody2.data[0]?.providerId, 'openrouter');
+
+    // 5. Auth status reports needsSetup: false
+    const statusRes2 = await fetch(`${baseUrl}/v1/auth/status`);
+    const statusBody2 = await statusRes2.json() as { needsSetup: boolean; keyCount: number };
+    assert.equal(statusBody2.needsSetup, false);
+    assert.equal(statusBody2.keyCount, 1);
+
+    // 6. Delete key via DELETE /v1/credentials
+    const delRes = await fetch(`${baseUrl}/v1/credentials?providerId=openrouter&credentialId=default`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer local-token' },
+    });
+    assert.equal(delRes.status, 200);
+    const delBody = await delRes.json() as { status: string; deleted: boolean };
+    assert.equal(delBody.status, 'ok');
+    assert.equal(delBody.deleted, true);
+
+    // 7. Verify list is empty again
+    const listRes3 = await fetch(`${baseUrl}/v1/credentials`, { headers: { authorization: 'Bearer local-token' } });
+    const listBody3 = await listRes3.json() as { data: unknown[] };
+    assert.equal(listBody3.data.length, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    credentials.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
