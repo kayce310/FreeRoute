@@ -1,6 +1,7 @@
-import type { AdapterFailure, RouteCandidate, RouteDecision, RouteRequest } from './contracts.js';
+import type { AdapterFailure, RouteCandidate, RouteDecision, RouteRequest, TokenUsage } from './contracts.js';
 import type { CatalogStore } from './catalog.js';
 import { applyFailureCooldown, chooseRoute } from './router.js';
+import { estimatePromptTokens, estimateTokensFromText } from './utils/token-estimator.js';
 
 export type ChatContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
 export interface ChatMessage {
@@ -28,6 +29,7 @@ export interface NormalizedChatResponse {
   modelId: string;
   quota?: QuotaObservation;
   toolCalls?: ToolCall[];
+  usage?: TokenUsage;
 }
 
 export interface QuotaObservation {
@@ -42,6 +44,7 @@ export interface NormalizedChatStreamEvent {
   delta?: string;
   finishReason?: string | null;
   toolCalls?: ToolCall[];
+  usage?: TokenUsage;
 }
 
 export class ProviderInvocationError extends Error {
@@ -85,6 +88,9 @@ export interface RoutingEvent {
   failureKind?: AdapterFailure['kind'];
   /** Elapsed time for the upstream attempt; no request content is retained. */
   latencyMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 export interface ChatResult {
@@ -174,7 +180,8 @@ export class ChatService {
           fallbackCount,
         };
         this.options.routeState?.recordSuccess(decision.candidate);
-        await this.emitEvent(request, decision.candidate, fallbackCount, 'success', undefined, Math.max(0, this.now().getTime() - startedAt.getTime()));
+        const latencyMs = Math.max(0, this.now().getTime() - startedAt.getTime());
+        await this.emitEvent(request, decision.candidate, fallbackCount, 'success', undefined, latencyMs, result.usage?.promptTokens, result.usage?.completionTokens, result.usage?.totalTokens);
         if (result.quota) await this.options.onQuota?.({ ...result.quota, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId, credentialRef: redactCredential(decision.candidate.credentialId), observedAt: this.now() });
         return completed;
       } catch (error) {
@@ -229,6 +236,7 @@ export class ChatService {
       }
 
       try {
+        const startedAt = this.now();
         const streamIterable = adapter.streamChat({
           credentialId: decision.candidate.credentialId,
           modelId: decision.candidate.modelId,
@@ -237,19 +245,36 @@ export class ChatService {
         const iterator = streamIterable[Symbol.asyncIterator]();
         const first = await iterator.next();
 
+        const self = this;
+        let finalUsage: TokenUsage | undefined;
+        let accumulatedDelta = '';
+
         async function* eventsGenerator() {
           if (!first.done) {
+            if (first.value.usage) finalUsage = first.value.usage;
+            if (first.value.delta) accumulatedDelta += first.value.delta;
             yield first.value;
           }
           while (true) {
             const next = await iterator.next();
             if (next.done) break;
+            if (next.value.usage) finalUsage = next.value.usage;
+            if (next.value.delta) accumulatedDelta += next.value.delta;
             yield next.value;
           }
+
+          const latencyMs = Math.max(0, self.now().getTime() - startedAt.getTime());
+          const promptEstimate = estimatePromptTokens(request.messages);
+          const completionEstimate = estimateTokensFromText(accumulatedDelta);
+          const promptTokens = finalUsage?.promptTokens ?? promptEstimate;
+          const completionTokens = finalUsage?.completionTokens ?? completionEstimate;
+          const totalTokens = finalUsage?.totalTokens ?? (promptTokens + completionTokens);
+          const candidate = decision!.candidate;
+
+          candidate && self.options.routeState?.recordSuccess(candidate);
+          await self.emitEvent(request, candidate, fallbackCount, 'success', undefined, latencyMs, promptTokens, completionTokens, totalTokens);
         }
 
-        this.options.routeState?.recordSuccess(decision.candidate);
-        void this.emitEvent(request, decision.candidate, fallbackCount, 'success');
         return {
           decision,
           events: eventsGenerator(),
@@ -289,13 +314,32 @@ export class ChatService {
     return this.options.routeState?.apply(candidates, this.now()) ?? candidates;
   }
 
-  private async emitEvent(request: NormalizedChatRequest, candidate: RouteCandidate, fallbackCount: number, outcome: RoutingEvent['outcome'], failureKind?: AdapterFailure['kind'], latencyMs?: number): Promise<void> {
+  private async emitEvent(
+    request: NormalizedChatRequest,
+    candidate: RouteCandidate,
+    fallbackCount: number,
+    outcome: RoutingEvent['outcome'],
+    failureKind?: AdapterFailure['kind'],
+    latencyMs?: number,
+    promptTokens?: number,
+    completionTokens?: number,
+    totalTokens?: number
+  ): Promise<void> {
     if (!this.options.onEvent) return;
     await this.options.onEvent({
-      requestId: request.traceId ?? crypto.randomUUID(), occurredAt: this.now(), profile: request.profile,
-      providerId: candidate.providerId, modelId: candidate.modelId,
-      credentialRef: redactCredential(candidate.credentialId), fallbackCount, outcome, failureKind,
+      requestId: request.traceId ?? crypto.randomUUID(),
+      occurredAt: this.now(),
+      profile: request.profile,
+      providerId: candidate.providerId,
+      modelId: candidate.modelId,
+      credentialRef: redactCredential(candidate.credentialId),
+      fallbackCount,
+      outcome,
+      failureKind,
       ...(latencyMs === undefined ? {} : { latencyMs }),
+      ...(promptTokens === undefined ? {} : { promptTokens }),
+      ...(completionTokens === undefined ? {} : { completionTokens }),
+      ...(totalTokens === undefined ? {} : { totalTokens }),
     });
   }
 }

@@ -1,5 +1,6 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
+import type { TokenUsage } from '../contracts.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
 interface GeminiList { models?: GeminiModel[]; nextPageToken?: string; }
@@ -9,6 +10,11 @@ interface GeminiResponse {
   candidates?: Array<{
     content?: { parts?: Array<{ text: string }>; toolCalls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> };
   }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
 
 export interface GeminiAdapterOptions {
@@ -67,7 +73,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     const body = await response.json() as GeminiResponse;
     const content = textFrom(body);
     if (!content) throw new ProviderInvocationError('Gemini returned no assistant content', { kind: 'temporary' });
-    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content };
+    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content, usage: usageFrom(body.usageMetadata) };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -107,7 +113,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
             type: 'function' as const,
             function: { name: tc.function.name, arguments: tc.function.arguments },
           }));
-          yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined };
+          yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(chunk.usageMetadata) };
         } catch { /* Ignore non-data SSE lines. */ }
       }
     }
@@ -159,6 +165,14 @@ function convertContentToGeminiParts(content: string | Array<{ type: 'text'; tex
 function textFrom(response: GeminiResponse): string | undefined {
   const text = response.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('');
   return text || undefined;
+}
+
+function usageFrom(metadata: GeminiResponse['usageMetadata']): TokenUsage | undefined {
+  if (!metadata) return undefined;
+  const promptTokens = metadata.promptTokenCount ?? 0;
+  const completionTokens = metadata.candidatesTokenCount ?? 0;
+  const totalTokens = metadata.totalTokenCount ?? (promptTokens + completionTokens);
+  return { promptTokens, completionTokens, totalTokens };
 }
 
 function isContextOverflowError(status: number, text: string): boolean {

@@ -809,6 +809,14 @@ export function dashboardHtml(): string {
         </div>
         <div class="kpi-icon">🛡️</div>
       </div>
+      <div class="kpi-card">
+        <div>
+          <div class="kpi-label" id="kpi-lbl-tokens">Tổng Token Đã Dùng</div>
+          <div class="kpi-value" id="kpi-tokens">—</div>
+          <div id="kpi-tokens-sub" style="font-size:11px; color:var(--text-muted); margin-top:4px;">↑ prompt · ↓ completion</div>
+        </div>
+        <div class="kpi-icon">🪙</div>
+      </div>
     </div>
 
     <!-- Navigation Tabs -->
@@ -873,7 +881,34 @@ export function dashboardHtml(): string {
           <!-- Rendered dynamically -->
         </div>
       </div>
+
+      <!-- Token Stats Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            🪙 <span id="title-token-stats">Thống Kê Token Tiêu Thụ</span>
+            <span class="badge badge-gray" id="token-stats-count" style="font-size:11px; margin-left:6px;">0 provider</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th id="th-tok-provider">Nhà Cung Cấp</th>
+                <th style="text-align:right" id="th-tok-count">Số Yêu Cầu</th>
+                <th style="text-align:right" id="th-tok-prompt">Prompt Tokens</th>
+                <th style="text-align:right" id="th-tok-completion">Completion Tokens</th>
+                <th style="text-align:right" id="th-tok-total">Tổng Token (với biểu đồ)</th>
+              </tr>
+            </thead>
+            <tbody id="token-stats-body">
+              <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Chưa có dữ liệu token</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+
 
     <!-- TAB 2: PROVIDER DIRECTORY (70+ PRESETS) -->
     <div class="tab-pane" id="pane-directory">
@@ -1878,10 +1913,47 @@ print(response.choices[0].message.content)</div>
       document.getElementById('kpi-requests').textContent = eventsData.length;
       const fallbacks = eventsData.filter(e => (e.fallbackCount || e.fallbacks || 0) > 0).length;
       document.getElementById('kpi-fallbacks').textContent = fallbacks;
-    }
 
-    // TAB 1: RENDER HEALTH & EVENTS
-    function renderHealthMatrix() {
+      // Token stats
+      fetch('/v1/stats/tokens').then(r => r.ok ? r.json() : null).then(stats => {
+        if (!stats) return;
+        const total = stats.totalTokens || 0;
+        const prompt = stats.promptTokens || 0;
+        const completion = stats.completionTokens || 0;
+        document.getElementById('kpi-tokens').textContent = total >= 1_000_000
+          ? (total / 1_000_000).toFixed(2) + 'M'
+          : total >= 1_000 ? (total / 1_000).toFixed(1) + 'K' : String(total);
+        const sub = document.getElementById('kpi-tokens-sub');
+        if (sub) sub.textContent = '\u2191 ' + (prompt >= 1000 ? (prompt/1000).toFixed(1)+'K' : prompt) + ' prompt \u00b7 \u2193 ' + (completion >= 1000 ? (completion/1000).toFixed(1)+'K' : completion) + ' completion';
+
+        // Render per-provider token table
+        const tbody = document.getElementById('token-stats-body');
+        const countEl = document.getElementById('token-stats-count');
+        if (tbody) {
+          const entries = Object.entries(stats.byProvider || {});
+          if (countEl) countEl.textContent = entries.length + ' provider';
+          const empty = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Ch\u01b0a c\u00f3 d\u1eef li\u1ec7u token</td></tr>';
+          const rows = entries.sort((a, b) => (b[1].totalTokens || 0) - (a[1].totalTokens || 0)).map(([pid, s]) => {
+            const pct = total > 0 ? Math.round((s.totalTokens / total) * 100) : 0;
+            const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n);
+            return '<tr>' +
+              '<td><span class="badge badge-gray">' + pid + '</span></td>' +
+              '<td style="text-align:right">' + s.count + '</td>' +
+              '<td style="text-align:right">' + fmt(s.promptTokens) + '</td>' +
+              '<td style="text-align:right">' + fmt(s.completionTokens) + '</td>' +
+              '<td style="text-align:right">' + fmt(s.totalTokens) +
+              '<div style="background:var(--surface-2);border-radius:4px;height:4px;margin-top:3px;overflow:hidden">' +
+              '<div style="background:var(--primary);height:100%;width:' + pct + '%"></div>' +
+              '</div></td>' +
+              '</tr>';
+          });
+          tbody.innerHTML = entries.length === 0 ? empty : rows.join('');
+        }
+      }).catch(() => {});
+          }
+
+          // TAB 1: RENDER HEALTH & EVENTS
+          function renderHealthMatrix() {
       const container = document.getElementById('health-matrix-container');
       const configuredMap = new Map();
       for (const c of credentials) configuredMap.set(c.providerId, true);

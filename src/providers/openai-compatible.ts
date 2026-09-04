@@ -1,6 +1,7 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
-import type { FreeTierClass } from '../contracts.js';
+import type { FreeTierClass, TokenUsage } from '../contracts.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
+import { estimatePromptTokens, estimateTokensFromText } from '../utils/token-estimator.js';
 
 interface OpenAIModel {
   id: string;
@@ -13,16 +14,24 @@ interface OpenAIModelList {
 
 type OpenAIMessageContent = string | Array<{ text?: string }> | undefined;
 
+interface OpenAIUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 interface OpenAIChatCompletion {
   id?: string;
   model?: string;
   choices?: Array<{ message?: { content?: OpenAIMessageContent; tool_calls?: ToolCall[] } }>;
+  usage?: OpenAIUsage;
 }
 
 interface OpenAIChatChunk {
   id?: string;
   model?: string;
   choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null; tool_calls?: ToolCall[] }>;
+  usage?: OpenAIUsage;
 }
 
 export interface OpenAICompatibleAdapterOptions {
@@ -92,7 +101,16 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const content = contentToText(body.choices?.[0]?.message?.content);
     const toolCalls = body.choices?.[0]?.message?.tool_calls;
     if (!content && !toolCalls?.length) throw new ProviderInvocationError('upstream returned no assistant content', { kind: 'temporary' });
-    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content: content ?? '', ...(toolCalls?.length ? { toolCalls } : {}), quota: quotaFromHeaders(response.headers) };
+    const usage: TokenUsage | undefined = body.usage ? {
+      promptTokens: body.usage.prompt_tokens ?? 0,
+      completionTokens: body.usage.completion_tokens ?? 0,
+      totalTokens: body.usage.total_tokens ?? ((body.usage.prompt_tokens ?? 0) + (body.usage.completion_tokens ?? 0)),
+    } : {
+      promptTokens: estimatePromptTokens(input.request.messages),
+      completionTokens: estimateTokensFromText(content ?? ''),
+      totalTokens: estimatePromptTokens(input.request.messages) + estimateTokensFromText(content ?? ''),
+    };
+    return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content: content ?? '', ...(toolCalls?.length ? { toolCalls } : {}), quota: quotaFromHeaders(response.headers), usage };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -103,7 +121,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
+        body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, stream_options: { include_usage: true }, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
       });
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
@@ -115,6 +133,8 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });
     const decoder = new TextDecoder();
     let pending = '';
+    let streamUsage: TokenUsage | undefined;
+    let lastChunkId: string | undefined;
     for await (const bytes of response.body) {
       pending += decoder.decode(bytes, { stream: true });
       const lines = pending.split(/\r?\n/);
@@ -124,6 +144,15 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
         if (!data || data === '[DONE]') continue;
         let chunk: OpenAIChatChunk;
         try { chunk = JSON.parse(data) as OpenAIChatChunk; } catch { continue; }
+        if (chunk.id) lastChunkId = chunk.id;
+        // Capture usage chunk (from stream_options.include_usage, usually last chunk with empty choices)
+        if (chunk.usage) {
+          streamUsage = {
+            promptTokens: chunk.usage.prompt_tokens ?? 0,
+            completionTokens: chunk.usage.completion_tokens ?? 0,
+            totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
+          };
+        }
         const choice = chunk.choices?.[0];
         if (!choice) continue;
         yield {
@@ -134,6 +163,14 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
           toolCalls: choice.tool_calls,
         };
       }
+    }
+    // Yield a final usage-only event so inference.ts can capture exact token counts
+    if (streamUsage) {
+      yield {
+        id: lastChunkId ?? crypto.randomUUID(),
+        model: input.modelId,
+        usage: streamUsage,
+      };
     }
   }
 

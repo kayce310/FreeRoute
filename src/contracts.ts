@@ -53,3 +53,9 @@ export interface AdapterFailure {
   retryAfterMs?: number;
   message?: string;
 }
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}

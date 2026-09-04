@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { CatalogStore } from './catalog.js';
 import { ChatService, ProviderInvocationError, type ChatMessage } from './inference.js';
+import { estimateTokensFromText } from './utils/token-estimator.js';
 import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
 import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
 import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
@@ -122,6 +123,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
         const events = await options.events.list();
         sendJson(response, 200, { object: 'list', data: events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/stats/tokens') {
+        if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
+        const stats = await options.events.tokenStats();
+        sendJson(response, 200, { object: 'token_stats', ...stats });
         return;
       }
 
@@ -577,6 +585,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   responseFormat: input.responseFormat,
                   traceId: requestId,
                 });
+                const streamStart = Date.now();
+                const usageState = { captured: undefined as import('./contracts.js').TokenUsage | undefined, accumulatedText: '' };
                 response.writeHead(200, {
                   'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
                   'x-freeroute-provider': result.decision.candidate.providerId,
@@ -584,9 +594,30 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   'x-freeroute-combo': input.model,
                 });
                 for await (const event of result.events) {
-                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }] })}\n\n`);
+                  if (event.usage) usageState.captured = event.usage;
+                  if (event.delta) usageState.accumulatedText += event.delta;
+                  const includeUsage = event.usage ?? usageState.captured;
+                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: includeUsage } : {}) })}\n\n`);
                 }
                 response.end('data: [DONE]\n\n');
+                if (options.events) {
+                  const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
+                  if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+                  await options.events.record({
+                    requestId,
+                    occurredAt: new Date(),
+                    profile: 'named',
+                    providerId: result.decision.candidate.providerId,
+                    modelId: result.decision.candidate.modelId,
+                    credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                    fallbackCount: result.fallbackCount ?? 0,
+                    outcome: 'success',
+                    latencyMs: Date.now() - streamStart,
+                    promptTokens: finalUsage.promptTokens,
+                    completionTokens: finalUsage.completionTokens,
+                    totalTokens: finalUsage.totalTokens,
+                  });
+                }
                 return;
               } else {
                 const result = await options.chat.complete({
@@ -600,17 +631,39 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   responseFormat: input.responseFormat,
                   traceId: requestId,
                 });
+                const usage = result.response.usage;
                 response.setHeader('x-freeroute-provider', result.decision.candidate.providerId);
                 response.setHeader('x-freeroute-model', result.decision.candidate.modelId);
                 response.setHeader('x-freeroute-combo', input.model);
+                if (usage) {
+                  response.setHeader('x-freeroute-prompt-tokens', String(usage.promptTokens));
+                  response.setHeader('x-freeroute-completion-tokens', String(usage.completionTokens));
+                  response.setHeader('x-freeroute-total-tokens', String(usage.totalTokens));
+                }
                 sendJson(response, 200, {
                   id: result.response.id,
                   object: 'chat.completion',
                   created: Math.floor(Date.now() / 1_000),
                   model: `${result.response.providerId}/${result.response.modelId}`,
                   choices: [{ index: 0, message: { role: 'assistant', content: result.response.content, ...(result.response.toolCalls?.length ? { tool_calls: result.response.toolCalls } : {}) }, finish_reason: result.response.toolCalls?.length ? 'tool_calls' : 'stop' }],
-                  usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+                  usage: usage ? { prompt_tokens: usage.promptTokens, completion_tokens: usage.completionTokens, total_tokens: usage.totalTokens } : { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
                 });
+                if (options.events && usage) {
+                  await options.events.record({
+                    requestId,
+                    occurredAt: new Date(),
+                    profile: 'named',
+                    providerId: result.decision.candidate.providerId,
+                    modelId: result.response.modelId,
+                    credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                    fallbackCount: result.fallbackCount ?? 0,
+                    outcome: 'success',
+                    latencyMs: 0,
+                    promptTokens: usage.promptTokens,
+                    completionTokens: usage.completionTokens,
+                    totalTokens: usage.totalTokens,
+                  });
+                }
                 return;
               }
             } catch (err) {
@@ -639,6 +692,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat, input.hasVision), requestedProviderId: target.providerId,
             requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
           });
+          const streamStart = Date.now();
+          const usageState = { captured: undefined as import('./contracts.js').TokenUsage | undefined, accumulatedText: '' };
           response.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive',
             'x-freeroute-provider': result.decision.candidate.providerId,
@@ -646,9 +701,30 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'x-freeroute-fallback-count': String(result.fallbackCount ?? 0),
           });
           for await (const event of result.events) {
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }] })}\n\n`);
+            if (event.usage) usageState.captured = event.usage;
+            if (event.delta) usageState.accumulatedText += event.delta;
+            const includeUsage = event.usage ?? usageState.captured;
+            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: includeUsage } : {}) })}\n\n`);
           }
           response.end('data: [DONE]\n\n');
+          if (options.events) {
+            const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
+            if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+            await options.events.record({
+              requestId,
+              occurredAt: new Date(),
+              profile: target.profile,
+              providerId: result.decision.candidate.providerId,
+              modelId: result.decision.candidate.modelId,
+              credentialRef: result.decision.candidate.credentialId ? '***' : '',
+              fallbackCount: result.fallbackCount ?? 0,
+              outcome: 'success',
+              latencyMs: Date.now() - streamStart,
+              promptTokens: finalUsage.promptTokens,
+              completionTokens: finalUsage.completionTokens,
+              totalTokens: finalUsage.totalTokens,
+            });
+          }
           return;
         }
         const result = await options.chat.complete({
@@ -662,16 +738,39 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           responseFormat: input.responseFormat,
           traceId: requestId,
         });
+        const usage = result.response.usage;
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
         response.setHeader('x-freeroute-fallback-count', String(result.fallbackCount));
+        if (usage) {
+          response.setHeader('x-freeroute-prompt-tokens', String(usage.promptTokens));
+          response.setHeader('x-freeroute-completion-tokens', String(usage.completionTokens));
+          response.setHeader('x-freeroute-total-tokens', String(usage.totalTokens));
+        }
         sendJson(response, 200, {
           id: result.response.id,
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1_000),
           model: `${result.response.providerId}/${result.response.modelId}`,
           choices: [{ index: 0, message: { role: 'assistant', content: result.response.content || null, ...(result.response.toolCalls?.length ? { tool_calls: result.response.toolCalls } : {}) }, finish_reason: result.response.toolCalls?.length ? 'tool_calls' : 'stop' }],
+          usage: usage ? { prompt_tokens: usage.promptTokens, completion_tokens: usage.completionTokens, total_tokens: usage.totalTokens } : { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
         });
+        if (options.events && usage) {
+          await options.events.record({
+            requestId,
+            occurredAt: new Date(),
+            profile: target.profile,
+            providerId: result.decision.candidate.providerId,
+            modelId: result.response.modelId,
+            credentialRef: result.decision.candidate.credentialId ? '***' : '',
+            fallbackCount: result.fallbackCount ?? 0,
+            outcome: 'success',
+            latencyMs: 0,
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+          });
+        }
         return;
       }
 
