@@ -1,19 +1,11 @@
 /**
- * Modern, responsive Dashboard for FreeRoute.
- * Incorporates best practices from OmniRoute, 9router, FreeLLMAPI, and CLIProxyAPI:
- * - Lab/Dark theme with glowing accents and sleek typography
- * - First-run onboarding wizard when needsSetup === true
- * - Add/Manage API Keys directly in UI (OpenRouter, Groq, Gemini, Custom)
- * - Provider Health Matrix & Latency percentiles (Analyst)
- * - Live Quota & Cooldown observations
- * - Model Catalog with instant preference toggling (prefer / neutral / limit / block)
- * - 30-second real-time stats polling with toggle and visual countdown
- * - Interactive Prompt Playground with route tracing headers (x-freeroute-provider, etc.)
- * - One-click Quick Connect guides for Cursor, Cline, Python, and cURL
+ * Modern, bilingual Dashboard for FreeRoute (Tiếng Việt & English).
+ * Synthesizes provider lists, API key links, and model catalogs from:
+ * 9router, OmniRoute, FreeLLMAPI, and CLIProxyAPI.
  */
 export function dashboardHtml(): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -63,7 +55,7 @@ export function dashboardHtml(): string {
 
     /* Layout */
     .app-container {
-      max-width: 1240px;
+      max-width: 1280px;
       margin: 0 auto;
       padding: 24px 20px 60px;
       width: 100%;
@@ -88,14 +80,14 @@ export function dashboardHtml(): string {
     }
 
     .brand-icon {
-      width: 38px;
-      height: 38px;
+      width: 40px;
+      height: 40px;
       background: var(--primary-gradient);
       border-radius: var(--radius);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
+      font-size: 22px;
       box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
     }
 
@@ -116,7 +108,7 @@ export function dashboardHtml(): string {
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
     }
 
@@ -202,7 +194,7 @@ export function dashboardHtml(): string {
     .token-bar {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       padding: 4px 8px;
@@ -214,7 +206,7 @@ export function dashboardHtml(): string {
       color: var(--text);
       font-size: 12px;
       outline: none;
-      width: 140px;
+      width: 120px;
       font-family: var(--font-mono);
     }
     .token-bar input::placeholder { color: var(--text-dim); }
@@ -228,6 +220,10 @@ export function dashboardHtml(): string {
       color: var(--text-muted);
       cursor: pointer;
       user-select: none;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--card-border);
     }
 
     /* Tabs */
@@ -299,6 +295,8 @@ export function dashboardHtml(): string {
       align-items: flex-start;
       justify-content: space-between;
       margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
     }
 
     .wizard-title {
@@ -309,7 +307,7 @@ export function dashboardHtml(): string {
     .wizard-desc {
       color: var(--text-muted);
       font-size: 13px;
-      max-width: 680px;
+      max-width: 720px;
     }
 
     .wizard-steps {
@@ -406,6 +404,63 @@ export function dashboardHtml(): string {
       gap: 8px;
     }
 
+    /* Preset Provider Grid */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .preset-card {
+      background: #0d1320;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s;
+    }
+    .preset-card:hover {
+      border-color: var(--border-focus);
+      background: #111a2d;
+      transform: translateY(-2px);
+    }
+    .preset-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .preset-name {
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .preset-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      margin-bottom: 12px;
+    }
+    .preset-models {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      background: rgba(255,255,255,0.03);
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+    }
+    .preset-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
     /* Tables */
     .table-responsive {
       overflow-x: auto;
@@ -482,7 +537,7 @@ export function dashboardHtml(): string {
 
     /* Progress bar */
     .progress-bar-container {
-      width: 100px;
+      width: 90px;
       height: 6px;
       background: rgba(255, 255, 255, 0.08);
       border-radius: 9999px;
@@ -515,7 +570,7 @@ export function dashboardHtml(): string {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius-lg);
-      max-width: 520px;
+      max-width: 540px;
       width: 100%;
       padding: 24px;
       box-shadow: var(--shadow);
@@ -525,7 +580,7 @@ export function dashboardHtml(): string {
     .modal-title {
       font-size: 18px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .modal-desc {
       font-size: 13px;
@@ -553,7 +608,7 @@ export function dashboardHtml(): string {
       display: flex;
       justify-content: space-between;
     }
-    .form-help a { color: var(--accent); text-decoration: none; }
+    .form-help a { color: var(--accent); text-decoration: none; font-weight: 500; }
     .form-help a:hover { text-decoration: underline; }
 
     .modal-actions {
@@ -631,66 +686,69 @@ export function dashboardHtml(): string {
       <div class="brand-icon">⚡</div>
       <div>
         <div class="brand-title">FreeRoute</div>
-        <div class="brand-subtitle">Local-first, quota-aware routing for free-tier LLMs</div>
+        <div class="brand-subtitle" id="i18n-sub">Local-first, quota-aware routing for free-tier LLMs</div>
       </div>
     </div>
     <div class="header-actions">
+      <!-- Language Toggle -->
+      <button class="btn btn-outline btn-sm" id="lang-toggle-btn" onclick="toggleLanguage()">
+        🇻🇳 Tiếng Việt
+      </button>
+
       <div class="status-pill" id="gateway-status">
         <span class="status-dot"></span>
         <span id="gateway-text">127.0.0.1:8787</span>
       </div>
 
-      <div class="polling-control" id="poll-toggle" title="Toggle 30s auto-refresh">
+      <div class="polling-control" id="poll-toggle" title="Auto-refresh toggle">
         <span id="poll-icon">⏱️</span>
         <span id="poll-text">30s Live</span>
       </div>
 
-      <button class="btn btn-outline btn-sm" onclick="loadAll()" title="Refresh all data">
-        🔄 Refresh
+      <button class="btn btn-outline btn-sm" onclick="loadAll()" title="Refresh">
+        🔄 <span id="btn-refresh-text">Làm mới</span>
       </button>
 
-      <div class="token-bar" title="API Token (saved locally)">
+      <div class="token-bar" title="API Token">
         <span>🔑</span>
         <input id="token" type="password" placeholder="Local API token" autocomplete="off" onchange="saveToken()">
       </div>
 
       <button class="btn btn-primary" onclick="openAddKeyModal()">
-        + Add Provider Key
+        + <span id="btn-add-key-text">Thêm API Key</span>
       </button>
     </div>
   </header>
 
-  <!-- Onboarding Wizard Banner (shown if needsSetup) -->
+  <!-- Onboarding Wizard Banner -->
   <div class="wizard-card" id="wizard-banner" style="display: none;">
     <div class="wizard-header">
       <div>
-        <h2 class="wizard-title">👋 Welcome to FreeRoute!</h2>
-        <p class="wizard-desc">FreeRoute pools together free-tier models from OpenRouter, Groq, and Google Gemini into a single unified endpoint with automatic fallback.</p>
+        <h2 class="wizard-title" id="wz-title">👋 Chào mừng đến với FreeRoute!</h2>
+        <p class="wizard-desc" id="wz-desc">FreeRoute tự động gộp và định tuyến thông minh giữa các gói miễn phí từ OpenRouter, Groq, Gemini, Cerebras... thành một endpoint duy nhất có tự động dự phòng (fallback) khi hết quota.</p>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ Connect First Key</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ <span id="wz-connect-btn">Kết nối Key đầu tiên</span></button>
     </div>
     <div class="wizard-steps">
       <div class="wizard-step">
         <div class="step-number">1</div>
-        <div class="step-title">Get a Free Provider Key</div>
-        <div class="step-desc">Pick any free tier provider. No credit card required.</div>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <a href="https://openrouter.ai/keys" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">OpenRouter ↗</a>
-          <a href="https://console.groq.com/keys" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">Groq ↗</a>
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">Gemini ↗</a>
+        <div class="step-title" id="wz-s1-title">Lấy API Key Miễn Phí</div>
+        <div class="step-desc" id="wz-s1-desc">Chọn bất kỳ nhà cung cấp miễn phí nào bên dưới, không cần thẻ tín dụng:</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="wizard-quick-links">
+          <!-- populated dynamically -->
         </div>
       </div>
       <div class="wizard-step">
         <div class="step-number">2</div>
-        <div class="step-title">Add Key to FreeRoute</div>
-        <div class="step-desc">Keys are encrypted at rest with AES-256-GCM and never leave your machine.</div>
-        <button class="btn btn-outline btn-sm" onclick="openAddKeyModal()">Open Key Manager</button>
+        <div class="step-title" id="wz-s2-title">Lưu Key vào FreeRoute</div>
+        <div class="step-desc" id="wz-s2-desc">Key được mã hóa an toàn AES-256-GCM tại máy của bạn và tự động nạp danh sách model.</div>
+        <button class="btn btn-outline btn-sm" onclick="openAddKeyModal()" id="wz-open-modal-btn">Mở Trình quản lý Key</button>
       </div>
       <div class="wizard-step">
         <div class="step-number">3</div>
-        <div class="step-title">Point Your Agent</div>
-        <div class="step-desc">Use <code>http://127.0.0.1:8787/v1</code> in Cursor, Cline, or any OpenAI-compatible client.</div>
-        <button class="btn btn-outline btn-sm" onclick="switchTab('quickstart')">View Configs</button>
+        <div class="step-title" id="wz-s3-title">Trỏ Công Cụ Của Bạn</div>
+        <div class="step-desc" id="wz-s3-desc">Sử dụng Base URL <code>http://127.0.0.1:8787/v1</code> trong Cursor, Cline, hoặc script cá nhân.</div>
+        <button class="btn btn-outline btn-sm" onclick="switchTab('quickstart')" id="wz-view-config-btn">Xem Cấu hình Mẫu</button>
       </div>
     </div>
   </div>
@@ -698,43 +756,46 @@ export function dashboardHtml(): string {
   <!-- KPI Cards -->
   <div class="kpi-grid">
     <div class="kpi-card">
-      <div class="kpi-label"><span>🌐</span> Configured Providers</div>
+      <div class="kpi-label"><span>🌐</span> <span id="kpi-lbl-providers">Nhà Cung Cấp Đã Kết Nối</span></div>
       <div class="kpi-value" id="kpi-providers">0</div>
-      <div class="kpi-sub" id="kpi-providers-sub">No active credentials</div>
+      <div class="kpi-sub" id="kpi-providers-sub">Chưa có key nào</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label"><span>🤖</span> Available Free Models</div>
+      <div class="kpi-label"><span>🤖</span> <span id="kpi-lbl-models">Model Miễn Phí Sẵn Sàng</span></div>
       <div class="kpi-value" id="kpi-models">0</div>
-      <div class="kpi-sub">Across all healthy providers</div>
+      <div class="kpi-sub" id="kpi-models-sub">Từ các provider đang hoạt động</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label"><span>⚡</span> Requests Handled</div>
+      <div class="kpi-label"><span>⚡</span> <span id="kpi-lbl-requests">Yêu Cầu Đã Xử Lý</span></div>
       <div class="kpi-value" id="kpi-requests">0</div>
-      <div class="kpi-sub" id="kpi-success-rate">100% success rate</div>
+      <div class="kpi-sub" id="kpi-success-rate">100% thành công</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label"><span>🛡️</span> Fallbacks Recovered</div>
+      <div class="kpi-label"><span>🛡️</span> <span id="kpi-lbl-fallbacks">Lần Fallback Cứu Nguy</span></div>
       <div class="kpi-value" id="kpi-fallbacks">0</div>
-      <div class="kpi-sub">Quota limits prevented</div>
+      <div class="kpi-sub" id="kpi-fallbacks-sub">Tự động vượt giới hạn quota</div>
     </div>
   </div>
 
   <!-- Navigation Tabs -->
   <div class="nav-tabs">
     <button class="tab-btn active" onclick="switchTab('analytics')">
-      📊 Analytics & Health
+      📊 <span id="tab-lbl-analytics">Phân tích & Sức khỏe</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('presets')">
+      🌐 <span id="tab-lbl-presets">Danh mục Nhà cung cấp</span>
     </button>
     <button class="tab-btn" onclick="switchTab('models')">
-      🤖 Model Catalog <span class="tab-badge" id="tab-model-count">0</span>
+      🤖 <span id="tab-lbl-models">Danh mục Model</span> <span class="tab-badge" id="tab-model-count">0</span>
     </button>
     <button class="tab-btn" onclick="switchTab('keys')">
-      🔑 Key Management <span class="tab-badge" id="tab-key-count">0</span>
+      🔑 <span id="tab-lbl-keys">Quản lý API Key</span> <span class="tab-badge" id="tab-key-count">0</span>
     </button>
     <button class="tab-btn" onclick="switchTab('playground')">
-      ⚡ Test Playground
+      ⚡ <span id="tab-lbl-play">Thử nghiệm Prompt</span>
     </button>
     <button class="tab-btn" onclick="switchTab('quickstart')">
-      🔌 Quick Connect
+      🔌 <span id="tab-lbl-guide">Hướng dẫn Kết nối</span>
     </button>
   </div>
 
@@ -742,22 +803,22 @@ export function dashboardHtml(): string {
   <div class="tab-pane active" id="tab-analytics">
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span>🏥</span> Provider Health & Performance Matrix</div>
-        <span class="badge badge-provider">Updated live</span>
+        <div class="card-title"><span>🏥</span> <span id="card-health-title">Bảng Theo Dõi Sức Khỏe & Hiệu Năng Provider</span></div>
+        <span class="badge badge-provider">Live Stats</span>
       </div>
       <div class="table-responsive">
         <table>
           <thead>
             <tr>
-              <th>Provider</th>
-              <th>Status</th>
-              <th>Success Rate</th>
-              <th>Requests</th>
-              <th>Latency (p50 / p95)</th>
+              <th id="th-h-provider">Nhà cung cấp</th>
+              <th id="th-h-status">Trạng thái</th>
+              <th id="th-h-rate">Tỷ lệ thành công</th>
+              <th id="th-h-reqs">Yêu cầu</th>
+              <th id="th-h-latency">Độ trễ (p50 / p95)</th>
             </tr>
           </thead>
           <tbody id="health-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Loading provider health…</td></tr>
+            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải dữ liệu sức khỏe…</td></tr>
           </tbody>
         </table>
       </div>
@@ -766,20 +827,20 @@ export function dashboardHtml(): string {
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><span>⏱️</span> Quota Observations & Cooldowns</div>
+          <div class="card-title"><span>⏱️</span> <span id="card-quota-title">Hạn Ngạch & Thời Gian Phục Hồi (Cooldown)</span></div>
         </div>
         <div class="table-responsive">
           <table>
             <thead>
               <tr>
                 <th>Route</th>
-                <th>Remaining Req</th>
-                <th>Tokens</th>
-                <th>Reset Time</th>
+                <th id="th-q-reqs">Số Req còn lại</th>
+                <th id="th-q-tokens">Tokens</th>
+                <th id="th-q-reset">Reset vào lúc</th>
               </tr>
             </thead>
             <tbody id="quota-rows">
-              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">No quota events recorded yet.</td></tr>
+              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">Chưa có dữ liệu hạn ngạch nào.</td></tr>
             </tbody>
           </table>
         </div>
@@ -787,20 +848,20 @@ export function dashboardHtml(): string {
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><span>📜</span> Recent Routing Events (Redacted)</div>
+          <div class="card-title"><span>📜</span> <span id="card-events-title">Lịch Sử Định Tuyến Gần Đây (Redacted)</span></div>
         </div>
         <div class="table-responsive">
           <table>
             <thead>
               <tr>
-                <th>Time</th>
+                <th id="th-e-time">Thời gian</th>
                 <th>Route</th>
-                <th>Outcome</th>
-                <th>Fallbacks</th>
+                <th id="th-e-outcome">Kết quả</th>
+                <th id="th-e-fb">Số lần fallback</th>
               </tr>
             </thead>
             <tbody id="event-rows">
-              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">No routing events recorded yet.</td></tr>
+              <tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px;">Chưa có lịch sử định tuyến nào.</td></tr>
             </tbody>
           </table>
         </div>
@@ -808,15 +869,31 @@ export function dashboardHtml(): string {
     </div>
   </div>
 
-  <!-- TAB 2: Model Catalog & Preferences -->
+  <!-- TAB 2: Provider Directory (Presets from 9router, OmniRoute, freellmapi, CLIProxyAPI) -->
+  <div class="tab-pane" id="tab-presets">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><span>🌐</span> <span id="card-dir-title">Danh Mục Nhà Cung Cấp Miễn Phí (Provider Directory)</span></div>
+          <p class="wizard-desc" style="margin-top:4px" id="card-dir-desc">Tổng hợp các nhà cung cấp có gói miễn phí định kỳ từ 9router, OmniRoute, FreeLLMAPI và CLIProxyAPI. Bấm để lấy API key và tự động nạp model.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ <span id="btn-add-custom-provider">Thêm Provider Tùy Chỉnh</span></button>
+      </div>
+      <div class="preset-grid" id="preset-container">
+        <!-- Loaded dynamically from /v1/providers/presets -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Model Catalog & Preferences -->
   <div class="tab-pane" id="tab-models">
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span>🤖</span> Discovered Models & Routing Preferences</div>
+        <div class="card-title"><span>🤖</span> <span id="card-models-title">Danh Mục Model & Chính Sách Ưu Tiên</span></div>
         <div style="display:flex; gap:10px;">
-          <input id="model-search" type="text" placeholder="Search models…" oninput="filterModels()">
+          <input id="model-search" type="text" placeholder="Tìm kiếm model…" oninput="filterModels()">
           <select id="model-filter-provider" onchange="filterModels()">
-            <option value="">All Providers</option>
+            <option value="">Tất cả Provider</option>
           </select>
         </div>
       </div>
@@ -824,32 +901,32 @@ export function dashboardHtml(): string {
         <table>
           <thead>
             <tr>
-              <th>Model Identifier</th>
+              <th id="th-m-id">Tên Model</th>
               <th>Provider</th>
-              <th>Tier</th>
-              <th>Capabilities</th>
-              <th>Preference Policy</th>
+              <th id="th-m-tier">Gói cước</th>
+              <th id="th-m-caps">Khả năng</th>
+              <th id="th-m-pref">Chính sách Định tuyến</th>
             </tr>
           </thead>
           <tbody id="model-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Loading models…</td></tr>
+            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải danh sách model…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- TAB 3: Key Management -->
+  <!-- TAB 4: Key Management -->
   <div class="tab-pane" id="tab-keys">
     <div class="card">
       <div class="card-header">
         <div>
-          <div class="card-title"><span>🔑</span> Configured Provider Credentials</div>
-          <div class="wizard-desc" style="margin-top:4px">Credentials are encrypted with local AES-256-GCM. Plaintext secrets are never transmitted.</div>
+          <div class="card-title"><span>🔑</span> <span id="card-keys-title">Danh Sách API Key Đã Kết Nối</span></div>
+          <div class="wizard-desc" style="margin-top:4px" id="card-keys-desc">Toàn bộ key được mã hóa AES-256-GCM cục bộ trên máy. Secret không bao giờ được gửi đi.</div>
         </div>
         <div style="display:flex; gap:8px;">
-          <button class="btn btn-primary" onclick="openAddKeyModal()">+ Add Key</button>
-          <button class="btn btn-outline" onclick="openImportModal()">Import 9Router</button>
+          <button class="btn btn-primary" onclick="openAddKeyModal()">+ <span id="btn-add-key-card">Thêm Key</span></button>
+          <button class="btn btn-outline" onclick="openImportModal()">Nhập từ 9Router</button>
         </div>
       </div>
       <div class="table-responsive">
@@ -858,13 +935,13 @@ export function dashboardHtml(): string {
             <tr>
               <th>Provider</th>
               <th>Credential ID</th>
-              <th>Status</th>
-              <th>Added At</th>
-              <th>Actions</th>
+              <th id="th-k-status">Trạng thái</th>
+              <th id="th-k-added">Ngày thêm</th>
+              <th id="th-k-actions">Thao tác</th>
             </tr>
           </thead>
           <tbody id="credential-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Loading credentials…</td></tr>
+            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">Đang tải danh sách key…</td></tr>
           </tbody>
         </table>
       </div>
@@ -872,58 +949,58 @@ export function dashboardHtml(): string {
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span>⚙️</span> Custom Providers (OpenAI-compatible / Gemini)</div>
+        <div class="card-title"><span>⚙️</span> <span id="card-custom-title">Provider Tùy Chỉnh (OpenAI-compatible / Gemini)</span></div>
       </div>
-      <p class="wizard-desc" style="margin-bottom:16px">You can register any OpenAI-compatible or Gemini-compatible local/remote endpoint (Ollama, vLLM, DeepSeek, etc.).</p>
+      <p class="wizard-desc" style="margin-bottom:16px" id="card-custom-desc">Bạn có thể kết nối bất kỳ endpoint cục bộ nào (Ollama, LM Studio, vLLM) hoặc proxy bên ngoài.</p>
       <div class="table-responsive">
         <table>
           <thead>
             <tr>
               <th>Provider ID</th>
-              <th>Type</th>
+              <th>Adapter</th>
               <th>Base URL</th>
               <th>Tier</th>
-              <th>Status</th>
+              <th id="th-c-actions">Thao tác</th>
             </tr>
           </thead>
           <tbody id="custom-provider-rows">
-            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">Built-in providers: openrouter, groq, gemini</td></tr>
+            <tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">Đang tải danh sách provider tùy chỉnh…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- TAB 4: Test Playground -->
+  <!-- TAB 5: Test Playground -->
   <div class="tab-pane" id="tab-playground">
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span>⚡</span> Live Routing Playground</div>
-        <div class="wizard-desc">Test chat completion directly through FreeRoute and inspect fallback headers in real-time.</div>
+        <div class="card-title"><span>⚡</span> <span id="card-play-title">Thử Nghiệm Định Tuyến Trực Tiếp (Live Routing Playground)</span></div>
+        <div class="wizard-desc" id="card-play-desc">Kiểm tra kết nối và theo dõi các header định tuyến (provider, model, fallback count) thời gian thực.</div>
       </div>
       <div class="playground-grid">
         <div>
           <div class="form-group">
-            <label>Route Profile or Model</label>
+            <label id="lbl-play-route">Chọn Profile Định Tuyến hoặc Model</label>
             <select id="play-model">
-              <option value="auto:free">auto:free (Recommended Free-Tier)</option>
-              <option value="auto:code">auto:code (Coding & Tools)</option>
-              <option value="auto:fast">auto:fast (Lowest Latency)</option>
-              <option value="auto:long-context">auto:long-context (Largest Context)</option>
+              <option value="auto:free">auto:free (Ưu tiên gói miễn phí)</option>
+              <option value="auto:code">auto:code (Hỗ trợ gọi công cụ/coding)</option>
+              <option value="auto:fast">auto:fast (Tốc độ phản hồi nhanh nhất)</option>
+              <option value="auto:long-context">auto:long-context (Ngữ cảnh lớn nhất)</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Prompt</label>
-            <textarea id="play-prompt" rows="5" style="width:100%" placeholder="Type a test prompt here…">Hello FreeRoute! Introduce yourself and list your model name.</textarea>
+            <label id="lbl-play-prompt">Prompt Thử Nghiệm</label>
+            <textarea id="play-prompt" rows="5" style="width:100%" placeholder="Nhập câu hỏi thử nghiệm tại đây…">Chào FreeRoute! Hãy giới thiệu bạn là ai và mô hình nào đang trả lời câu hỏi này.</textarea>
           </div>
           <button class="btn btn-primary" id="play-send-btn" onclick="runPlayground()">
-            🚀 Send Request
+            🚀 <span id="btn-play-send">Gửi Yêu Cầu</span>
           </button>
         </div>
         <div>
-          <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Response & Routing Tracing</label>
+          <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;" id="lbl-play-result">Kết Quả & Thông Số Định Tuyến (Tracing)</label>
           <div class="code-block" id="play-result" style="min-height: 200px;">
-// Response will appear here with routing headers:
+// Kết quả và các header định tuyến sẽ xuất hiện tại đây:
 // x-freeroute-request-id
 // x-freeroute-provider
 // x-freeroute-model
@@ -934,21 +1011,22 @@ export function dashboardHtml(): string {
     </div>
   </div>
 
-  <!-- TAB 5: Quick Connect -->
+  <!-- TAB 6: Quick Connect & User Guide (Bilingual) -->
   <div class="tab-pane" id="tab-quickstart">
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span>🔌</span> Connect Cursor, Cline, or OpenAI SDK</div>
+        <div class="card-title"><span>🔌</span> <span id="guide-title">Hướng Dẫn Kết Nối (Quick Connect & User Guide)</span></div>
       </div>
-      <p class="wizard-desc" style="margin-bottom:20px;">Use FreeRoute as a drop-in replacement for OpenAI endpoints. Point your tools to the local base URL.</p>
+      <p class="wizard-desc" style="margin-bottom:20px;" id="guide-desc">FreeRoute đóng vai trò là một proxy tương thích 100% chuẩn OpenAI. Bạn chỉ cần trỏ công cụ của mình tới Base URL cục bộ.</p>
 
       <div style="margin-bottom:24px;">
-        <h3 style="font-size:14px; margin-bottom:8px;">1. Cursor / Cline / Continue Configuration</h3>
+        <h3 style="font-size:14px; margin-bottom:8px;" id="guide-cursor-title">1. Cấu hình cho Cursor / Windsurf / Cline / Roo Code / Continue</h3>
         <div class="code-block">
 Base URL:  http://127.0.0.1:8787/v1
-Model:     auto:free  (or auto:code for tool-calling coding agents)
-API Key:   <span id="quick-token-display">your-token-if-configured</span>
+Model:     auto:free   (hoặc auto:code cho coding agent cần function calling)
+API Key:   <span id="quick-token-display">chưa đặt token (mặc định mở trên localhost)</span>
         </div>
+        <p class="wizard-desc" style="margin-top:6px" id="guide-cursor-note">💡 Lưu ý: Khi sử dụng <code>auto:free</code>, FreeRoute sẽ tự động chọn model miễn phí tốt nhất và tự động fallback sang provider khác nếu gặp lỗi hoặc hết quota.</p>
       </div>
 
       <div style="margin-bottom:24px;">
@@ -956,71 +1034,110 @@ API Key:   <span id="quick-token-display">your-token-if-configured</span>
         <div class="code-block">
 from openai import OpenAI
 
+# Kết nối trực tiếp tới FreeRoute cục bộ
 client = OpenAI(
     base_url="http://127.0.0.1:8787/v1",
-    api_key="your-token"  # optional if FREEROUTE_API_TOKEN is unset
+    api_key="your-freeroute-token"  # Optional or FREEROUTE_API_TOKEN
 )
 
 response = client.chat.completions.create(
     model="auto:free",
-    messages=[{"role": "user", "content": "Explain quantum computing simply"}]
+    messages=[{"role": "user", "content": "Giải thích điện toán đám mây bằng tiếng Việt"}]
 )
 print(response.choices[0].message.content)
         </div>
       </div>
 
-      <div>
-        <h3 style="font-size:14px; margin-bottom:8px;">3. cURL Test</h3>
+      <div style="margin-bottom:24px;">
+        <h3 style="font-size:14px; margin-bottom:8px;">3. Lệnh kiểm tra cURL</h3>
         <div class="code-block">
 curl http://127.0.0.1:8787/v1/chat/completions \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"auto:free","messages":[{"role":"user","content":"Hi"}]}'
+  -d '{"model":"auto:free","messages":[{"role":"user","content":"Xin chào!"}]}'
+        </div>
+      </div>
+
+      <div>
+        <h3 style="font-size:14px; margin-bottom:8px;" id="guide-profiles-title">4. Ý nghĩa các Profile Định Tuyến Tự Động (Auto Profiles)</h3>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Profile</th>
+                <th id="th-p-meaning">Ý nghĩa & Hành vi</th>
+                <th id="th-p-bestfor">Phù hợp nhất cho</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>auto:free</code></td>
+                <td id="td-p1-desc">Chỉ chọn các model miễn phí định kỳ đã kiểm chứng (free_verified).</td>
+                <td id="td-p1-use">Sử dụng hàng ngày, chat, dịch thuật, tóm tắt.</td>
+              </tr>
+              <tr>
+                <td><code>auto:code</code></td>
+                <td id="td-p2-desc">Ưu tiên các model có hỗ trợ Function Calling / Tools Calling.</td>
+                <td id="td-p2-use">Coding agent (Cursor, Cline, Aider).</td>
+              </tr>
+              <tr>
+                <td><code>auto:fast</code></td>
+                <td id="td-p3-desc">Ưu tiên các provider có độ trễ phản hồi thấp nhất (Groq, Cerebras).</td>
+                <td id="td-p3-use">Autocomplete, phản hồi tức thì.</td>
+              </tr>
+              <tr>
+                <td><code>auto:long-context</code></td>
+                <td id="td-p4-desc">Ưu tiên model có cửa sổ ngữ cảnh lớn nhất (Gemini 2.0 Flash 1M tokens).</td>
+                <td id="td-p4-use">Đọc tài liệu lớn, phân tích toàn bộ codebase.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Modal: Add Key -->
+<!-- Modal: Add Key & Connect Provider -->
 <div class="modal-backdrop" id="add-key-modal">
   <div class="modal-box">
-    <h3 class="modal-title">Add Provider API Key</h3>
-    <p class="modal-desc">Add a free-tier API key. It will be encrypted locally with AES-256-GCM.</p>
+    <h3 class="modal-title" id="modal-key-title">Thêm API Key Provider</h3>
+    <p class="modal-desc" id="modal-key-desc">Chọn nhà cung cấp và nhập API key. Danh sách model sẽ được tự động nạp ngay lập tức.</p>
+    
     <div class="form-group">
-      <label>Provider</label>
+      <label id="lbl-modal-prov">Nhà Cung Cấp (Provider)</label>
       <select id="modal-provider" onchange="updateKeyModalHelper()">
-        <option value="openrouter">OpenRouter (Free Models Pool)</option>
-        <option value="groq">Groq (Ultra-Fast Llama)</option>
-        <option value="gemini">Google Gemini (Gemini 2.0 Flash)</option>
-        <option value="custom">Custom OpenAI-Compatible</option>
+        <!-- Filled dynamically from presets -->
       </select>
       <div class="form-help">
-        <span id="modal-provider-help">Free tier available with recurring limits.</span>
-        <a id="modal-provider-link" href="https://openrouter.ai/keys" target="_blank">Get Free Key ↗</a>
+        <span id="modal-provider-help">Miễn phí định kỳ không cần thẻ tín dụng.</span>
+        <a id="modal-provider-link" href="#" target="_blank">Lấy Key miễn phí ↗</a>
       </div>
     </div>
 
     <div class="form-group" id="modal-custom-url-group" style="display:none;">
-      <label>Custom Base URL</label>
+      <label id="lbl-modal-url">Base URL Tùy Chỉnh</label>
       <input type="text" id="modal-custom-url" placeholder="http://127.0.0.1:11434/v1">
     </div>
 
     <div class="form-group">
-      <label>API Key / Secret</label>
+      <label id="lbl-modal-key">API Key / Secret</label>
       <div style="position:relative">
-        <input type="password" id="modal-key" placeholder="sk-..." style="padding-right: 36px; width:100%">
+        <input type="password" id="modal-key" placeholder="Dán API key vào đây…" style="padding-right: 36px; width:100%">
         <span onclick="togglePasswordVisibility('modal-key')" style="position:absolute; right:10px; top:8px; cursor:pointer; font-size:14px;">👁️</span>
+      </div>
+      <div class="form-help">
+        <span id="modal-key-note" style="color:var(--text-dim)">Mã hóa an toàn bằng AES-256-GCM tại máy của bạn.</span>
       </div>
     </div>
 
     <div class="form-group">
-      <label>Credential Label (Optional)</label>
+      <label id="lbl-modal-label">Nhãn Định Danh (Tùy chọn)</label>
       <input type="text" id="modal-label" placeholder="default">
     </div>
 
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeAddKeyModal()">Cancel</button>
-      <button class="btn btn-primary" id="modal-submit-btn" onclick="submitAddKey()">Save & Validate</button>
+      <button class="btn btn-outline" onclick="closeAddKeyModal()" id="btn-modal-cancel">Hủy</button>
+      <button class="btn btn-primary" id="modal-submit-btn" onclick="submitAddKey()">Lưu & Tự Động Nạp Model</button>
     </div>
   </div>
 </div>
@@ -1028,14 +1145,14 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
 <!-- Modal: Import 9Router -->
 <div class="modal-backdrop" id="import-modal">
   <div class="modal-box">
-    <h3 class="modal-title">Import from 9Router Database</h3>
-    <p class="modal-desc">Import existing active keys from a 9Router SQLite file without plain-text exposure.</p>
+    <h3 class="modal-title">Nhập kết nối từ 9Router</h3>
+    <p class="modal-desc">Nhập key đang hoạt động từ file database SQLite của 9Router mà không để lộ secret.</p>
     <div class="form-group">
-      <label>9Router SQLite File Path</label>
-      <input type="text" id="import-path" placeholder="data/9router.sqlite">
+      <label>Đường dẫn file 9Router SQLite</label>
+      <input type="text" id="import-path" placeholder="D:/9router/data/9router.sqlite">
     </div>
     <div class="form-group">
-      <label>Provider</label>
+      <label>Provider muốn import</label>
       <select id="import-provider">
         <option value="openrouter">OpenRouter</option>
         <option value="groq">Groq</option>
@@ -1043,8 +1160,8 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
       </select>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeImportModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="submitImport9Router()">Import Key</button>
+      <button class="btn btn-outline" onclick="closeImportModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="submitImport9Router()">Bắt đầu Import</button>
     </div>
   </div>
 </div>
@@ -1053,38 +1170,110 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
 <div id="toast"></div>
 
 <script>
+  let currentLang = localStorage.getItem('freeroute_lang') || 'vi';
   let allModels = [];
   let allPreferences = [];
+  let allPresets = [];
   let pollInterval = null;
   let isPolling = true;
 
-  // Initialize
-  document.addEventListener('DOMContentLoaded', () => {
+  const I18N = {
+    vi: {
+      sub: 'Định tuyến LLM cục bộ, tối ưu hạn ngạch miễn phí, tự động chuyển đổi dự phòng',
+      langBtn: '🇻🇳 Tiếng Việt',
+      refresh: 'Làm mới',
+      addKey: 'Thêm API Key',
+      providersKpi: 'Nhà Cung Cấp Đã Kết Nối',
+      modelsKpi: 'Model Miễn Phí Sẵn Sàng',
+      requestsKpi: 'Yêu Cầu Đã Xử Lý',
+      fallbacksKpi: 'Lần Fallback Cứu Nguy',
+      tabAnalytics: 'Phân tích & Sức khỏe',
+      tabPresets: 'Danh mục Nhà cung cấp',
+      tabModels: 'Danh mục Model',
+      tabKeys: 'Quản lý API Key',
+      tabPlay: 'Thử nghiệm Prompt',
+      tabGuide: 'Hướng dẫn Kết nối',
+      getKey: 'Lấy Key miễn phí ↗',
+      connectKey: 'Kết nối Key',
+      saveKeyBtn: 'Lưu & Tự Động Nạp Model',
+      cancelBtn: 'Hủy'
+    },
+    en: {
+      sub: 'Local-first, quota-aware routing for official free-tier LLMs',
+      langBtn: '🇬🇧 English',
+      refresh: 'Refresh',
+      addKey: 'Add API Key',
+      providersKpi: 'Configured Providers',
+      modelsKpi: 'Available Free Models',
+      requestsKpi: 'Requests Handled',
+      fallbacksKpi: 'Fallbacks Recovered',
+      tabAnalytics: 'Analytics & Health',
+      tabPresets: 'Provider Directory',
+      tabModels: 'Model Catalog',
+      tabKeys: 'Key Management',
+      tabPlay: 'Test Playground',
+      tabGuide: 'Quick Connect',
+      getKey: 'Get Free Key ↗',
+      connectKey: 'Connect Key',
+      saveKeyBtn: 'Save & Auto-load Models',
+      cancelBtn: 'Cancel'
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', async () => {
     const savedToken = localStorage.getItem('freeroute_token') || '';
     if (savedToken) {
       document.getElementById('token').value = savedToken;
       updateQuickTokenDisplay(savedToken);
     }
+    applyLanguage(currentLang);
+    await loadPresets();
     loadAll();
     setupPolling();
   });
+
+  function toggleLanguage() {
+    currentLang = currentLang === 'vi' ? 'en' : 'vi';
+    localStorage.setItem('freeroute_lang', currentLang);
+    applyLanguage(currentLang);
+    renderPresets(allPresets);
+    renderModels(allModels);
+  }
+
+  function applyLanguage(lang) {
+    const t = I18N[lang];
+    document.getElementById('lang-toggle-btn').textContent = t.langBtn;
+    document.getElementById('i18n-sub').textContent = t.sub;
+    document.getElementById('btn-refresh-text').textContent = t.refresh;
+    document.getElementById('btn-add-key-text').textContent = t.addKey;
+    document.getElementById('kpi-lbl-providers').textContent = t.providersKpi;
+    document.getElementById('kpi-lbl-models').textContent = t.modelsKpi;
+    document.getElementById('kpi-lbl-requests').textContent = t.requestsKpi;
+    document.getElementById('kpi-lbl-fallbacks').textContent = t.fallbacksKpi;
+    document.getElementById('tab-lbl-analytics').textContent = t.tabAnalytics;
+    document.getElementById('tab-lbl-presets').textContent = t.tabPresets;
+    document.getElementById('tab-lbl-models').textContent = t.tabModels;
+    document.getElementById('tab-lbl-keys').textContent = t.tabKeys;
+    document.getElementById('tab-lbl-play').textContent = t.tabPlay;
+    document.getElementById('tab-lbl-guide').textContent = t.tabGuide;
+    document.getElementById('btn-modal-cancel').textContent = t.cancelBtn;
+    document.getElementById('modal-submit-btn').textContent = t.saveKeyBtn;
+  }
 
   function saveToken() {
     const val = document.getElementById('token').value.trim();
     localStorage.setItem('freeroute_token', val);
     updateQuickTokenDisplay(val);
-    showToast('API token saved.');
+    showToast(currentLang === 'vi' ? 'Đã lưu API token.' : 'API token saved.');
     loadAll();
   }
 
-  function updateQuickTokenDisplay(token) {
+  function updateQuickTokenDisplay(t) {
     const el = document.getElementById('quick-token-display');
-    if (el) el.textContent = token || 'unset (public localhost)';
+    if (el) el.textContent = t || (currentLang === 'vi' ? 'chưa đặt token (mặc định mở)' : 'unset (public localhost)');
   }
 
-  function token() {
-    return document.getElementById('token').value.trim();
-  }
+  function token() { return document.getElementById('token').value.trim(); }
 
   async function api(path, options = {}) {
     const headers = { ...options.headers };
@@ -1113,6 +1302,92 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     if (pane) pane.classList.add('active');
   }
 
+  // Load Presets from server
+  async function loadPresets() {
+    try {
+      const res = await fetch('/v1/providers/presets');
+      if (res.ok) {
+        const body = await res.json();
+        allPresets = body.data || [];
+        populateModalPresets(allPresets);
+        renderPresets(allPresets);
+        renderWizardLinks(allPresets);
+      }
+    } catch (e) {
+      console.warn('Failed to load presets', e);
+    }
+  }
+
+  function populateModalPresets(presets) {
+    const sel = document.getElementById('modal-provider');
+    sel.replaceChildren();
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = currentLang === 'vi' ? '➕ Provider Tùy Chỉnh (OpenAI-compatible)' : '➕ Custom OpenAI-Compatible';
+    sel.appendChild(customOpt);
+  }
+
+  function renderPresets(presets) {
+    const c = document.getElementById('preset-container');
+    if (!c) return;
+    c.replaceChildren();
+    presets.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'preset-card';
+      const desc = currentLang === 'vi' ? p.descriptionVi : p.descriptionEn;
+      const modelNames = p.seedModels.map(m => m.modelId.split('/').pop()).slice(0, 3).join(', ') + (p.seedModels.length > 3 ? '...' : '');
+
+      card.innerHTML = \`
+        <div>
+          <div class="preset-top">
+            <div class="preset-name">
+              <span>⚡</span> \${p.name}
+            </div>
+            <span class="badge badge-verified">\${p.category.toUpperCase()}</span>
+          </div>
+          <div class="preset-desc">\${desc}</div>
+          <div class="preset-models">📦 Models: \${modelNames}</div>
+        </div>
+        <div class="preset-actions">
+          <a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">
+            \${currentLang === 'vi' ? 'Lấy Key ↗' : 'Get Key ↗'}
+          </a>
+          <button class="btn btn-primary btn-sm" onclick="connectPreset('\${p.id}')">
+            + \${currentLang === 'vi' ? 'Kết nối' : 'Connect'}
+          </button>
+        </div>
+      \`;
+      c.appendChild(card);
+    });
+  }
+
+  function renderWizardLinks(presets) {
+    const c = document.getElementById('wizard-quick-links');
+    if (!c) return;
+    c.replaceChildren();
+    presets.slice(0, 5).forEach(p => {
+      const a = document.createElement('a');
+      a.href = p.apiKeyUrl;
+      a.target = '_blank';
+      a.className = 'btn btn-outline btn-sm';
+      a.style.textDecoration = 'none';
+      a.textContent = p.name + ' ↗';
+      c.appendChild(a);
+    });
+  }
+
+  function connectPreset(presetId) {
+    openAddKeyModal();
+    document.getElementById('modal-provider').value = presetId;
+    updateKeyModalHelper();
+  }
+
   // Load all dashboard components
   async function loadAll() {
     try {
@@ -1120,7 +1395,8 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         loadAuthStatus(),
         loadHealthAndAnalytics(),
         loadModelsAndPreferences(),
-        loadCredentials()
+        loadCredentials(),
+        loadCustomProviders()
       ]);
     } catch (e) {
       console.error('Error refreshing dashboard:', e);
@@ -1140,13 +1416,13 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         banner.style.display = 'none';
       }
       document.getElementById('kpi-providers').textContent = (data.configuredProviders || []).length;
-      document.getElementById('kpi-providers-sub').textContent = (data.configuredProviders || []).join(', ') || 'None configured';
+      document.getElementById('kpi-providers-sub').textContent = (data.configuredProviders || []).join(', ') || (currentLang === 'vi' ? 'Chưa có key' : 'None configured');
     } catch (e) {
-      console.warn('Could not fetch auth status', e);
+      console.warn('Auth status load error', e);
     }
   }
 
-  // Provider Health, Quota, Routing Events
+  // Provider Health & Stats
   async function loadHealthAndAnalytics() {
     try {
       const [health, events, quotas] = await Promise.all([
@@ -1159,7 +1435,6 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
       renderEvents(events.data || []);
       renderQuotas(quotas.data || []);
 
-      // Calculate KPIs
       const evList = events.data || [];
       const totalReq = evList.length;
       const successes = evList.filter(e => e.outcome === 'success').length;
@@ -1167,7 +1442,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
 
       document.getElementById('kpi-requests').textContent = totalReq;
       if (totalReq > 0) {
-        document.getElementById('kpi-success-rate').textContent = ((successes / totalReq) * 100).toFixed(0) + '% success rate';
+        document.getElementById('kpi-success-rate').textContent = ((successes / totalReq) * 100).toFixed(0) + (currentLang === 'vi' ? '% thành công' : '% success rate');
       }
       document.getElementById('kpi-fallbacks').textContent = fallbacks;
     } catch (e) {
@@ -1179,7 +1454,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     const tbody = document.getElementById('health-rows');
     tbody.replaceChildren();
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">No provider traffic observed yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có lưu lượng định tuyến nào.' : 'No provider traffic observed yet.') + '</td></tr>';
       return;
     }
     list.forEach(p => {
@@ -1203,7 +1478,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     const tbody = document.getElementById('event-rows');
     tbody.replaceChildren();
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">No routing events recorded yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có sự kiện nào.' : 'No routing events recorded yet.') + '</td></tr>';
       return;
     }
     list.slice(0, 15).forEach(e => {
@@ -1226,7 +1501,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     const tbody = document.getElementById('quota-rows');
     tbody.replaceChildren();
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">No quota events recorded yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Chưa có dữ liệu hạn ngạch.' : 'No quota events recorded yet.') + '</td></tr>';
       return;
     }
     list.slice(0, 10).forEach(q => {
@@ -1253,10 +1528,9 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
       document.getElementById('kpi-models').textContent = allModels.length;
       document.getElementById('tab-model-count').textContent = allModels.length;
 
-      // Update provider filter
       const provSelect = document.getElementById('model-filter-provider');
       const providers = [...new Set(allModels.map(m => m.owned_by))];
-      provSelect.innerHTML = '<option value="">All Providers</option>';
+      provSelect.innerHTML = '<option value="">' + (currentLang === 'vi' ? 'Tất cả Provider' : 'All Providers') + '</option>';
       providers.forEach(p => {
         const opt = document.createElement('option');
         opt.value = opt.textContent = p;
@@ -1273,7 +1547,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     const tbody = document.getElementById('model-rows');
     tbody.replaceChildren();
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">No models available. Add a provider key first.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">' + (currentLang === 'vi' ? 'Chưa có model nào. Hãy kết nối API key để tự động nạp model.' : 'No models available. Add a provider key to auto-load models.') + '</td></tr>';
       return;
     }
     list.forEach(m => {
@@ -1321,9 +1595,9 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider_id: provider, model_id: model, preference: pref })
       });
-      showToast('Saved policy: ' + provider + '/' + model + ' → ' + pref);
+      showToast((currentLang === 'vi' ? 'Đã lưu chính sách: ' : 'Saved policy: ') + provider + '/' + model + ' → ' + pref);
     } catch (e) {
-      showToast('Error saving preference: ' + e.message);
+      showToast('Error: ' + e.message);
     }
   }
 
@@ -1338,7 +1612,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     renderModels(filtered);
   }
 
-  // Credentials & Key Management
+  // Credentials & Custom Providers
   async function loadCredentials() {
     try {
       const res = await api('/v1/credentials').catch(() => ({ data: [] }));
@@ -1347,7 +1621,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
       const tbody = document.getElementById('credential-rows');
       tbody.replaceChildren();
       if (!creds.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">No provider keys stored. Click "+ Add Key" to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:20px;">' + (currentLang === 'vi' ? 'Chưa có key nào. Bấm "+ Thêm API Key" để bắt đầu.' : 'No provider keys stored. Click "+ Add Key" to get started.') + '</td></tr>';
         return;
       }
       creds.forEach(c => {
@@ -1355,10 +1629,12 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         tr.innerHTML = \`
           <td><strong>\${c.providerId}</strong></td>
           <td><code>\${c.credentialId}</code></td>
-          <td><span class="badge badge-verified">Active & Encrypted</span></td>
+          <td><span class="badge badge-verified">AES-256 Encrypted</span></td>
           <td>\${new Date(c.createdAt).toLocaleDateString()}</td>
           <td>
-            <button class="btn btn-danger-outline btn-sm" onclick="deleteCredential('\${c.providerId}', '\${c.credentialId}')">Delete</button>
+            <button class="btn btn-danger-outline btn-sm" onclick="deleteCredential('\${c.providerId}', '\${c.credentialId}')">
+              \${currentLang === 'vi' ? 'Xóa' : 'Delete'}
+            </button>
           </td>
         \`;
         tbody.appendChild(tr);
@@ -1369,15 +1645,53 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
   }
 
   async function deleteCredential(providerId, credentialId) {
-    if (!confirm('Are you sure you want to remove the key for ' + providerId + ' (' + credentialId + ')?')) return;
+    if (!confirm((currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa key cho ' : 'Remove key for ') + providerId + ' (' + credentialId + ')?')) return;
     try {
       await api('/v1/credentials?providerId=' + encodeURIComponent(providerId) + '&credentialId=' + encodeURIComponent(credentialId), {
         method: 'DELETE'
       });
-      showToast('Removed ' + providerId + ' key.');
+      showToast((currentLang === 'vi' ? 'Đã xóa key ' : 'Removed key ') + providerId);
       loadAll();
     } catch (e) {
-      showToast('Error removing key: ' + e.message);
+      showToast('Error: ' + e.message);
+    }
+  }
+
+  async function loadCustomProviders() {
+    try {
+      const res = await api('/v1/providers/custom').catch(() => ({ data: [] }));
+      const list = res.data || [];
+      const tbody = document.getElementById('custom-provider-rows');
+      tbody.replaceChildren();
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px;">' + (currentLang === 'vi' ? 'Mặc định hỗ trợ các provider cài sẵn (OpenRouter, Groq, Gemini). Thêm custom endpoint nếu muốn kết nối Ollama/vLLM.' : 'Built-in providers active. Add custom provider to connect Ollama/vLLM.') + '</td></tr>';
+        return;
+      }
+      list.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = \`
+          <td><strong>\${p.providerId}</strong></td>
+          <td><code>\${p.adapterType}</code></td>
+          <td>\${p.baseUrl}</td>
+          <td><span class="badge badge-verified">\${p.classifyAsFree || 'free'}</span></td>
+          <td>
+            <button class="btn btn-danger-outline btn-sm" onclick="deleteCustomProvider('\${p.providerId}')">\${currentLang === 'vi' ? 'Xóa' : 'Delete'}</button>
+          </td>
+        \`;
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.warn('Custom provider list error', e);
+    }
+  }
+
+  async function deleteCustomProvider(id) {
+    try {
+      await api('/v1/providers/custom?providerId=' + encodeURIComponent(id), { method: 'DELETE' });
+      showToast(currentLang === 'vi' ? 'Đã xóa provider ' + id : 'Removed provider ' + id);
+      loadAll();
+    } catch (e) {
+      showToast('Error: ' + e.message);
     }
   }
 
@@ -1392,27 +1706,25 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
   }
 
   function updateKeyModalHelper() {
-    const prov = document.getElementById('modal-provider').value;
+    const provId = document.getElementById('modal-provider').value;
     const link = document.getElementById('modal-provider-link');
     const help = document.getElementById('modal-provider-help');
     const customUrlGroup = document.getElementById('modal-custom-url-group');
 
-    if (prov === 'openrouter') {
-      link.href = 'https://openrouter.ai/keys';
-      help.textContent = 'Free models: Gemini 2.0 Flash, DeepSeek R1, Llama 3.3';
-      customUrlGroup.style.display = 'none';
-    } else if (prov === 'groq') {
-      link.href = 'https://console.groq.com/keys';
-      help.textContent = 'High-speed free Llama, Gemma & Mixtral models.';
-      customUrlGroup.style.display = 'none';
-    } else if (prov === 'gemini') {
-      link.href = 'https://aistudio.google.com/app/apikey';
-      help.textContent = 'Generous free tier for Gemini 2.0 Flash and 1.5 Pro.';
-      customUrlGroup.style.display = 'none';
-    } else {
-      link.href = '#';
-      help.textContent = 'Any OpenAI-compatible or Gemini-compatible endpoint.';
+    if (provId === 'custom') {
+      link.style.display = 'none';
+      help.textContent = currentLang === 'vi' ? 'Nhập Base URL tương thích OpenAI hoặc Gemini.' : 'Enter any OpenAI or Gemini compatible base URL.';
       customUrlGroup.style.display = 'block';
+      return;
+    }
+
+    customUrlGroup.style.display = 'none';
+    const preset = allPresets.find(p => p.id === provId);
+    if (preset) {
+      link.style.display = 'inline';
+      link.href = preset.apiKeyUrl;
+      link.textContent = currentLang === 'vi' ? 'Lấy Key miễn phí ↗' : 'Get Free Key ↗';
+      help.textContent = currentLang === 'vi' ? preset.keyInstructionsVi : preset.keyInstructionsEn;
     }
   }
 
@@ -1420,29 +1732,48 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     const provider = document.getElementById('modal-provider').value;
     const key = document.getElementById('modal-key').value.trim();
     const label = document.getElementById('modal-label').value.trim() || 'default';
+    const customUrl = document.getElementById('modal-custom-url').value.trim();
     const btn = document.getElementById('modal-submit-btn');
 
     if (!key) {
-      alert('Please enter an API Key');
+      alert(currentLang === 'vi' ? 'Vui lòng nhập API Key' : 'Please enter an API Key');
       return;
     }
 
     try {
       btn.disabled = true;
-      btn.textContent = 'Saving…';
-      await api('/v1/credentials', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerId: provider, credentialId: label, secret: key })
-      });
+      btn.textContent = currentLang === 'vi' ? 'Đang lưu & nạp model…' : 'Saving & loading models…';
+
+      // If custom provider, register provider definition first
+      if (provider === 'custom') {
+        if (!customUrl) { alert('Please enter Custom Base URL'); return; }
+        const customId = label !== 'default' ? label : 'custom-' + Date.now();
+        await api('/v1/providers/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: customId, adapterType: 'openai-compatible', baseUrl: customUrl, classifyAsFree: 'free_verified' })
+        });
+        await api('/v1/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: customId, credentialId: 'default', secret: key })
+        });
+      } else {
+        await api('/v1/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: provider, credentialId: label, secret: key })
+        });
+      }
+
       closeAddKeyModal();
-      showToast('Key saved! FreeRoute is refreshing models…');
-      setTimeout(loadAll, 1200);
+      showToast(currentLang === 'vi' ? 'Đã lưu key & tự động nạp danh sách model!' : 'Key saved & models auto-loaded!');
+      setTimeout(loadAll, 1000);
     } catch (e) {
-      alert('Error saving key: ' + e.message);
+      alert('Error: ' + e.message);
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Save & Validate';
+      btn.textContent = I18N[currentLang].saveKeyBtn;
     }
   }
 
@@ -1452,7 +1783,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
   async function submitImport9Router() {
     const path = document.getElementById('import-path').value.trim();
     const provider = document.getElementById('import-provider').value;
-    if (!path) { alert('Please enter path to 9Router SQLite file'); return; }
+    if (!path) { alert('Vui lòng nhập đường dẫn file 9Router SQLite'); return; }
     try {
       await api('/v1/import/9router', {
         method: 'POST',
@@ -1460,7 +1791,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         body: JSON.stringify({ sourceDatabasePath: path, providerId: provider })
       });
       closeImportModal();
-      showToast('Imported key from 9Router!');
+      showToast(currentLang === 'vi' ? 'Đã nhập key thành công từ 9Router!' : 'Imported key from 9Router!');
       loadAll();
     } catch (e) {
       alert('Import error: ' + e.message);
@@ -1472,7 +1803,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
     inp.type = inp.type === 'password' ? 'text' : 'password';
   }
 
-  // Playground Test
+  // Live Playground
   async function runPlayground() {
     const model = document.getElementById('play-model').value;
     const prompt = document.getElementById('play-prompt').value.trim();
@@ -1483,8 +1814,8 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
 
     try {
       btn.disabled = true;
-      btn.textContent = 'Routing…';
-      resultBox.textContent = 'Sending request to ' + model + '…';
+      btn.textContent = currentLang === 'vi' ? 'Đang định tuyến…' : 'Routing…';
+      resultBox.textContent = (currentLang === 'vi' ? 'Đang gửi yêu cầu tới ' : 'Sending request to ') + model + '…';
 
       const start = Date.now();
       const res = await fetch('/v1/chat/completions', {
@@ -1521,17 +1852,17 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         '// Request ID:     ' + reqId + '\\n\\n' +
         content;
 
-      showToast('Routed via ' + providerHeader + ' (' + modelHeader + ') in ' + elapsed + 'ms');
+      showToast((currentLang === 'vi' ? 'Định tuyến thành công qua ' : 'Routed via ') + providerHeader + ' (' + modelHeader + ') trong ' + elapsed + 'ms');
       loadHealthAndAnalytics();
     } catch (e) {
       resultBox.textContent = 'Request failed: ' + e.message;
     } finally {
       btn.disabled = false;
-      btn.textContent = '🚀 Send Request';
+      btn.textContent = '🚀 ' + (currentLang === 'vi' ? 'Gửi Yêu Cầu' : 'Send Request');
     }
   }
 
-  // 30s Real-time Polling
+  // 30s Polling
   function setupPolling() {
     const toggle = document.getElementById('poll-toggle');
     let countdown = 30;
@@ -1552,11 +1883,11 @@ curl http://127.0.0.1:8787/v1/chat/completions \\
         document.getElementById('poll-text').textContent = '30s Live';
         document.getElementById('poll-icon').textContent = '⏱️';
         countdown = 30;
-        showToast('Real-time polling resumed.');
+        showToast(currentLang === 'vi' ? 'Đã bật làm mới tự động.' : 'Real-time polling resumed.');
       } else {
-        document.getElementById('poll-text').textContent = 'Paused';
+        document.getElementById('poll-text').textContent = currentLang === 'vi' ? 'Tạm dừng' : 'Paused';
         document.getElementById('poll-icon').textContent = '⏸️';
-        showToast('Real-time polling paused.');
+        showToast(currentLang === 'vi' ? 'Đã tạm dừng làm mới tự động.' : 'Real-time polling paused.');
       }
     };
   }

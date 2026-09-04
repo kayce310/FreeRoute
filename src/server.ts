@@ -6,8 +6,9 @@ import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observa
 import type { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import type { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
 import type { SqliteProviderStore } from './storage/sqlite-provider-store.js';
-import type { Preference } from './contracts.js';
+import type { Preference, ModelRecord } from './contracts.js';
 import { dashboardHtml } from './dashboard.js';
+import { PROVIDER_PRESETS } from './presets.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -45,6 +46,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           supportedProviders: [...new Set(supported)],
           keyCount: creds.length,
         });
+        return;
+      }
+      if (request.method === 'GET' && path === '/v1/providers/presets') {
+        sendJson(response, 200, { object: 'list', data: PROVIDER_PRESETS });
         return;
       }
       if (!isAuthorized(request, options.apiToken)) {
@@ -140,6 +145,29 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
 
         await options.credentials.put(providerId.trim(), credentialId.trim(), secret.trim());
+
+        // Auto-seed known models for this provider if not yet present in catalog
+        const preset = PROVIDER_PRESETS.find((p) => p.id === providerId.trim());
+        if (preset && preset.seedModels.length > 0) {
+          try {
+            const existing = await options.catalog.list();
+            const hasModels = existing.some((m) => m.providerId === preset.id);
+            if (!hasModels) {
+              const seedList: ModelRecord[] = preset.seedModels.map((m) => ({
+                providerId: preset.id,
+                modelId: m.modelId,
+                capabilities: m.capabilities,
+                freeTier: m.freeTier,
+                checkedAt: new Date(),
+                priority: m.priority ?? 0,
+              }));
+              await options.catalog.replaceProvider(preset.id, seedList);
+            }
+          } catch {
+            // Non-fatal if catalog seeding fails
+          }
+        }
+
         if (options.onCredentialChanged) {
           try {
             await options.onCredentialChanged(providerId.trim(), credentialId.trim());

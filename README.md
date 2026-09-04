@@ -2,7 +2,9 @@
 
 **Local-first LLM router for free-tier providers.** One endpoint. Automatic fallback. Encrypted secrets. Zero lock-in.
 
-FreeRoute sits between your tools and the free tiers of OpenRouter, Groq, and Gemini — routing requests to a healthy, quota-available model without you managing keys or guessing which provider is down.
+[English Documentation](./README.md) | **[Tài liệu Tiếng Việt](./README.vi.md)**
+
+FreeRoute sits between your tools and the free tiers of OpenRouter, Groq, Cerebras, Google Gemini, GitHub Models, Mistral, SiliconFlow, Hugging Face, Cohere, and Ollama — routing requests to a healthy, quota-available model without you managing keys or guessing which provider is down.
 
 ```
 Your tool  ──►  FreeRoute  ──►  OpenRouter  (rate-limited)
@@ -17,11 +19,12 @@ Your tool  ──►  FreeRoute  ──►  OpenRouter  (rate-limited)
 | | |
 |---|---|
 | **Build** | ✅ Passing · `tsc` clean |
-| **Tests** | ✅ 49/49 green |
+| **Tests** | ✅ 51/51 green |
 | **Version** | 0.1.0 |
-| **Providers** | OpenRouter · Groq · Gemini (+ custom via UI/CLI) |
-| **M1–M3** | ✅ Complete |
-| **M4 / P0–P3** | ✅ Complete (UI, Credentials API, Auto-Secret, Wizard, Stats) |
+| **Bilingual** | 🇻🇳 Tiếng Việt & 🇬🇧 English UI & Docs |
+| **Providers** | OpenRouter · Groq · Gemini · Cerebras · GitHub · Mistral · SiliconFlow · HF · Cohere · Ollama |
+| **M1–M4** | ✅ Complete (UI, Bilingual, Credentials, Auto-Seed Models, Presets) |
+
 
 ---
 

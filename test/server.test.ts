@@ -407,3 +407,63 @@ test('manages custom providers via /v1/providers/custom', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('serves provider presets without requiring authentication', async () => {
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/v1/providers/presets`);
+    assert.equal(res.status, 200);
+    const body = await res.json() as { data: Array<{ id: string; name: string; apiKeyUrl: string; seedModels: unknown[] }> };
+    assert.ok(Array.isArray(body.data));
+    assert.ok(body.data.length >= 10);
+    const openrouter = body.data.find(p => p.id === 'openrouter');
+    assert.ok(openrouter);
+    assert.ok(openrouter.apiKeyUrl.includes('openrouter.ai'));
+    assert.ok(openrouter.seedModels.length > 0);
+  });
+});
+
+test('auto-seeds catalog models when credentials are saved for a preset provider', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { SqliteCredentialStore } = await import('../src/storage/sqlite-credential-store.js');
+
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-test-autoseed-'));
+  const credentials = new SqliteCredentialStore(join(dir, 'keys.db'), 'test-master-key-123456');
+  const catalog = new InMemoryCatalogStore();
+  const server = createFreeRouteServer({
+    catalog,
+    credentials,
+    apiToken: 'local-token',
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    // Verify catalog initially empty for cerebras
+    const initialModels = await catalog.list();
+    assert.equal(initialModels.filter((m) => m.providerId === 'cerebras').length, 0);
+
+    // Save credential for cerebras
+    const saveRes = await fetch(`${baseUrl}/v1/credentials`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ providerId: 'cerebras', apiKey: 'csk-test123456789' }),
+    });
+    assert.equal(saveRes.status, 200);
+
+    // Catalog should now have Cerebras seed models automatically seeded
+    const updatedModels = await catalog.list();
+    const cerebrasModels = updatedModels.filter((m) => m.providerId === 'cerebras');
+    assert.ok(cerebrasModels.length > 0);
+    assert.ok(cerebrasModels.some((m) => m.modelId.includes('llama-3.1-8b')));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    credentials.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
