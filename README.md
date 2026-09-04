@@ -1,8 +1,7 @@
-<div align="center">
-
 # ⚡ FreeRoute
 
-### **The Local-First, Zero-Dependency AI Router**
+### The Local-First, Zero-Dependency AI Router
+
 **Automated Multi-Provider Fallback · Encrypted Key Vault · 80+ Provider Presets · Real-time NOC Monitor · 100% Free Tiers First**
 
 [![Tests](https://img.shields.io/badge/tests-60%2F60%20passing-brightgreen.svg)](https://github.com/kayce310/FreeRoute)
@@ -12,13 +11,7 @@
 [![Security](https://img.shields.io/badge/vault-AES--256--GCM-orange.svg)](https://github.com/kayce310/FreeRoute)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<p align="center">
-  <a href="./README.md"><b>English Documentation</b></a> · 
-  <a href="./README.vi.md"><b>Tài Liệu Tiếng Việt</b></a> · 
-  <a href="https://github.com/kayce310/FreeRoute/issues"><b>Báo Lỗi / Đóng Góp</b></a>
-</p>
-
-</div>
+**[English Documentation](./README.md)** · **[Tài Liệu Tiếng Việt](./README.vi.md)** · **[Báo Lỗi / Đóng Góp](https://github.com/kayce310/FreeRoute/issues)**
 
 ```text
   Your IDE / Agent (Cursor, VS Code Copilot, Cline, Claude CLI)
@@ -50,29 +43,31 @@ Most AI developers rely on a patchwork of free tiers (Google AI Studio, Groq, Ce
 
 | Feature | Description |
 | :--- | :--- |
-| **🏎️ Zero Runtime Dependencies** | Built 100% on native Node.js core modules (`node:sqlite`, `node:crypto`, `node:http`). Starts in **< 40ms**, consumes **< 35MB RAM**, and has zero npm supply-chain vulnerabilities. |
-| **🔀 Smart Fallback Cascades** | Instant multi-hop failover on `429 Rate Limit`, `5xx Server Error`, or quota exhaustion. Never interrupts streaming responses (`text/event-stream`). |
-| **🔄 Context-Overflow Auto-Recovery** | Automatically switches to larger-context models (e.g., Gemini 1M+) when an agent prompt overflows the current model's window. |
-| **⏱️ Stepped Backoff Cooldown** | Progressive cooldown (3 fails = 5m, 4 = 30m, 5 = 1h, 6+ = 3h ceiling) prevents hammering exhausted endpoints, automatically resetting upon success. |
-| **🔀 Custom Fallback Combos** | Create your own resilient model chains (e.g., `combo:free-coders`, `combo:speed-demons`) directly in the UI or via API. |
-| **⚡ 1-Click Key Sync & Discovery** | Automatically detects and imports existing API keys from local **9router** and **OmniRoute** databases without re-prompting or duplicate noise. Supports multi-key accounts per provider. |
-| **🛡️ AES-256-GCM Vault & Git Security** | Credentials stored locally in `data/credentials.sqlite` encrypted at rest. Git hygiene (`.gitignore`) guarantees no API keys or backup JSONs are ever pushed to GitHub. |
-| **💾 JSON Key Backup & Restore** | 1-click export/import of all stored credentials via the Dashboard or terminal CLI (`npm run backup:keys` / `npm run restore:keys`). |
-| **🔄 1-Command Terminal Updates** | Upgrade to the latest release in seconds (`npm run update` or `freeroute update`), automatically pulling commits, updating packages, and rebuilding code without data loss. |
-| **📡 Real-Time NOC & Timeline Stream** | Monitor provider health, latency percentiles (P50/P90), and live request history with chronological timeline auto-scroll and pulse highlights. |
-| **🧪 Vertical Streaming Playground** | Test prompts with real-time SSE streaming, live Time to First Token (TTFT) counter, total duration, and syntax copying. |
-| **🎁 True Free vs Commercial Clarity** | Distinct classification separating verified zero-cost models (`:free`) from pay-as-you-go commercial models to prevent unexpected billing. |
-| **🌐 80+ Provider Presets** | Instant configuration for OpenRouter, Groq, Gemini, Cerebras, GitHub Models, Kiro, Antigravity, Cline, SiliconFlow, Cohere, Ollama, and more. |
-| **🌍 Full Bilingual Support** | 1-click switch between **Tiếng Việt** and **English** across the entire UI. |
+| 🏎️ **Zero Runtime Dependencies** | Built 100% on native Node.js core modules (`node:sqlite`, `node:crypto`, `node:http`). Starts in **< 40ms**, consumes **< 35MB RAM**, and has zero npm supply-chain vulnerabilities. |
+| 🔀 **Smart Fallback Cascades** | Instant multi-hop failover on `429 Rate Limit`, `5xx Server Error`, or quota exhaustion. Never interrupts streaming responses (`text/event-stream`). |
+| 🔄 **Context-Overflow Auto-Recovery** | Automatically switches to larger-context models (e.g., Gemini 1M+) when an agent prompt overflows the current model's window. |
+| ⏱️ **Stepped Backoff Cooldown** | Progressive cooldown (3 fails = 5m, 4 = 30m, 5 = 1h, 6+ = 3h ceiling) prevents hammering exhausted endpoints, automatically resetting upon success. |
+| 🔀 **Custom Fallback Combos** | Create your own resilient model chains (e.g., `combo:free-coders`, `combo:speed-demons`) directly in the UI or via API. |
+| ⚡ **1-Click Key Sync & Discovery** | Automatically detects and imports existing API keys from local **9router** and **OmniRoute** databases without re-prompting or duplicate noise. Supports multi-key accounts per provider. |
+| 🛡️ **AES-256-GCM Vault & Git Security** | Credentials stored locally in `data/credentials.sqlite` encrypted at rest. Git hygiene (`.gitignore`) guarantees no API keys or backup JSONs are ever pushed to GitHub. |
+| 💾 **JSON Key Backup & Restore** | 1-click export/import of all stored credentials via the Dashboard or terminal CLI (`npm run backup:keys` / `npm run restore:keys`). |
+| 🔄 **1-Command Terminal Updates** | Upgrade to the latest release in seconds (`npm run update` or `freeroute update`), automatically pulling commits, updating packages, and rebuilding code without data loss. |
+| 📡 **Real-Time NOC & Timeline Stream** | Monitor provider health, latency percentiles (P50/P90), and live request history with chronological timeline auto-scroll and pulse highlights. |
+| 🧪 **Vertical Streaming Playground** | Test prompts with real-time SSE streaming, live Time to First Token (TTFT) counter, total duration, and syntax copying. |
+| 🎁 **True Free vs Commercial Clarity** | Distinct classification separating verified zero-cost models (`:free`) from pay-as-you-go commercial models to prevent unexpected billing. |
+| 🌐 **80+ Provider Presets** | Instant configuration for OpenRouter, Groq, Gemini, Cerebras, GitHub Models, Kiro, Antigravity, Cline, SiliconFlow, Cohere, Ollama, and more. |
+| 🌍 **Full Bilingual Support** | 1-click switch between **Tiếng Việt** and **English** across the entire UI. |
 
 ---
 
 ## ⚡ 5-Minute Quick Start
 
 ### 1. Prerequisites
+
 - **Node.js 22+** (supports native `node:sqlite`).
 
 ### 2. Clone & Install
+
 ```bash
 git clone https://github.com/kayce310/FreeRoute.git
 cd FreeRoute
@@ -81,13 +76,16 @@ npm run build
 ```
 
 ### 3. Launch FreeRoute
+
 ```bash
 # Starts the server daemon on http://127.0.0.1:8787
 npm start
 ```
 
 ### 4. Configure Your Keys (Web Dashboard)
+
 Open your browser at **[http://127.0.0.1:8787](http://127.0.0.1:8787)**:
+
 - Click **`⚡ Nhập Từ 9router & OmniRoute`** to automatically import your existing keys.
 - Or navigate to **Tab 5: Quản Lý API Key** to add keys manually.
 - Or click **`📥 Xuất Backup JSON`** / **`📤 Nhập từ JSON`** to migrate keys between machines.
@@ -133,6 +131,7 @@ freeroute provider-remove <id>          # Delete a custom provider
 Instead of hardcoding a single fragile model into your IDE, point your tools to a **FreeRoute Combo** or **Auto Profile**:
 
 ### Built-in Auto Profiles
+
 | Profile Model ID | Description | Best For |
 | :--- | :--- | :--- |
 | `auto:free` | Prioritizes verified zero-cost models across providers. | General conversation, drafting, translation. |
@@ -141,6 +140,7 @@ Instead of hardcoding a single fragile model into your IDE, point your tools to 
 | `auto:long-context` | Prioritizes large context windows (Google Gemini 1M+). | Deep codebase analysis, large document summaries. |
 
 ### Pre-configured Custom Combos
+
 | Combo ID | Fallback Chain | Description |
 | :--- | :--- | :--- |
 | `combo:free-coders` | `groq/llama-3.3-70b` ➔ `cerebras/llama-3.3-70b` ➔ `openrouter/...:free` | Rock-solid coding fallback chain. |
@@ -156,13 +156,16 @@ Instead of hardcoding a single fragile model into your IDE, point your tools to 
 FreeRoute is drop-in compatible with standard OpenAI and Anthropic API formats:
 
 ### 1. Cursor IDE
+
 1. Open **Settings** ➔ **Models** ➔ **OpenAI API Key**.
 2. Override **OpenAI Base URL**: `http://127.0.0.1:8787/v1`
 3. Enter any string as API Key (or your `FREEROUTE_API_TOKEN` if set).
 4. Add model: `combo:free-coders` or `auto:code`.
 
 ### 2. VS Code GitHub Copilot Custom Endpoint
+
 In your VS Code `settings.json`:
+
 ```json
 {
   "github.copilot.chat.customEndpoints": [
@@ -188,12 +191,14 @@ In your VS Code `settings.json`:
 ```
 
 ### 3. Cline / Roo Code
+
 1. API Provider: `OpenAI Compatible`
 2. Base URL: `http://127.0.0.1:8787/v1`
 3. API Key: `freeroute-local` (or your configured token)
 4. Model ID: `combo:free-coders` or `auto:code`
 
 ### 4. Claude Code CLI
+
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 export ANTHROPIC_API_KEY="freeroute-local"
@@ -201,7 +206,9 @@ claude --model auto:free
 ```
 
 ### 5. Continue.dev
+
 In `~/.continue/config.json`:
+
 ```json
 {
   "models": [
@@ -246,23 +253,23 @@ FreeRoute includes 80+ presets with direct links to acquire free API keys:
 | `GET` | `/v1/auth/status` | Public | Setup status, key counts, configured providers |
 | `GET` | `/v1/providers/presets` | Public | List 80+ curated provider presets & seed models |
 | `GET` | `/v1/import/sources` | Public | Auto-detect local 9router & OmniRoute databases |
-| `POST`| `/v1/import/sync` | Bearer* | 1-Click sync discovered keys into vault |
+| `POST` | `/v1/import/sync` | Bearer* | 1-Click sync discovered keys into vault |
 | `GET` | `/v1/credentials/export` | Bearer* | Download decrypted JSON key backup |
-| `POST`| `/v1/credentials/import` | Bearer* | Restore API keys from JSON backup |
+| `POST` | `/v1/credentials/import` | Bearer* | Restore API keys from JSON backup |
 | `GET` | `/v1/credentials` | Bearer* | List credential metadata (secrets masked) |
-| `POST`| `/v1/credentials` | Bearer* | Store/update provider API key |
-| `DELETE`| `/v1/credentials` | Bearer* | Remove stored credential |
+| `POST` | `/v1/credentials` | Bearer* | Store/update provider API key |
+| `DELETE` | `/v1/credentials` | Bearer* | Remove stored credential |
 | `GET` | `/v1/combos` | Bearer* | List custom fallback combos |
-| `POST`| `/v1/combos` | Bearer* | Create or update a custom combo |
-| `DELETE`| `/v1/combos/:id` | Bearer* | Delete a custom combo |
+| `POST` | `/v1/combos` | Bearer* | Create or update a custom combo |
+| `DELETE` | `/v1/combos/:id` | Bearer* | Delete a custom combo |
 | `GET` | `/v1/models` | Bearer* | OpenAI-compatible model catalog |
-| `POST`| `/v1/chat/completions` | Bearer* | OpenAI Chat API (streaming & non-streaming) |
-| `POST`| `/v1/responses` | Bearer* | OpenAI Responses API |
-| `POST`| `/v1/messages` | Bearer* | Anthropic Messages API |
+| `POST` | `/v1/chat/completions` | Bearer* | OpenAI Chat API (streaming & non-streaming) |
+| `POST` | `/v1/responses` | Bearer* | OpenAI Responses API |
+| `POST` | `/v1/messages` | Bearer* | Anthropic Messages API |
 | `GET` | `/v1/routing-events` | Bearer* | Redacted routing audit events |
 | `GET` | `/v1/provider-health` | Bearer* | Latency percentiles & success rates |
 
-*\*Note: Bearer token is optional unless `FREEROUTE_API_TOKEN` is defined in `.env`.*
+*Note: Bearer token is optional unless `FREEROUTE_API_TOKEN` is defined in `.env`.*
 
 ---
 
