@@ -85,7 +85,7 @@ freeroute serve                # start the routing server
 | `FREEROUTE_PORT` | `8787` | Server port |
 | `FREEROUTE_DATA_DIR` | `data/` | SQLite database directory |
 | `FREEROUTE_MASTER_SECRET` | *(required)* | AES-256-GCM encryption key for credentials |
-| `FREEROUTE_API_TOKEN` | *(required)* | Bearer token for local API clients |
+| `FREEROUTE_API_TOKEN` | *(optional)* | Bearer token for local API clients; unset to disable auth |
 | `FREEROUTE_ENV_FILE` | *(optional)* | Path to `.env` file |
 | `FREEROUTE_REFRESH_MINUTES` | `30` | Catalog refresh interval |
 | `OPENROUTER_BASE_URL` | OpenRouter default | Override OpenRouter endpoint |
@@ -96,7 +96,7 @@ freeroute serve                # start the routing server
 
 ## API endpoints
 
-All endpoints require `Authorization: Bearer <token>` unless `FREEROUTE_API_TOKEN` is unset.
+All endpoints require `Authorization: Bearer <token>`, unless `FREEROUTE_API_TOKEN` is unset.
 
 | Method | Path | Description |
 |---|---|---|
