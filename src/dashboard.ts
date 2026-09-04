@@ -822,7 +822,7 @@ export function dashboardHtml(): string {
     <!-- Navigation Tabs -->
     <div class="tabs-nav">
       <button class="tab-btn active" onclick="switchTab('monitor')" id="tab-btn-monitor">📡 Giám Sát Sức Khỏe</button>
-      <button class="tab-btn" onclick="switchTab('directory')" id="tab-btn-directory">🌐 Danh Mục 70+ Provider</button>
+      <button class="tab-btn" onclick="switchTab('directory')" id="tab-btn-directory">🌐 Danh Mục Provider</button>
       <button class="tab-btn" onclick="switchTab('models')" id="tab-btn-models">📚 Danh Sách Model</button>
       <button class="tab-btn" onclick="switchTab('combos')" id="tab-btn-combos">🔀 Custom Combos</button>
       <button class="tab-btn" onclick="switchTab('credentials')" id="tab-btn-credentials">🔑 Quản Lý API Key</button>
@@ -865,7 +865,7 @@ export function dashboardHtml(): string {
               </tr>
             </thead>
             <tbody id="events-tbody">
-              <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;" id="lbl-no-events">Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!</td></tr>
+              <tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;" id="lbl-no-events">Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!</td></tr>
             </tbody>
           </table>
         </div>
@@ -927,21 +927,7 @@ export function dashboardHtml(): string {
 
     <!-- TAB 3: MODEL CATALOG (WITH SORTING & FILTERING & COMBOS) -->
     <div class="tab-pane" id="pane-models">
-      <!-- COMBO & AUTO PROFILES SHOWCASE -->
-      <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">
-          <div>
-            <div class="card-title" id="title-catalog-combos">🔀 Chuỗi Fallback Dự Phòng & Profile Khuyên Dùng Cho IDE / Tool</div>
-            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="desc-catalog-combos">
-              Cấu hình các Model ID này vào VS Code Copilot, Cursor, Continue.dev... để tận hưởng tự động chuyển vùng fallback khi có sự cố.
-            </div>
-          </div>
-          <button class="btn btn-outline btn-sm" onclick="switchTab('combos')" id="btn-goto-combos">⚙️ Quản Lý / Tạo Combo Mới</button>
-        </div>
-        <div class="combos-grid" id="catalog-combos-container" style="margin-top:10px;">
-          <!-- Dynamically rendered -->
-        </div>
-      </div>
+  
       <div class="filter-bar">
         <div class="filter-group">
           <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; cursor:pointer; background:var(--card-hover); padding:6px 12px; border-radius:var(--radius-sm); border:1px solid var(--card-border);">
@@ -1340,7 +1326,7 @@ print(response.choices[0].message.content)</div>
         kpiRequests: 'Yêu Cầu Đã Xử Lý',
         kpiFallbacks: 'Chuyển Vùng Cứu Nguy',
         tabMonitor: '📡 Giám Sát Sức Khỏe',
-        tabDirectory: '🌐 Danh Mục 70+ Provider',
+        tabDirectory: '🌐 Danh Mục Provider',
         tabModels: '📚 Danh Sách Model',
         tabCombos: '🔀 Custom Combos',
         tabCredentials: '🔑 Quản Lý API Key',
@@ -1458,7 +1444,7 @@ print(response.choices[0].message.content)</div>
         kpiRequests: 'Requests Handled',
         kpiFallbacks: 'Fallbacks Recovered',
         tabMonitor: '📡 Health & Monitor',
-        tabDirectory: '🌐 70+ Provider Directory',
+        tabDirectory: '🌐 Provider Directory',
         tabModels: '📚 Model Catalog',
         tabCombos: '🔀 Custom Combos',
         tabCredentials: '🔑 Key Management',
@@ -1952,8 +1938,8 @@ print(response.choices[0].message.content)</div>
       }).catch(() => {});
           }
 
-          // TAB 1: RENDER HEALTH & EVENTS
-          function renderHealthMatrix() {
+                // TAB 1: RENDER HEALTH & EVENTS
+    function renderHealthMatrix() {
       const container = document.getElementById('health-matrix-container');
       const configuredMap = new Map();
       for (const c of credentials) configuredMap.set(c.providerId, true);
@@ -2021,7 +2007,7 @@ print(response.choices[0].message.content)</div>
     function scrollToLatestEvent() {
       const box = document.getElementById('stream-scroll-container');
       if (box) {
-        box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        box.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
 
@@ -2032,23 +2018,23 @@ print(response.choices[0].message.content)</div>
         countBadge.textContent = t('streamCountBadge', eventsData ? eventsData.length : 0);
       }
       if (!eventsData || eventsData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">' + t('noEvents') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">' + t('noEvents') + '</td></tr>';
         return;
       }
 
-      // Sort strictly by timeline ASC (chronological: oldest at top -> newest at bottom)
-      const sortedByTimeline = [...eventsData].sort((a, b) => {
+      // Sort by timeline DESC (newest at top)
+      const sortedDesc = [...eventsData].sort((a, b) => {
         const timeA = new Date(a.occurredAt || 0).getTime();
         const timeB = new Date(b.occurredAt || 0).getTime();
-        return timeA - timeB;
+        return timeB - timeA;
       });
 
-      // Take the most recent 30 events along the timeline
-      const recent = sortedByTimeline.slice(-30);
+      // Take the most recent 30 events
+      const recent = sortedDesc.slice(0, 30);
       let html = '';
       for (let i = 0; i < recent.length; i++) {
         const ev = recent[i];
-        const isLatest = (i === recent.length - 1);
+        const isLatest = (i === 0);
         const timeStr = ev.occurredAt ? new Date(ev.occurredAt).toLocaleTimeString() : '—';
         const reqId = ev.requestId ? ev.requestId.slice(0, 8) + '...' : '—';
         const target = ev.profile || ev.requestedModel || 'auto:free';
@@ -2076,6 +2062,12 @@ print(response.choices[0].message.content)</div>
                 ? '<span class="badge badge-green">200 OK</span>' 
                 : \`<span class="badge badge-red">\${ev.errorCode || 'Error'}</span>\`}
             </td>
+            <td style="font-family:var(--font-mono); font-size:11px; text-align:right;">
+              \${ev.promptTokens != null ? ev.promptTokens : '—'}
+            </td>
+            <td style="font-family:var(--font-mono); font-size:11px; text-align:right;">
+              \${ev.completionTokens != null ? ev.completionTokens : '—'}
+            </td>
           </tr>
         \`;
       }
@@ -2090,7 +2082,7 @@ print(response.choices[0].message.content)</div>
       const box = document.getElementById('stream-scroll-container');
       if (box && (!chk || chk.checked) && (isNewEvent || isInitial)) {
         setTimeout(() => {
-          box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+          box.scrollTo({ top: 0, behavior: 'smooth' });
         }, 50);
       }
     }

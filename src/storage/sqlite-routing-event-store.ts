@@ -12,7 +12,13 @@ export interface AggregateTokenStats {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
-  byProvider: Record<string, { totalTokens: number; promptTokens: number; completionTokens: number; count: number }>;
+  byProvider: Record<string, {
+    totalTokens: number;
+    promptTokens: number;
+    completionTokens: number;
+    count: number;
+    models: Record<string, { totalTokens: number; promptTokens: number; completionTokens: number; count: number }>;
+  }>;
 }
 
 /** Stores only route metadata; prompts, responses, and plaintext credentials never enter this table. */
@@ -67,16 +73,18 @@ export class SqliteRoutingEventStore {
   }
 
   async tokenStats(): Promise<AggregateTokenStats> {
+    // Group by provider + model for detailed breakdown
     const rows = this.database.prepare(`
-      SELECT provider_id,
+      SELECT provider_id, model_id,
              COUNT(*) as req_count,
              SUM(COALESCE(prompt_tokens, 0)) as sum_prompt,
              SUM(COALESCE(completion_tokens, 0)) as sum_completion,
              SUM(COALESCE(total_tokens, 0)) as sum_total
       FROM routing_events
       WHERE outcome = 'success'
-      GROUP BY provider_id
-    `).all() as Array<{ provider_id: string; req_count: number; sum_prompt: number; sum_completion: number; sum_total: number }>;
+      GROUP BY provider_id, model_id
+      ORDER BY sum_total DESC
+    `).all() as Array<{ provider_id: string; model_id: string; req_count: number; sum_prompt: number; sum_completion: number; sum_total: number }>;
 
     let totalTokens = 0;
     let promptTokens = 0;
@@ -85,15 +93,29 @@ export class SqliteRoutingEventStore {
     const byProvider: AggregateTokenStats['byProvider'] = {};
 
     for (const r of rows) {
-      totalRequests += Number(r.req_count);
-      promptTokens += Number(r.sum_prompt);
-      completionTokens += Number(r.sum_completion);
-      totalTokens += Number(r.sum_total);
-      byProvider[r.provider_id] = {
-        count: Number(r.req_count),
-        promptTokens: Number(r.sum_prompt),
-        completionTokens: Number(r.sum_completion),
-        totalTokens: Number(r.sum_total),
+      const reqCount = Number(r.req_count);
+      const sumPrompt = Number(r.sum_prompt);
+      const sumComp = Number(r.sum_completion);
+      const sumTotal = Number(r.sum_total);
+      totalRequests += reqCount;
+      promptTokens += sumPrompt;
+      completionTokens += sumComp;
+      totalTokens += sumTotal;
+      if (!byProvider[r.provider_id]) {
+        byProvider[r.provider_id] = {
+          count: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          models: {},
+        };
+      }
+      byProvider[r.provider_id].count += reqCount;
+      byProvider[r.provider_id].promptTokens += sumPrompt;
+      byProvider[r.provider_id].completionTokens += sumComp;
+      byProvider[r.provider_id].totalTokens += sumTotal;
+      byProvider[r.provider_id].models[r.model_id] = {
+        count: reqCount,
+        promptTokens: sumPrompt,
+        completionTokens: sumComp,
+        totalTokens: sumTotal,
       };
     }
 

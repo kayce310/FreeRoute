@@ -50,35 +50,44 @@ test('token data is optional — defaults to undefined', async () => {
   } finally { store.close(); }
 });
 
-test('tokenStats() aggregates by provider correctly', async () => {
+test('tokenStats() aggregates by provider and model correctly', async () => {
   const store = new SqliteRoutingEventStore(':memory:');
   try {
     await store.record({
       requestId: 'r1', occurredAt: new Date(), profile: 'auto', providerId: 'groq',
-      modelId: 'm1', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
+      modelId: 'llama-3.1-8b-instant', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
       promptTokens: 10, completionTokens: 20, totalTokens: 30,
     });
     await store.record({
       requestId: 'r2', occurredAt: new Date(), profile: 'auto', providerId: 'groq',
-      modelId: 'm1', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
+      modelId: 'llama-3.1-8b-instant', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
       promptTokens: 5, completionTokens: 10, totalTokens: 15,
     });
     await store.record({
-      requestId: 'r3', occurredAt: new Date(), profile: 'auto', providerId: 'gemini',
-      modelId: 'm2', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
+      requestId: 'r3', occurredAt: new Date(), profile: 'auto', providerId: 'groq',
+      modelId: 'mixtral-8x7b', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
       promptTokens: 100, completionTokens: 50, totalTokens: 150,
     });
+    await store.record({
+      requestId: 'r4', occurredAt: new Date(), profile: 'auto', providerId: 'gemini',
+      modelId: 'gemini-2.5-flash', credentialRef: '***', fallbackCount: 0, outcome: 'success', latencyMs: 100,
+      promptTokens: 200, completionTokens: 80, totalTokens: 280,
+    });
     const stats = await store.tokenStats();
-    assert.equal(stats.totalRequests, 3);
-    assert.equal(stats.totalTokens, 195);
-    assert.equal(stats.promptTokens, 115);
-    assert.equal(stats.completionTokens, 80);
+    assert.equal(stats.totalRequests, 4);
+    assert.equal(stats.totalTokens, 475);
+    assert.equal(stats.promptTokens, 315);
+    assert.equal(stats.completionTokens, 160);
     assert.ok(stats.byProvider['groq']);
-    assert.equal(stats.byProvider['groq'].count, 2);
-    assert.equal(stats.byProvider['groq'].totalTokens, 45);
+    assert.equal(stats.byProvider['groq'].count, 3);
+    assert.equal(stats.byProvider['groq'].totalTokens, 195);
+    assert.ok(stats.byProvider['groq'].models);
+    assert.equal(stats.byProvider['groq'].models['llama-3.1-8b-instant'].count, 2);
+    assert.equal(stats.byProvider['groq'].models['llama-3.1-8b-instant'].totalTokens, 45);
+    assert.equal(stats.byProvider['groq'].models['mixtral-8x7b'].totalTokens, 150);
     assert.ok(stats.byProvider['gemini']);
     assert.equal(stats.byProvider['gemini'].count, 1);
-    assert.equal(stats.byProvider['gemini'].totalTokens, 150);
+    assert.equal(stats.byProvider['gemini'].models['gemini-2.5-flash'].totalTokens, 280);
   } finally { store.close(); }
 });
 
