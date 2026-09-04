@@ -1363,7 +1363,7 @@ print(response.choices[0].message.content)</div>
         playWaiting: 'Waiting for prompt...',
         playRouting: 'Connecting & routing request...',
         playPromptPlaceholder: 'Enter your prompt here...',
-        playPromptDefault: 'Briefly explain FreeRoute\'s Fallback mechanism in 2 sentences.',
+        playPromptDefault: "Briefly explain FreeRoute's Fallback mechanism in 2 sentences.",
         optgrpAuto: 'Auto Profiles',
         optAutoFree: 'auto:free (Prioritize 100% Free Models)',
         optAutoFast: 'auto:fast (Ultra-fast Cerebras/Groq)',
@@ -1398,9 +1398,11 @@ print(response.choices[0].message.content)</div>
     // App Initialization
     document.addEventListener('DOMContentLoaded', async () => {
       applyLanguage();
-      await fetchPresets();
-      await fetchImportSources();
-      await refreshAllData();
+      await Promise.all([
+        fetchPresets(),
+        refreshAllData()
+      ]);
+      void fetchImportSources();
       setInterval(refreshMonitoring, 10000);
     });
 
@@ -1501,7 +1503,7 @@ print(response.choices[0].message.content)</div>
       const promptInput = document.getElementById('play-prompt');
       if (promptInput) {
         promptInput.placeholder = t('playPromptPlaceholder');
-        if (promptInput.value === 'Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.' || promptInput.value === 'Briefly explain FreeRoute\'s Fallback mechanism in 2 sentences.') {
+        if (promptInput.value === 'Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.' || promptInput.value === "Briefly explain FreeRoute's Fallback mechanism in 2 sentences.") {
           promptInput.value = t('playPromptDefault');
         }
       }
