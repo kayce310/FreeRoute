@@ -105,6 +105,30 @@ export class SqliteCredentialStore {
     return counts;
   }
 
+  async exportAllWithSecrets(): Promise<Array<{ providerId: string; credentialId: string; secret: string; createdAt: string; updatedAt: string }>> {
+    const rows = this.database.prepare(`
+      SELECT provider_id, credential_id, encrypted_secret, created_at, updated_at
+      FROM credentials
+      ORDER BY provider_id, credential_id
+    `).all() as unknown as CredentialRow[];
+    const result: Array<{ providerId: string; credentialId: string; secret: string; createdAt: string; updatedAt: string }> = [];
+    for (const row of rows) {
+      try {
+        const secret = decrypt(row.encrypted_secret, this.encryptionKey);
+        if (secret) {
+          result.push({
+            providerId: row.provider_id,
+            credentialId: row.credential_id,
+            secret,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          });
+        }
+      } catch {}
+    }
+    return result;
+  }
+
   close(): void {
     this.database.close();
   }

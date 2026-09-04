@@ -12,7 +12,13 @@
     "test": "npm run build && node --test dist/**/*.test.js",
     "check": "tsc --noEmit -p tsconfig.json",
     "start": "npm run build && node dist/src/cli.js serve",
+    "update": "npm run build && node dist/src/cli.js update",
+    "backup:keys": "npm run build && node dist/src/cli.js export-keys",
+    "restore:keys": "npm run build && node dist/src/cli.js import-keys",
     "import:9router": "npm run build && node dist/src/cli.js import-9router"
+  },
+  "bin": {
+    "freeroute": "./dist/src/cli.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

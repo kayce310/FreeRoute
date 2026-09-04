@@ -23,6 +23,9 @@ async function main(): Promise<void> {
   else if (command === 'provider-add') await providerAdd(args);
   else if (command === 'provider-list') await providerList();
   else if (command === 'provider-remove') await providerRemove(args);
+  else if (command === 'export-keys') await exportKeys(args);
+  else if (command === 'import-keys') await importKeys(args);
+  else if (command === 'update') await updateApp(args);
   else printUsage();
 }
 
@@ -284,13 +287,83 @@ async function providerRemove(args: string[]): Promise<void> {
   try { store.remove(providerId); console.log(`Removed provider '${providerId}'.`); } finally { store.close(); }
 }
 
+async function exportKeys(args: string[]): Promise<void> {
+  const outputPath = args[0] || `freeroute-keys-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const store = await credentialStore();
+  try {
+    const all = await store.exportAllWithSecrets();
+    const payload = {
+      app: 'freeroute',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      count: all.length,
+      credentials: all,
+    };
+    await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+    console.log(`✅ Đã xuất ${all.length} khóa API ra file '${outputPath}'.`);
+  } finally { store.close(); }
+}
+
+async function importKeys(args: string[]): Promise<void> {
+  const inputPath = args[0];
+  if (!inputPath) { console.error('usage: freeroute import-keys <json-file>'); process.exitCode = 1; return; }
+  const store = await credentialStore();
+  try {
+    const content = await readFile(inputPath, 'utf8');
+    type BackupItem = { providerId?: string; credentialId?: string; secret?: string; apiKey?: string };
+    const parsed = JSON.parse(content) as { credentials?: BackupItem[] } | BackupItem[];
+    const items: BackupItem[] = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.credentials) ? parsed.credentials : []);
+    if (!items.length) { console.error('Không tìm thấy khóa nào trong file backup.'); process.exitCode = 1; return; }
+    let count = 0;
+    for (const item of items) {
+      const pId = item.providerId?.trim();
+      const cId = item.credentialId?.trim() || 'default';
+      const sec = (item.secret ?? item.apiKey)?.trim();
+      if (!pId || !sec) continue;
+      await store.put(pId, cId, sec);
+      count++;
+    }
+    console.log(`✅ Đã nhập thành công ${count} khóa API từ '${inputPath}'.`);
+  } finally { store.close(); }
+}
+
+async function updateApp(args: string[]): Promise<void> {
+  console.log('🔄 Đang kiểm tra và cập nhật FreeRoute lên phiên bản mới nhất...');
+  const { execSync } = await import('node:child_process');
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  try {
+    console.log('📡 Đang đồng bộ mã nguồn từ GitHub (git pull origin main)...');
+    const pullOutput = execSync('git pull origin main', { encoding: 'utf8', stdio: 'pipe' });
+    console.log(pullOutput.trim());
+
+    console.log('📦 Đang kiểm tra và cài đặt gói phụ thuộc...');
+    const installOutput = execSync(`${npmCmd} install --no-audit --no-fund`, { encoding: 'utf8', stdio: 'pipe' });
+    if (installOutput.trim()) console.log(installOutput.trim());
+
+    console.log('🔨 Đang biên dịch mã nguồn TypeScript...');
+    const buildOutput = execSync(`${npmCmd} run build`, { encoding: 'utf8', stdio: 'pipe' });
+    if (buildOutput.trim()) console.log(buildOutput.trim());
+
+    const currentCommit = execSync('git log -1 --oneline', { encoding: 'utf8', stdio: 'pipe' }).trim();
+    console.log(`\n🎉 FreeRoute đã được cập nhật lên phiên bản mới nhất thành công!`);
+    console.log(`📌 Commit hiện tại: ${currentCommit}`);
+    console.log(`🚀 Khởi động lại dịch vụ bằng lệnh: npm start (hoặc node dist/src/cli.js serve)\n`);
+  } catch (error: any) {
+    console.error(`❌ Cập nhật thất bại: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
 function printUsage(): void {
   console.log(`FreeRoute CLI
 Commands:
   freeroute serve              Start the routing server
+  freeroute update             Update FreeRoute to latest version from GitHub
   freeroute add-key <provider> <api-key>   Add an API key for a provider
   freeroute list-keys          List stored credentials
   freeroute remove-key <provider> [credential-id]  Remove a credential
+  freeroute export-keys [file] Export all API keys to a JSON backup file
+  freeroute import-keys <file> Import API keys from a JSON backup file
   freeroute status             Show server status
   freeroute import-9router <db-path> [provider]  Import from 9Router database
   freeroute backup <file>     Backup catalog, preferences and events

@@ -830,10 +830,13 @@ export function dashboardHtml(): string {
             <span id="title-recent-stream">Dòng Sự Kiện Định Tuyến Gần Đây (Routing Stream)</span>
             <span class="badge badge-gray" id="stream-count-badge" style="font-size:11px; margin-left:6px;">0 sự kiện</span>
           </div>
-          <div style="display:flex; align-items:center; gap:16px;">
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" style="padding:3px 10px; font-size:11px;" onclick="scrollToLatestEvent()" id="btn-scroll-latest" title="Cuộn ngay tới sự kiện mới nhất trên timeline">
+              🔽 <span id="lbl-scroll-latest">Mới nhất</span>
+            </button>
             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--text-muted); font-size:12px; user-select:none;">
               <input type="checkbox" id="chk-stream-autoscroll" checked>
-              <span id="lbl-stream-autoscroll">Tự động cuộn mới nhất</span>
+              <span id="lbl-stream-autoscroll">Tự động cuộn theo timeline</span>
             </label>
             <div style="font-size:12px; color:var(--text-muted);" id="lbl-live-polling">
               🟢 Tự động cập nhật mỗi 10s
@@ -967,7 +970,10 @@ export function dashboardHtml(): string {
       <div class="card">
         <div class="card-header">
           <div class="card-title" id="title-keys-heading">Khóa API Đã Lưu (Mã Hóa AES-256-GCM)</div>
-          <div style="display:flex; gap:8px;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="exportKeysBackup()" id="btn-export-keys" title="Xuất file JSON sao lưu khóa API">📥 Xuất Backup JSON</button>
+            <button class="btn btn-outline btn-sm" onclick="triggerImportBackup()" id="btn-import-keys" title="Nhập khóa API từ file JSON sao lưu">📤 Nhập từ JSON</button>
+            <input type="file" id="backup-file-input" accept=".json" style="display:none;" onchange="handleBackupFileSelect(this)">
             <button class="btn btn-success btn-sm" onclick="openSyncModal()" id="btn-sync-local">⚡ Nhập Từ 9router & OmniRoute</button>
             <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()" id="btn-add-key-sub">➕ Thêm Key Mới</button>
           </div>
@@ -1264,6 +1270,7 @@ print(response.choices[0].message.content)</div>
     let modelSortField = 'priority';
     let modelSortAsc = false;
     let tempComboChain = [];
+    let lastStreamEventId = null;
 
     // Helper: Identify True Free models
     function isTrueFreeModel(m) {
@@ -1380,7 +1387,9 @@ print(response.choices[0].message.content)</div>
         statusCooldown: 'Hạ nhiệt',
         statusError: 'Lỗi',
         statusUnconfigured: 'Chưa kết nối',
-        streamAutoScroll: 'Tự động cuộn mới nhất',
+        streamAutoScroll: 'Tự động cuộn theo timeline',
+        badgeLatest: 'Mới nhất',
+        btnScrollLatest: 'Mới nhất',
         streamCountBadge: (n) => n + ' sự kiện',
         btnSetupKey: 'Thiết lập ➔',
         btnManageKey: 'Quản lý ➔',
@@ -1390,6 +1399,8 @@ print(response.choices[0].message.content)</div>
         playStatusError: '❌ Gặp sự cố',
         btnCopyOutput: '📋 Sao chép kết quả',
         btnClearOutput: '🗑️ Xóa Màn Hình',
+        btnExportBackup: '📥 Xuất Backup JSON',
+        btnImportBackup: '📤 Nhập từ JSON',
         playConsoleInitial: 'Chờ gửi prompt... Nhấn "🚀 Gửi Thử Nghiệm" hoặc tổ hợp phím Ctrl + Enter để bắt đầu stream trực tiếp.'
       },
       en: {
@@ -1494,7 +1505,9 @@ print(response.choices[0].message.content)</div>
         statusCooldown: 'Cooldown',
         statusError: 'Error',
         statusUnconfigured: 'Not Configured',
-        streamAutoScroll: 'Auto-scroll to latest',
+        streamAutoScroll: 'Auto-scroll timeline',
+        badgeLatest: 'Latest',
+        btnScrollLatest: 'Latest',
         streamCountBadge: (n) => n + ' events',
         btnSetupKey: 'Configure ➔',
         btnManageKey: 'Manage ➔',
@@ -1504,6 +1517,8 @@ print(response.choices[0].message.content)</div>
         playStatusError: '❌ Request error',
         btnCopyOutput: '📋 Copy response',
         btnClearOutput: '🗑️ Clear',
+        btnExportBackup: '📥 Export Backup JSON',
+        btnImportBackup: '📤 Import from JSON',
         playConsoleInitial: 'Waiting for prompt... Click "🚀 Send Request" or press Ctrl + Enter to stream live.'
       }
     };
@@ -1576,6 +1591,8 @@ print(response.choices[0].message.content)</div>
       document.getElementById('title-recent-stream').textContent = t('recentStreamTitle');
       const lblStreamAuto = document.getElementById('lbl-stream-autoscroll');
       if (lblStreamAuto) lblStreamAuto.textContent = t('streamAutoScroll');
+      const lblScrollLatest = document.getElementById('lbl-scroll-latest');
+      if (lblScrollLatest) lblScrollLatest.textContent = t('btnScrollLatest');
 
       document.getElementById('th-ev-time').textContent = t('thTime');
       document.getElementById('th-ev-reqid').textContent = t('thReqId');
@@ -1610,6 +1627,10 @@ print(response.choices[0].message.content)</div>
       document.getElementById('title-keys-heading').textContent = t('keysTitle');
       const credsNote = document.getElementById('creds-sec-note');
       if (credsNote) credsNote.innerHTML = t('credsSecNote');
+      const btnExport = document.getElementById('btn-export-keys');
+      if (btnExport) btnExport.textContent = t('btnExportBackup');
+      const btnImport = document.getElementById('btn-import-keys');
+      if (btnImport) btnImport.textContent = t('btnImportBackup');
       document.getElementById('btn-sync-local').textContent = t('syncKey');
       document.getElementById('btn-add-key-sub').textContent = t('addKey');
       document.getElementById('th-k-updated').textContent = t('thUpdated');
@@ -1925,6 +1946,13 @@ print(response.choices[0].message.content)</div>
       container.innerHTML = html;
     }
 
+    function scrollToLatestEvent() {
+      const box = document.getElementById('stream-scroll-container');
+      if (box) {
+        box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+      }
+    }
+
     function renderEvents() {
       const tbody = document.getElementById('events-tbody');
       const countBadge = document.getElementById('stream-count-badge');
@@ -1936,7 +1964,15 @@ print(response.choices[0].message.content)</div>
         return;
       }
 
-      const recent = eventsData.slice(-30);
+      // Sort strictly by timeline ASC (chronological: oldest at top -> newest at bottom)
+      const sortedByTimeline = [...eventsData].sort((a, b) => {
+        const timeA = new Date(a.occurredAt || 0).getTime();
+        const timeB = new Date(b.occurredAt || 0).getTime();
+        return timeA - timeB;
+      });
+
+      // Take the most recent 30 events along the timeline
+      const recent = sortedByTimeline.slice(-30);
       let html = '';
       for (let i = 0; i < recent.length; i++) {
         const ev = recent[i];
@@ -1951,8 +1987,10 @@ print(response.choices[0].message.content)</div>
 
         html += \`
           <tr class="\${isLatest ? 'newest-stream-row' : ''}">
-            <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:12px;">\${timeStr}</td>
-            <td style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">\${reqId}</td>
+            <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:12px; white-space:nowrap;">
+              \${timeStr} \${isLatest ? '<span class="badge badge-green" style="font-size:9px; padding:1px 5px; margin-left:4px; font-weight:bold;">⚡ ' + t('badgeLatest') + '</span>' : ''}
+            </td>
+            <td style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);"><code>\${reqId}</code></td>
             <td><code>\${target}</code></td>
             <td><strong>\${served}</strong></td>
             <td>
@@ -1971,12 +2009,17 @@ print(response.choices[0].message.content)</div>
       }
       tbody.innerHTML = html;
 
+      const latestReqId = recent.length > 0 ? recent[recent.length - 1].requestId : null;
+      const isNewEvent = latestReqId && latestReqId !== lastStreamEventId;
+      const isInitial = lastStreamEventId === null;
+      lastStreamEventId = latestReqId;
+
       const chk = document.getElementById('chk-stream-autoscroll');
-      if (!chk || chk.checked) {
-        const box = document.getElementById('stream-scroll-container');
-        if (box) {
+      const box = document.getElementById('stream-scroll-container');
+      if (box && (!chk || chk.checked) && (isNewEvent || isInitial)) {
+        setTimeout(() => {
           box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
-        }
+        }, 50);
       }
     }
 
@@ -2545,6 +2588,67 @@ print(response.choices[0].message.content)</div>
       } catch (err) {
         showToast(err.message, true);
       }
+    }
+
+    async function exportKeysBackup() {
+      try {
+        const res = await fetch('/v1/credentials/export');
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.error?.message || 'Export failed', true);
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = \`freeroute-keys-backup-\${dateStr}.json\`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(currentLang === 'vi' ? 'Đã xuất file sao lưu JSON thành công!' : 'Key backup exported successfully!');
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    function triggerImportBackup() {
+      const input = document.getElementById('backup-file-input');
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    }
+
+    async function handleBackupFileSelect(input) {
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const text = e.target.result;
+          const json = JSON.parse(text);
+          showToast(currentLang === 'vi' ? 'Đang nạp file backup...' : 'Restoring backup...');
+          const res = await fetch('/v1/credentials/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(json)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            showToast(currentLang === 'vi' ? \`Đã khôi phục thành công \${data.count} khóa API!\` : \`Successfully restored \${data.count} API keys!\`);
+            await refreshAllData();
+          } else {
+            const err = await res.json();
+            showToast(err.error?.message || 'Restore failed', true);
+          }
+        } catch (err) {
+          showToast('Lỗi đọc file JSON: ' + err.message, true);
+        }
+      };
+      reader.readAsText(file);
     }
 
     // MODAL: ADD KEY

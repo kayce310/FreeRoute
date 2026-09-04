@@ -169,6 +169,77 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'GET' && path === '/v1/credentials/export') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const all = typeof options.credentials.exportAllWithSecrets === 'function'
+          ? await options.credentials.exportAllWithSecrets()
+          : [];
+        const dateStr = new Date().toISOString().slice(0, 10);
+        response.setHeader('Content-Disposition', `attachment; filename="freeroute-keys-backup-${dateStr}.json"`);
+        sendJson(response, 200, {
+          app: 'freeroute',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          count: all.length,
+          credentials: all,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/credentials/import') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as {
+          credentials?: Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string }>;
+        } | Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string }>;
+        
+        const items = Array.isArray(body) ? body : (Array.isArray(body?.credentials) ? body.credentials : []);
+        if (!items.length) {
+          sendJson(response, 400, { error: { message: 'No valid credentials found in import payload', type: 'invalid_request_error' } });
+          return;
+        }
+
+        const imported: string[] = [];
+        for (const item of items) {
+          const providerId = (item.providerId ?? item.provider_id)?.trim();
+          const credentialId = (item.credentialId ?? item.credential_id)?.trim() || 'default';
+          const secret = (item.secret ?? item.apiKey)?.trim();
+          if (!providerId || !secret) continue;
+
+          await options.credentials.put(providerId, credentialId, secret);
+
+          // Auto-seed preset models
+          const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
+          if (preset && preset.seedModels.length > 0) {
+            try {
+              const existing = await options.catalog.list();
+              if (!existing.some((m) => m.providerId === preset.id)) {
+                const seedList = preset.seedModels.map((m) => ({
+                  providerId: preset.id,
+                  modelId: m.modelId,
+                  capabilities: m.capabilities,
+                  freeTier: m.freeTier,
+                  checkedAt: new Date(),
+                  priority: m.priority ?? 0,
+                }));
+                await options.catalog.replaceProvider(preset.id, seedList);
+              }
+            } catch {}
+          }
+
+          if (options.onCredentialChanged) {
+            try { await options.onCredentialChanged(providerId, credentialId); } catch {}
+          }
+          imported.push(`${providerId}/${credentialId}`);
+        }
+
+        sendJson(response, 200, {
+          status: 'ok',
+          count: imported.length,
+          imported,
+        });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/credentials') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
         const body = await readJsonBody(request) as { providerId?: unknown; provider_id?: unknown; credentialId?: unknown; credential_id?: unknown; secret?: unknown; apiKey?: unknown; api_key?: unknown };
