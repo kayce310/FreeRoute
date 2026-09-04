@@ -80,6 +80,31 @@ export class SqliteCredentialStore {
     return Number(result.changes) > 0;
   }
 
+  async getAllSecrets(): Promise<Set<string>> {
+    const rows = this.database.prepare(`
+      SELECT encrypted_secret FROM credentials
+    `).all() as unknown as Array<{ encrypted_secret: string }>;
+    const secrets = new Set<string>();
+    for (const row of rows) {
+      try {
+        const sec = decrypt(row.encrypted_secret, this.encryptionKey);
+        if (sec) secrets.add(sec);
+      } catch {}
+    }
+    return secrets;
+  }
+
+  async countByProvider(): Promise<Record<string, number>> {
+    const rows = this.database.prepare(`
+      SELECT provider_id, COUNT(*) as count FROM credentials GROUP BY provider_id
+    `).all() as unknown as Array<{ provider_id: string; count: number | bigint }>;
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      counts[row.provider_id] = Number(row.count);
+    }
+    return counts;
+  }
+
   close(): void {
     this.database.close();
   }

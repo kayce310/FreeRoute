@@ -5,7 +5,7 @@ build/
 coverage/
 .turbo/
 
-# Local state and secrets
+# Local state, databases and secrets
 .env
 .env.*
 !.env.example
@@ -13,6 +13,13 @@ data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+*.key
+.master_secret
+credentials.json
+keys.json
 
 # Logs and editor files
 *.log

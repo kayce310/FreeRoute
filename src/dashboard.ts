@@ -714,6 +714,7 @@ export function dashboardHtml(): string {
         <div>
           <div class="kpi-label" id="kpi-lbl-providers">Nhà Cung Cấp Đã Kết Nối</div>
           <div class="kpi-value" id="kpi-providers">0</div>
+          <div id="kpi-keys-sub" style="font-size:11px; color:var(--text-muted); margin-top:4px;">0 khóa hoạt động</div>
         </div>
         <div class="kpi-icon">🌐</div>
       </div>
@@ -886,6 +887,9 @@ export function dashboardHtml(): string {
             <button class="btn btn-primary btn-sm" onclick="openAddKeyModal()" id="btn-add-key-sub">➕ Thêm Key Mới</button>
           </div>
         </div>
+        <div class="alert-box alert-info" id="creds-sec-note" style="margin-bottom:16px;">
+          <strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/credentials.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -914,11 +918,11 @@ export function dashboardHtml(): string {
           <div class="form-group">
             <label id="lbl-play-model">Hồ Sơ / Model / Combo Mục Tiêu</label>
             <select class="form-control" id="play-model-select">
-              <optgroup label="Hồ Sơ Tự Động (Auto Profiles)">
-                <option value="auto:free">auto:free (Ưu tiên mô hình miễn phí)</option>
-                <option value="auto:fast">auto:fast (Tối ưu tốc độ cao Cerebras/Groq)</option>
-                <option value="auto:code">auto:code (Lập trình & Tools)</option>
-                <option value="auto:long-context">auto:long-context (Ngữ cảnh dài Gemini 1M+)</option>
+              <optgroup label="Hồ Sơ Tự Động (Auto Profiles)" id="optgrp-play-auto">
+                <option value="auto:free" id="opt-play-free">auto:free (Ưu tiên mô hình miễn phí)</option>
+                <option value="auto:fast" id="opt-play-fast">auto:fast (Tối ưu tốc độ cao Cerebras/Groq)</option>
+                <option value="auto:code" id="opt-play-code">auto:code (Lập trình & Tools)</option>
+                <option value="auto:long-context" id="opt-play-long">auto:long-context (Ngữ cảnh dài Gemini 1M+)</option>
               </optgroup>
               <optgroup label="Custom Combos" id="play-combos-group">
                 <!-- Populated dynamically -->
@@ -926,8 +930,9 @@ export function dashboardHtml(): string {
             </select>
           </div>
           <div class="form-group">
-            <label id="lbl-play-temp">Nhiệt Độ (Temperature): <span id="temp-val">0.7</span></label>
-            <input type="range" min="0" max="1" step="0.1" value="0.7" class="form-control" id="play-temp" oninput="document.getElementById('temp-val').textContent = this.value">
+            <label id="lbl-play-temp">Nhiệt Độ (Temperature): <span id="temp-val">0.7</span> <span id="temp-hint" style="font-size:11px; color:var(--accent); font-weight:normal;">(Cân bằng / Chat)</span></label>
+            <input type="range" min="0" max="1" step="0.1" value="0.7" class="form-control" id="play-temp" oninput="updateTempDisplay(this.value)">
+            <div id="temp-desc" style="font-size:11px; color:var(--text-muted); margin-top:5px; line-height:1.5;"></div>
           </div>
         </div>
         <div class="form-group">
@@ -1074,6 +1079,7 @@ print(response.choices[0].message.content)</div>
               <th>Provider</th>
               <th>Nguồn</th>
               <th>Masked Key</th>
+              <th id="th-sync-status">Trạng Thái</th>
             </tr>
           </thead>
           <tbody id="sync-sources-tbody">
@@ -1136,6 +1142,8 @@ print(response.choices[0].message.content)</div>
     let models = [];
     let combos = [];
     let credentials = [];
+    let providerKeyCounts = {};
+    let totalKeyCount = 0;
     let healthData = [];
     let eventsData = [];
     let detectedSources = [];
@@ -1163,10 +1171,15 @@ print(response.choices[0].message.content)</div>
         refresh: '🔄 Làm mới',
         addKey: '➕ Thêm API Key',
         syncKey: '⚡ Nhập Key Có Sẵn',
+        syncBannerNew: (n) => 'Phát hiện ' + n + ' khóa API mới từ OmniRoute & 9router chưa được nhập vào FreeRoute!',
         syncBanner: (n) => 'Phát hiện ' + n + ' khóa API từ OmniRoute & 9router trên máy này.',
         syncAllNow: 'Đồng bộ tất cả ngay',
         syncReview: 'Xem chi tiết',
+        syncStatusImported: '✅ Đã có',
+        syncStatusNew: '✨ Mới',
+        thSyncStatus: 'Trạng Thái',
         kpiProviders: 'Nhà Cung Cấp Đã Kết Nối',
+        kpiProvidersSub: (n) => n + ' khóa đang hoạt động',
         kpiModelsFree: '🎁 Model 100% Miễn Phí',
         kpiModelsPaid: '💳 Model Thương Mại (Paid)',
         kpiRequests: 'Yêu Cầu Đã Xử Lý',
@@ -1196,6 +1209,10 @@ print(response.choices[0].message.content)</div>
         getKeyLink: 'Lấy Key ↗',
         connectBtn: 'Kết nối',
         connectedBadge: 'Đã kết nối',
+        badgeKeys: (n) => n + ' Keys',
+        badgeNotConnected: 'Chưa có Key',
+        btnManageKeys: (n) => '🔑 Quản lý (' + n + ' keys)',
+        btnAddKeyShort: '+ Thêm',
         allProvidersOpt: 'Tất cả Provider',
         allCapsOpt: 'Tất cả Tính Năng',
         lblFreeOnly: '🎁 Chỉ hiển thị Model 100% Miễn Phí',
@@ -1210,11 +1227,29 @@ print(response.choices[0].message.content)</div>
         descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
         btnCreateCombo: '➕ Tạo Combo Mới',
         keysTitle: 'Khóa API Đã Lưu (Mã Hóa AES-256-GCM)',
+        credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/credentials.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
         thUpdated: 'Cập Nhật',
         thAction: 'Hành Động',
         deleteBtn: 'Xóa',
         playTitle: 'Thử Nghiệm Định Tuyến Prompt',
+        lblPlayModel: 'Hồ Sơ / Model / Combo Mục Tiêu',
+        lblPlayTemp: 'Nhiệt Độ (Temperature):',
+        lblPlayPrompt: 'Prompt Thử Nghiệm',
+        lblPlayRes: 'Kết quả phản hồi:',
         playSend: '🚀 Gửi Thử Nghiệm (Streaming)',
+        playWaiting: 'Chờ gửi prompt...',
+        playRouting: 'Đang kết nối và định tuyến request...',
+        playPromptPlaceholder: 'Nhập câu hỏi tại đây...',
+        playPromptDefault: 'Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.',
+        optgrpAuto: 'Hồ Sơ Tự Động (Auto Profiles)',
+        optAutoFree: 'auto:free (Ưu tiên mô hình miễn phí)',
+        optAutoFast: 'auto:fast (Tối ưu tốc độ cao Cerebras/Groq)',
+        optAutoCode: 'auto:code (Lập trình & Tools)',
+        optAutoLong: 'auto:long-context (Ngữ cảnh dài Gemini 1M+)',
+        tempHintCode: '(Chính xác / Viết Code)',
+        tempHintChat: '(Cân bằng / Trò chuyện)',
+        tempHintCreative: '(Sáng tạo cao / Ý tưởng mới)',
+        tempExplanation: '💡 <strong>Nhiệt độ (0.0 - 1.0):</strong> Điều chỉnh độ sáng tạo của AI:<br>• <strong>0.0:</strong> Rất chặt chẽ, nhất quán tuyệt đối (tối ưu cho Viết Code, Giải Toán, Xuất JSON).<br>• <strong>0.7 (Mặc định):</strong> Cân bằng tự nhiên giữa sáng tạo và mạch lạc (phù hợp cho Trò chuyện & Hỏi đáp).<br>• <strong>1.0:</strong> Tối đa hóa liên tưởng từ vựng & ý tưởng mới (dùng cho Brainstorming, Sáng tác).',
         modalAddTitle: 'Thêm / Cập Nhật Khóa API',
         modalProvLabel: 'Chọn Nhà Cung Cấp',
         modalSecretLabel: 'API Key / Secret Token',
@@ -1234,10 +1269,15 @@ print(response.choices[0].message.content)</div>
         refresh: '🔄 Refresh',
         addKey: '➕ Add API Key',
         syncKey: '⚡ Import Stored Keys',
+        syncBannerNew: (n) => 'Detected ' + n + ' new API keys from OmniRoute & 9router ready to import!',
         syncBanner: (n) => 'Detected ' + n + ' API keys from OmniRoute & 9router on this machine.',
         syncAllNow: 'Sync all now',
         syncReview: 'Review details',
+        syncStatusImported: '✅ Imported',
+        syncStatusNew: '✨ New',
+        thSyncStatus: 'Status',
         kpiProviders: 'Configured Providers',
+        kpiProvidersSub: (n) => n + ' active API keys',
         kpiModelsFree: '🎁 100% Free Models',
         kpiModelsPaid: '💳 Commercial Models',
         kpiRequests: 'Requests Handled',
@@ -1267,6 +1307,10 @@ print(response.choices[0].message.content)</div>
         getKeyLink: 'Get Key ↗',
         connectBtn: 'Connect',
         connectedBadge: 'Connected',
+        badgeKeys: (n) => n + ' Keys',
+        badgeNotConnected: 'Not Connected',
+        btnManageKeys: (n) => '🔑 Manage (' + n + ' keys)',
+        btnAddKeyShort: '+ Add',
         allProvidersOpt: 'All Providers',
         allCapsOpt: 'All Capabilities',
         lblFreeOnly: '🎁 Show 100% Free Models Only',
@@ -1281,11 +1325,29 @@ print(response.choices[0].message.content)</div>
         descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
         btnCreateCombo: '➕ Create Combo',
         keysTitle: 'Stored API Keys (Encrypted with AES-256-GCM)',
+        credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/credentials.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
         thUpdated: 'Updated',
         thAction: 'Action',
         deleteBtn: 'Delete',
         playTitle: 'Prompt Routing Test Playground',
+        lblPlayModel: 'Target Profile / Model / Combo',
+        lblPlayTemp: 'Temperature:',
+        lblPlayPrompt: 'Test Prompt',
+        lblPlayRes: 'Streamed Response:',
         playSend: '🚀 Send Request (Streaming)',
+        playWaiting: 'Waiting for prompt...',
+        playRouting: 'Connecting & routing request...',
+        playPromptPlaceholder: 'Enter your prompt here...',
+        playPromptDefault: 'Briefly explain FreeRoute\'s Fallback mechanism in 2 sentences.',
+        optgrpAuto: 'Auto Profiles',
+        optAutoFree: 'auto:free (Prioritize 100% Free Models)',
+        optAutoFast: 'auto:fast (Ultra-fast Cerebras/Groq)',
+        optAutoCode: 'auto:code (Coding & Agentic Tools)',
+        optAutoLong: 'auto:long-context (Gemini 1M+ Long Context)',
+        tempHintCode: '(Precise / Coding)',
+        tempHintChat: '(Balanced / Chat)',
+        tempHintCreative: '(Creative / Brainstorm)',
+        tempExplanation: '💡 <strong>Temperature (0.0 - 1.0):</strong> Controls randomness & creativity of the AI response:<br>• <strong>0.0:</strong> Deterministic & strictly factual (best for Coding, Math, JSON extraction).<br>• <strong>0.7 (Default):</strong> Balanced coherence & creativity (ideal for General Chat & Q&A).<br>• <strong>1.0:</strong> Highly imaginative & divergent (great for Brainstorming & Creative writing).',
         modalAddTitle: 'Add / Update API Key',
         modalProvLabel: 'Select Provider',
         modalSecretLabel: 'API Key / Secret Token',
@@ -1337,6 +1399,8 @@ print(response.choices[0].message.content)</div>
       document.getElementById('hdr-sync-btn').textContent = t('syncKey');
 
       document.getElementById('kpi-lbl-providers').textContent = t('kpiProviders');
+      const kpiSub = document.getElementById('kpi-keys-sub');
+      if (kpiSub) kpiSub.textContent = t('kpiProvidersSub', totalKeyCount);
       document.getElementById('kpi-lbl-models-free').textContent = t('kpiModelsFree');
       document.getElementById('kpi-lbl-models-paid').textContent = t('kpiModelsPaid');
       document.getElementById('kpi-lbl-requests').textContent = t('kpiRequests');
@@ -1378,13 +1442,40 @@ print(response.choices[0].message.content)</div>
       document.getElementById('btn-create-combo').textContent = t('btnCreateCombo');
 
       document.getElementById('title-keys-heading').textContent = t('keysTitle');
+      const credsNote = document.getElementById('creds-sec-note');
+      if (credsNote) credsNote.innerHTML = t('credsSecNote');
       document.getElementById('btn-sync-local').textContent = t('syncKey');
       document.getElementById('btn-add-key-sub').textContent = t('addKey');
       document.getElementById('th-k-updated').textContent = t('thUpdated');
       document.getElementById('th-k-action').textContent = t('thAction');
 
       document.getElementById('title-play').textContent = t('playTitle');
+      document.getElementById('lbl-play-model').textContent = t('lblPlayModel');
+      document.getElementById('lbl-play-prompt').textContent = t('lblPlayPrompt');
+      document.getElementById('lbl-play-res').textContent = t('lblPlayRes');
       document.getElementById('btn-play-send').textContent = t('playSend');
+
+      const optgrpAuto = document.getElementById('optgrp-play-auto');
+      if (optgrpAuto) optgrpAuto.label = t('optgrpAuto');
+      const optFree = document.getElementById('opt-play-free');
+      if (optFree) optFree.textContent = t('optAutoFree');
+      const optFast = document.getElementById('opt-play-fast');
+      if (optFast) optFast.textContent = t('optAutoFast');
+      const optCode = document.getElementById('opt-play-code');
+      if (optCode) optCode.textContent = t('optAutoCode');
+      const optLong = document.getElementById('opt-play-long');
+      if (optLong) optLong.textContent = t('optAutoLong');
+
+      const promptInput = document.getElementById('play-prompt');
+      if (promptInput) {
+        promptInput.placeholder = t('playPromptPlaceholder');
+        if (promptInput.value === 'Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.' || promptInput.value === 'Briefly explain FreeRoute\'s Fallback mechanism in 2 sentences.') {
+          promptInput.value = t('playPromptDefault');
+        }
+      }
+
+      const tempVal = document.getElementById('play-temp') ? document.getElementById('play-temp').value : 0.7;
+      updateTempDisplay(tempVal);
 
       document.getElementById('modal-add-title').textContent = t('modalAddTitle');
       document.getElementById('lbl-modal-prov').textContent = t('modalProvLabel');
@@ -1394,10 +1485,33 @@ print(response.choices[0].message.content)</div>
 
       document.getElementById('modal-sync-title').textContent = t('modalSyncTitle');
       document.getElementById('modal-sync-desc').textContent = t('modalSyncDesc');
+      const thSyncStat = document.getElementById('th-sync-status');
+      if (thSyncStat) thSyncStat.textContent = t('thSyncStatus');
       document.getElementById('btn-sync-cancel').textContent = t('modalCancel');
       document.getElementById('btn-sync-confirm').textContent = t('syncConfirm');
       document.getElementById('sync-quick-btn').textContent = t('syncAllNow');
       document.getElementById('sync-review-btn').textContent = t('syncReview');
+    }
+
+    function updateTempDisplay(val) {
+      const num = parseFloat(val);
+      const valEl = document.getElementById('temp-val');
+      const hintEl = document.getElementById('temp-hint');
+      const descEl = document.getElementById('temp-desc');
+      if (valEl) valEl.textContent = val;
+      if (hintEl) {
+        if (num <= 0.3) {
+          hintEl.textContent = t('tempHintCode');
+          hintEl.style.color = '#38bdf8';
+        } else if (num <= 0.7) {
+          hintEl.textContent = t('tempHintChat');
+          hintEl.style.color = 'var(--accent)';
+        } else {
+          hintEl.textContent = t('tempHintCreative');
+          hintEl.style.color = '#fbbf24';
+        }
+      }
+      if (descEl) descEl.innerHTML = t('tempExplanation');
     }
 
     function switchTab(tabId) {
@@ -1470,10 +1584,16 @@ print(response.choices[0].message.content)</div>
         if (res.ok) {
           const json = await res.json();
           detectedSources = json.data || [];
-          if (detectedSources.length > 0) {
-            document.getElementById('sync-banner').style.display = 'flex';
-            document.getElementById('hdr-sync-btn').style.display = 'inline-flex';
-            document.getElementById('sync-banner-msg').textContent = t('syncBanner', detectedSources.length);
+          const newKeys = detectedSources.filter(s => !s.alreadyImported);
+          const bannerEl = document.getElementById('sync-banner');
+          const hdrBtn = document.getElementById('hdr-sync-btn');
+          if (newKeys.length > 0) {
+            bannerEl.style.display = 'flex';
+            if (hdrBtn) hdrBtn.style.display = 'inline-flex';
+            document.getElementById('sync-banner-msg').textContent = t('syncBannerNew', newKeys.length);
+          } else {
+            bannerEl.style.display = 'none';
+            if (hdrBtn) hdrBtn.style.display = 'none';
           }
         }
       } catch (err) {
@@ -1483,10 +1603,24 @@ print(response.choices[0].message.content)</div>
 
     async function fetchCredentials() {
       try {
-        const res = await fetch('/v1/credentials');
-        if (res.ok) {
-          const json = await res.json();
+        const [cRes, aRes] = await Promise.all([
+          fetch('/v1/credentials'),
+          fetch('/v1/auth/status')
+        ]);
+        if (cRes.ok) {
+          const json = await cRes.json();
           credentials = json.data || [];
+        }
+        if (aRes.ok) {
+          const aJson = await aRes.json();
+          providerKeyCounts = aJson.providerKeyCounts || {};
+          totalKeyCount = aJson.keyCount || credentials.length;
+        } else {
+          providerKeyCounts = {};
+          for (const c of credentials) {
+            providerKeyCounts[c.providerId] = (providerKeyCounts[c.providerId] || 0) + 1;
+          }
+          totalKeyCount = credentials.length;
         }
       } catch (err) {
         console.error('Failed to load credentials:', err);
@@ -1539,8 +1673,12 @@ print(response.choices[0].message.content)</div>
     }
 
     function updateKpis() {
-      const activeProviders = new Set(credentials.map(c => c.providerId)).size;
+      const activeProviders = Object.keys(providerKeyCounts).length || new Set(credentials.map(c => c.providerId)).size;
       document.getElementById('kpi-providers').textContent = activeProviders;
+      const subEl = document.getElementById('kpi-keys-sub');
+      if (subEl) {
+        subEl.textContent = t('kpiProvidersSub', totalKeyCount || credentials.length);
+      }
       
       const freeModelsCount = models.filter(m => m.isTrueFree).length;
       const paidModelsCount = models.length - freeModelsCount;
@@ -1672,6 +1810,10 @@ print(response.choices[0].message.content)</div>
       renderPresets();
     }
 
+    function goToCredentialsFor(providerId) {
+      switchTab('credentials');
+    }
+
     function renderPresets() {
       const container = document.getElementById('presets-container');
       const q = (document.getElementById('search-presets').value || '').toLowerCase().trim();
@@ -1710,12 +1852,17 @@ print(response.choices[0].message.content)</div>
 
       let html = '';
       for (const p of filtered) {
-        const isConfigured = configuredMap.has(p.id);
+        const keyCount = providerKeyCounts[p.id] || (configuredMap.has(p.id) ? 1 : 0);
+        const isConfigured = keyCount > 0;
         const desc = currentLang === 'vi' ? p.descriptionVi : p.descriptionEn;
         const isComm = p.category === 'commercial';
         const catBadge = isComm 
           ? '<span class="badge badge-purple">💎 Commercial</span>'
           : (p.category === 'local' ? '<span class="badge badge-blue">🏠 Local</span>' : '<span class="badge badge-green">🎁 Free Tier</span>');
+
+        const keyBadge = isConfigured
+          ? \`<span class="badge badge-green" style="font-weight:600;">🟢 \${t('badgeKeys', keyCount)}</span>\`
+          : \`<span class="badge badge-gray">⚪ \${t('badgeNotConnected')}</span>\`;
 
         html += \`
           <div class="preset-card">
@@ -1725,7 +1872,10 @@ print(response.choices[0].message.content)</div>
                   <div class="preset-name">\${p.name}</div>
                   <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">\${p.id}</div>
                 </div>
-                <div>\${catBadge}</div>
+                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                  \${catBadge}
+                  \${keyBadge}
+                </div>
               </div>
               <div class="preset-desc">\${desc}</div>
               <div class="preset-models">
@@ -1735,9 +1885,13 @@ print(response.choices[0].message.content)</div>
             </div>
             <div class="preset-actions">
               \${p.apiKeyUrl ? \`<a href="\${p.apiKeyUrl}" target="_blank" class="btn btn-sm">\${t('getKeyLink')}</a>\` : ''}
-              <button class="btn btn-sm \${isConfigured ? 'btn-outline' : 'btn-primary'}" onclick="openAddKeyModal('\${p.id}')">
-                \${isConfigured ? '✓ ' + t('connectedBadge') : '➕ ' + t('connectBtn')}
-              </button>
+              \${isConfigured 
+                ? \`<div style="display:flex; gap:6px;">
+                    <button class="btn btn-sm btn-outline" onclick="goToCredentialsFor('\${p.id}')">\${t('btnManageKeys', keyCount)}</button>
+                    <button class="btn btn-sm btn-primary" onclick="openAddKeyModal('\${p.id}')" title="\${t('btnAddKeyShort')}">+</button>
+                  </div>\`
+                : \`<button class="btn btn-sm btn-primary" onclick="openAddKeyModal('\${p.id}')">➕ \${t('connectBtn')}</button>\`
+              }
             </div>
           </div>
         \`;
@@ -1878,7 +2032,11 @@ print(response.choices[0].message.content)</div>
       const grp = document.getElementById('play-combos-group');
       let html = '';
       for (const cb of combos) {
-        html += \`<option value="combo:\${cb.comboId}">combo:\${cb.comboId} (\${cb.name})</option>\`;
+        let label = cb.name;
+        if (cb.comboId === 'smart-chat') {
+          label = currentLang === 'vi' ? 'Hội Thoại Thông Minh Tối Ưu' : 'Best Free Chat';
+        }
+        html += \`<option value="combo:\${cb.comboId}">combo:\${cb.comboId} (\${label})</option>\`;
       }
       grp.innerHTML = html;
     }
@@ -2028,17 +2186,26 @@ print(response.choices[0].message.content)</div>
         const p = presets.find(x => x.id === c.providerId);
         const name = p ? p.name : c.providerId;
         const updatedStr = c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—';
+        const pKeys = providerKeyCounts[c.providerId] || 1;
 
         html += \`
           <tr>
             <td>
-              <div style="font-weight:600;">\${name}</div>
+              <div style="font-weight:600; display:flex; align-items:center; gap:8px;">
+                \${name}
+                <span class=\"badge badge-green\" style=\"font-size:10px;\">\${pKeys} \${currentLang === 'vi' ? 'Khóa' : 'Keys'}</span>
+              </div>
               <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">\${c.providerId}</div>
             </td>
-            <td style="font-family:var(--font-mono); color:var(--text-muted);">\${c.credentialId || 'default'}</td>
-            <td style="color:var(--text-muted);">\${updatedStr}</td>
+            <td style="font-family:var(--font-mono); color:var(--text-muted);">
+              <code>\${c.credentialId || 'default'}</code>
+            </td>
+            <td style="color:var(--text-muted); font-size:12px;">\${updatedStr}</td>
             <td style="text-align:right;">
-              <button class="btn btn-danger btn-sm" onclick="deleteKey('\${c.providerId}', '\${c.credentialId}')">\${t('deleteBtn')}</button>
+              <div style=\"display:inline-flex; gap:6px;\">
+                <button class=\"btn btn-sm btn-primary\" onclick=\"openAddKeyModal('\${c.providerId}')\" title=\"Thêm key phụ\">+ Key</button>
+                <button class=\"btn btn-danger btn-sm\" onclick=\"deleteKey('\${c.providerId}', '\${c.credentialId}')\">\${t('deleteBtn')}</button>
+              </div>
             </td>
           </tr>
         \`;
@@ -2140,18 +2307,23 @@ print(response.choices[0].message.content)</div>
     function renderSyncSources() {
       const tbody = document.getElementById('sync-sources-tbody');
       if (detectedSources.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:16px;">' + (currentLang === 'vi' ? 'Không tìm thấy key nào.' : 'No sources found.') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:16px;">' + (currentLang === 'vi' ? 'Không tìm thấy key nào.' : 'No sources found.') + '</td></tr>';
         return;
       }
       let html = '';
       for (let i = 0; i < detectedSources.length; i++) {
         const s = detectedSources[i];
+        const isImported = Boolean(s.alreadyImported);
+        const statusBadge = isImported
+          ? \`<span class="badge badge-gray">\${t('syncStatusImported')}</span>\`
+          : \`<span class="badge badge-green">\${t('syncStatusNew')}</span>\`;
         html += \`
-          <tr>
-            <td><input type="checkbox" class="sync-chk" value="\${s.providerId}" checked></td>
+          <tr style="\${isImported ? 'opacity:0.6;' : ''}">
+            <td><input type="checkbox" class="sync-chk" value="\${s.providerId}" \${isImported ? '' : 'checked'}></td>
             <td><strong>\${s.name || s.providerId}</strong></td>
             <td><span class="badge \${s.source === 'omniroute' ? 'badge-blue' : 'badge-purple'}">\${s.source}</span></td>
             <td><code>\${s.maskedKey}</code></td>
+            <td>\${statusBadge}</td>
           </tr>
         \`;
       }
@@ -2163,16 +2335,23 @@ print(response.choices[0].message.content)</div>
     }
 
     async function quickSyncAll() {
-      showToast(currentLang === 'vi' ? 'Đang đồng bộ tất cả key...' : 'Syncing all keys...');
+      const newKeys = detectedSources.filter(s => !s.alreadyImported);
+      if (newKeys.length === 0) {
+        showToast(currentLang === 'vi' ? 'Tất cả các key từ máy đã được đồng bộ vào FreeRoute!' : 'All local keys are already synced into FreeRoute!');
+        return;
+      }
+
+      showToast(currentLang === 'vi' ? 'Đang đồng bộ tất cả key mới...' : 'Syncing all new keys...');
       try {
         const res = await fetch('/v1/import/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ syncAll: true })
+          body: JSON.stringify({ syncAll: true, onlyNew: true })
         });
         if (res.ok) {
           const data = await res.json();
           showToast(currentLang === 'vi' ? \`Đã đồng bộ thành công \${data.count} keys!\` : \`Successfully synced \${data.count} keys!\`);
+          await fetchImportSources();
           await refreshAllData();
         } else {
           showToast('Sync failed', true);

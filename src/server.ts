@@ -48,6 +48,9 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
       if (request.method === 'GET' && path === '/v1/auth/status') {
         const creds = options.credentials ? await options.credentials.list() : [];
+        const keyCounts = options.credentials && typeof options.credentials.countByProvider === 'function'
+          ? await options.credentials.countByProvider()
+          : {};
         const customProviders = options.providerStore?.list().map((p) => p.providerId) ?? [];
         const supported = ['openrouter', 'groq', 'gemini', ...customProviders];
         sendJson(response, 200, {
@@ -55,6 +58,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           needsSetup: creds.length === 0,
           hasToken: Boolean(options.apiToken),
           configuredProviders: [...new Set(creds.map((c) => c.providerId))],
+          configuredCount: new Set(creds.map((c) => c.providerId)).size,
+          providerKeyCounts: keyCounts,
           supportedProviders: [...new Set(supported)],
           keyCount: creds.length,
         });
@@ -67,16 +72,24 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       if (request.method === 'GET' && path === '/v1/import/sources') {
         const { detectAllLocalCredentials } = await import('./importers/local-detect.js');
         const detected = detectAllLocalCredentials();
+        const existingSecrets = options.credentials && typeof options.credentials.getAllSecrets === 'function'
+          ? await options.credentials.getAllSecrets()
+          : new Set<string>();
+        const list = detected.map((d) => ({
+          providerId: d.providerId,
+          name: d.name,
+          source: d.source,
+          sourceLocation: d.sourceLocation,
+          maskedKey: d.maskedKey,
+          isActive: d.isActive,
+          alreadyImported: existingSecrets.has(d.apiKey),
+        }));
+        const newKeysCount = list.filter((item) => !item.alreadyImported).length;
         sendJson(response, 200, {
           object: 'list',
-          data: detected.map((d) => ({
-            providerId: d.providerId,
-            name: d.name,
-            source: d.source,
-            sourceLocation: d.sourceLocation,
-            maskedKey: d.maskedKey,
-            isActive: d.isActive,
-          })),
+          data: list,
+          totalCount: list.length,
+          newKeysCount,
         });
         return;
       }
@@ -375,14 +388,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const body = await readJsonBody(request).catch(() => ({})) as {
           providerIds?: string[];
           syncAll?: boolean;
+          onlyNew?: boolean;
         };
         const { detectAllLocalCredentials } = await import('./importers/local-detect.js');
         const detected = detectAllLocalCredentials();
+        const existingSecrets = options.credentials && typeof options.credentials.getAllSecrets === 'function'
+          ? await options.credentials.getAllSecrets()
+          : new Set<string>();
+
         const targets = detected.filter((d) => {
-          if (body.syncAll) return true;
+          if (body.syncAll) {
+            if (body.onlyNew !== false && existingSecrets.has(d.apiKey)) return false;
+            return true;
+          }
           if (body.providerIds && Array.isArray(body.providerIds) && body.providerIds.length > 0) {
             return body.providerIds.includes(d.providerId);
           }
+          if (body.onlyNew !== false && existingSecrets.has(d.apiKey)) return false;
           return true;
         });
 
