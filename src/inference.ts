@@ -3,10 +3,11 @@ import type { CatalogStore } from './catalog.js';
 import { applyFailureCooldown, chooseRoute } from './router.js';
 import { estimatePromptTokens, estimateTokensFromText } from './utils/token-estimator.js';
 
-export type ChatContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+export type ChatContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> | null;
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatContent;
+  tool_call_id?: string;
 }
 
 /** OpenAI-compatible function declaration; schemas stay opaque to the router. */

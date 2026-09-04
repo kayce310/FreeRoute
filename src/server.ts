@@ -597,7 +597,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   if (event.usage) usageState.captured = event.usage;
                   if (event.delta) usageState.accumulatedText += event.delta;
                   const includeUsage = event.usage ?? usageState.captured;
-                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: includeUsage } : {}) })}\n\n`);
+                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
                 }
                 response.end('data: [DONE]\n\n');
                 if (options.events) {
@@ -704,7 +704,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             if (event.usage) usageState.captured = event.usage;
             if (event.delta) usageState.accumulatedText += event.delta;
             const includeUsage = event.usage ?? usageState.captured;
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: includeUsage } : {}) })}\n\n`);
+            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
           }
           response.end('data: [DONE]\n\n');
           if (options.events) {
@@ -1082,8 +1082,12 @@ function isAnthropicMessage(value: unknown): value is ChatMessage {
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== 'object') return false;
-  const message = value as { role?: unknown; content?: unknown };
+  const message = value as { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown };
   if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant' && message.role !== 'tool') return false;
+  // Assistant messages with tool_calls may have content === null (OpenAI spec)
+  if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.content === null) return true;
+  // Tool result messages
+  if (message.role === 'tool') return typeof message.tool_call_id === 'string' && (typeof message.content === 'string' || message.content === null);
   if (typeof message.content === 'string') return true;
   if (Array.isArray(message.content)) {
     return message.content.every(part => {

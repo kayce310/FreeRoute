@@ -142,7 +142,8 @@ function toGeminiRequest(request: NormalizedChatRequest): object {
   return { contents, ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), ...extra };
 }
 
-function convertContentToGeminiParts(content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+function convertContentToGeminiParts(content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> | null): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  if (!content) return [];
   if (typeof content === 'string') return [{ text: content }];
   return content.map(part => {
     if (part.type === 'text') return { text: part.text };
