@@ -201,38 +201,43 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
       pending += decoder.decode(bytes, { stream: true });
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
-      for (const line of lines) {
-        const data = line.startsWith('data:') ? line.slice(5).trim() : undefined;
-        if (!data || data === '[DONE]') continue;
-        let chunk: OpenAIChatChunk;
-        try { chunk = JSON.parse(data) as OpenAIChatChunk; } catch { continue; }
-        if (chunk.id) lastChunkId = chunk.id;
-        // Capture usage chunk (from stream_options.include_usage, usually last chunk with empty choices)
-        if (chunk.usage) {
-          streamUsage = {
-            promptTokens: chunk.usage.prompt_tokens ?? 0,
-            completionTokens: chunk.usage.completion_tokens ?? 0,
-            totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
-          };
-        }
-        const choice = chunk.choices?.[0];
-        if (!choice) continue;
-        yield {
-          id: chunk.id ?? crypto.randomUUID(),
-          model: chunk.model ?? input.modelId,
-          delta: choice.delta?.content,
-          finishReason: choice.finish_reason,
-          toolCalls: choice.tool_calls,
+    for (const line of lines) {
+      const data = line.startsWith('data:') ? line.slice(5).trim() : undefined;
+      if (!data || data === '[DONE]') continue;
+      let chunk: any;
+      try { chunk = JSON.parse(data); } catch { continue; }
+      if (chunk.id) lastChunkId = chunk.id;
+
+      // Extract reasoning/thought
+      const choice = chunk.choices?.[0];
+      const thought = choice?.delta?.reasoning_content || chunk.choices?.[0]?.delta?.thought;
+
+      // Capture usage chunk
+      if (chunk.usage) {
+        streamUsage = {
+          promptTokens: chunk.usage.prompt_tokens ?? 0,
+          completionTokens: chunk.usage.completion_tokens ?? 0,
+          totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
         };
       }
+      
+      if (!choice && !chunk.usage) continue;
+      yield {
+        id: chunk.id ?? crypto.randomUUID(),
+        model: chunk.model ?? input.modelId,
+        delta: choice?.delta?.content,
+        thought: thought,
+        finishReason: choice?.finish_reason,
+        toolCalls: choice?.tool_calls,
+      };
+    }
     }
     pending += decoder.decode();
     const finalLine = pending.trim();
     if (finalLine.startsWith('data:')) {
       const data = finalLine.slice(5).trim();
       if (data && data !== '[DONE]') {
-        try {
-          const chunk = JSON.parse(data) as OpenAIChatChunk;
+          const chunk = JSON.parse(data) as any;
           if (chunk.id) lastChunkId = chunk.id;
           if (chunk.usage) {
             streamUsage = {
@@ -242,16 +247,17 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
             };
           }
           const choice = chunk.choices?.[0];
-          if (choice) {
+          if (choice || chunk.usage) {
             yield {
               id: chunk.id ?? crypto.randomUUID(),
               model: chunk.model ?? input.modelId,
-              delta: choice.delta?.content,
-              finishReason: choice.finish_reason,
-              toolCalls: choice.tool_calls,
+              delta: choice?.delta?.content,
+              thought: choice?.delta?.reasoning_content || choice?.delta?.thought,
+              finishReason: choice?.finish_reason,
+              toolCalls: choice?.tool_calls,
+              usage: streamUsage,
             };
           }
-        } catch { /* Ignore an incomplete final SSE line. */ }
       }
     }
     // Yield a final usage-only event so inference.ts can capture exact token counts

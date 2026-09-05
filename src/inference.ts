@@ -26,6 +26,7 @@ export interface NormalizedChatResponse {
   id: string;
   model: string;
   content: string;
+  thought?: string;
   providerId: string;
   modelId: string;
   quota?: QuotaObservation;
@@ -43,9 +44,22 @@ export interface NormalizedChatStreamEvent {
   id: string;
   model: string;
   delta?: string;
+  thought?: string;
   finishReason?: string | null;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
+}
+
+export class InvalidResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidResponseError';
+  }
+}
+
+
+function isMeaningful(res: { content: string; thought?: string; toolCalls?: ToolCall[] }): boolean {
+  return !!(res.content.trim() || res.toolCalls?.length || res.thought);
 }
 
 export class ProviderInvocationError extends Error {
@@ -199,6 +213,10 @@ export class ChatService {
           decision,
           fallbackCount,
         };
+        if (!isMeaningful(result)) {
+           await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', 'invalid_response');
+           throw new InvalidResponseError('Empty or meaningless response received');
+        }
         this.options.routeState?.recordSuccess(decision.candidate);
         const latencyMs = Math.max(0, this.now().getTime() - startedAt.getTime());
         await this.emitEvent(request, decision.candidate, fallbackCount, 'success', undefined, latencyMs, result.usage?.promptTokens, result.usage?.completionTokens, result.usage?.totalTokens);
@@ -300,6 +318,11 @@ export class ChatService {
           const completionTokens = finalUsage?.completionTokens ?? completionEstimate;
           const totalTokens = finalUsage?.totalTokens ?? (promptTokens + completionTokens);
           const candidate = decision!.candidate;
+
+          if (!isMeaningful({ content: accumulatedDelta, thought: finalUsage ? 'usage' : undefined })) {
+              await self.emitEvent(request, candidate, fallbackCount, 'failure', 'invalid_stream');
+              throw new InvalidResponseError('Empty or meaningless stream received');
+          }
 
           candidate && self.options.routeState?.recordSuccess(candidate);
           await self.emitEvent(request, candidate, fallbackCount, 'success', undefined, latencyMs, promptTokens, completionTokens, totalTokens);

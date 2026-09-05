@@ -63,7 +63,9 @@ export type RouteFailureKind =
   | 'context_overflow'
   | 'provider_bad_request'
   | 'no_candidate'
-  | 'client_cancelled';
+  | 'client_cancelled'
+  | 'invalid_response'
+  | 'invalid_stream';
 
 export interface AdapterFailure {
   kind: RouteFailureKind;

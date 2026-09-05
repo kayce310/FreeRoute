@@ -1,6 +1,7 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent, type ToolCall } from '../inference.js';
 import type { TokenUsage } from '../contracts.js';
+import { translateGeminiRequest } from '../translators/gemini-translator.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
 interface GeminiList { models?: GeminiModel[]; nextPageToken?: string; }
@@ -8,7 +9,7 @@ interface GeminiResponse {
   responseId?: string;
   modelVersion?: string;
   candidates?: Array<{
-    content?: { parts?: Array<{ text?: string; functionCall?: { name: string; args?: Record<string, unknown> } }>; };
+    content?: { parts?: Array<{ text?: string; thought?: string; functionCall?: { name: string; args?: Record<string, unknown> } }>; };
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -65,7 +66,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       });
   }
 
-  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): Promise<{ id: string; model: string; content: string; toolCalls?: ToolCall[]; usage?: TokenUsage }> {
+  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): Promise<{ id: string; model: string; content: string; thought?: string; toolCalls?: ToolCall[]; usage?: TokenUsage }> {
     let response: Response;
     try {
       const headers = await this.headers(input.credentialId);
@@ -73,17 +74,12 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify(toGeminiRequest(input.request)),
+        body: JSON.stringify(translateGeminiRequest(input.request)),
       });
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`Gemini connection error: ${msg}`, {
-        kind: 'temporary',
-        scope: 'provider',
-        retryable: true,
-        fallbackAllowed: true,
-      });
+      throw new ProviderInvocationError(`Gemini connection error: ${msg}`, { kind: 'temporary', scope: 'provider', retryable: true, fallbackAllowed: true });
     }
 
     if (!response.ok) {
@@ -97,9 +93,10 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     }
     const body = await response.json() as GeminiResponse;
     const content = textFrom(body);
+    const thought = body.candidates?.[0]?.content?.parts?.find(p => 'thought' in p)?.thought;
     const toolCalls = toolCallsFrom(body);
-    if (!content && !toolCalls.length) throw new ProviderInvocationError('Gemini returned no assistant content', { kind: 'temporary' });
-    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content: content ?? '', toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(body.usageMetadata) };
+    if (!content && !toolCalls.length && !thought) throw new ProviderInvocationError('Gemini returned no assistant content', { kind: 'temporary' });
+    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content: content ?? '', thought, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(body.usageMetadata) };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): AsyncGenerator<NormalizedChatStreamEvent, void, unknown> {
@@ -112,17 +109,12 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify(toGeminiRequest(input.request)),
+        body: JSON.stringify(translateGeminiRequest(input.request)),
       });
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, {
-        kind: 'temporary',
-        scope: 'provider',
-        retryable: true,
-        fallbackAllowed: true,
-      });
+      throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, { kind: 'temporary', scope: 'provider', retryable: true, fallbackAllowed: true });
     }
 
     if (!response.ok) {
@@ -148,6 +140,8 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         try {
           const chunk = JSON.parse(data) as GeminiResponse;
           const text = textFrom(chunk);
+          const thought = (chunk.candidates?.[0]?.content?.parts ?? [])
+            .find(part => 'thought' in part && typeof part.thought === 'string') as any;
           const toolCalls = (chunk.candidates?.[0]?.content?.parts ?? [])
             .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
             .map((part) => ({
@@ -155,19 +149,16 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
             type: 'function' as const,
             function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
           }));
-          yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(chunk.usageMetadata) };
+          yield { 
+            id: chunk.responseId ?? crypto.randomUUID(), 
+            model: chunk.modelVersion ?? input.modelId, 
+            delta: text, 
+            thought: thought?.thought,
+            toolCalls: toolCalls.length ? toolCalls : undefined, 
+            usage: usageFrom(chunk.usageMetadata) 
+          };
         } catch { /* Ignore non-data SSE lines. */ }
       }
-    }
-    pending += decoder.decode();
-    const finalLine = pending.trim();
-    if (finalLine.startsWith('data:')) {
-      try {
-        const chunk = JSON.parse(finalLine.slice(5).trim()) as GeminiResponse;
-        const text = textFrom(chunk);
-        const toolCalls = toolCallsFrom(chunk);
-        yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(chunk.usageMetadata) };
-      } catch { /* Ignore an incomplete final SSE line. */ }
     }
   }
 
@@ -182,50 +173,10 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
   }
 }
 
-function toGeminiRequest(request: NormalizedChatRequest): object {
-  const system = request.messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n');
-  const contents = request.messages.filter((message) => message.role !== 'system').map((message) => ({
-    role: message.role === 'assistant' ? 'model' : 'user',
-    parts: convertContentToGeminiParts(message.content),
-  }));
-  const extra: Record<string, unknown> = {};
-  if (request.tools?.length) {
-    extra.tools = [{
-      functionDeclarations: request.tools.map((tool) => ({
-        name: tool.function.name,
-        ...(tool.function.description ? { description: tool.function.description } : {}),
-        ...(tool.function.parameters ? { parameters: tool.function.parameters } : {}),
-      })),
-    }];
-  }
-  if (request.temperature !== undefined) extra.generationConfig = { temperature: request.temperature };
-  return { contents, ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), ...extra };
-}
-
-function convertContentToGeminiParts(content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> | null): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
-  if (!content) return [];
-  if (typeof content === 'string') return [{ text: content }];
-  return content.map(part => {
-    if (part.type === 'text') return { text: part.text };
-    if (part.type === 'image_url') {
-      const url = part.image_url.url;
-      const isBase64 = url.startsWith('data:');
-      if (isBase64) {
-        const match = url.match(/^data:([^;]+);base64,/);
-        const mimeType = match ? match[1] : 'image/jpeg';
-        const base64 = url.replace(/^data:[^;]+;base64,/, '');
-        return { inlineData: { mimeType, data: base64 } };
-      }
-      // ponytail: URL-based images as text reference; Gemini inlineData requires base64
-      return { text: `[image](${url})` };
-    }
-    return { text: '' };
-  });
-}
+// Removed old toGeminiRequest and helper functions since they are now in translators/gemini-translator.ts
 
 function textFrom(response: GeminiResponse): string | undefined {
-  const text = response.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('');
-  return text || undefined;
+  return response.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') || undefined;
 }
 
 function toolCallsFrom(response: GeminiResponse): ToolCall[] {
@@ -242,86 +193,30 @@ function usageFrom(metadata: GeminiResponse['usageMetadata']): TokenUsage | unde
   if (!metadata) return undefined;
   const promptTokens = metadata.promptTokenCount ?? 0;
   const completionTokens = metadata.candidatesTokenCount ?? 0;
-  const totalTokens = metadata.totalTokenCount ?? (promptTokens + completionTokens);
-  return { promptTokens, completionTokens, totalTokens };
+  return { promptTokens, completionTokens, totalTokens: metadata.totalTokenCount ?? (promptTokens + completionTokens) };
 }
 
 function isContextOverflowError(status: number, text: string): boolean {
   if (status !== 400 && status !== 413) return false;
   const lower = text.toLowerCase();
-  return lower.includes('context length')
-    || lower.includes('maximum context length')
-    || lower.includes('token limit')
-    || lower.includes('too many tokens')
-    || lower.includes('prompt is too long')
-    || lower.includes('request payload size exceeds')
-    || lower.includes('input token count exceeds');
+  return lower.includes('context length') || lower.includes('token limit') || lower.includes('too many tokens') || lower.includes('prompt is too long');
 }
 
 async function providerError(response: Response): Promise<ProviderInvocationError> {
-  const retryAfter = response.headers.get('retry-after');
-  const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1_000 : undefined;
   const rawBody = await response.text().catch(() => '');
   let extractedMessage = '';
   try {
     const parsed = JSON.parse(rawBody) as { error?: { message?: string } | string; message?: string };
     extractedMessage = (typeof parsed.error === 'object' ? parsed.error?.message : parsed.error) || parsed.message || '';
-  } catch {
-    extractedMessage = rawBody.slice(0, 300);
-  }
+  } catch { extractedMessage = rawBody.slice(0, 300); }
 
   const isOverflow = isContextOverflowError(response.status, rawBody);
-  let kind: import('../contracts.js').RouteFailureKind;
-  let scope: import('../contracts.js').RouteFailureScope;
-  let fallbackAllowed = true;
-  let retryable = false;
-
-  if (isOverflow) {
-    kind = 'context_overflow';
-    scope = 'model';
-    retryable = true;
-    fallbackAllowed = true;
-  } else if (response.status === 401 || response.status === 403) {
-    kind = 'authentication';
-    scope = 'key';
-    retryable = false;
-    fallbackAllowed = true;
-  } else if (response.status === 429) {
-    kind = 'rate_limit';
-    scope = 'key';
-    retryable = true;
-    fallbackAllowed = true;
-  } else if (response.status === 408 || response.status >= 500) {
-    kind = 'temporary';
-    scope = 'provider';
-    retryable = true;
-    fallbackAllowed = true;
-  } else if (response.status === 404) {
-    kind = 'unsupported';
-    scope = 'key';
-    retryable = false;
-    fallbackAllowed = true;
-  } else if (response.status === 400) {
-    kind = 'unsupported';
-    scope = 'request';
-    retryable = false;
-    fallbackAllowed = false;
-  } else {
-    kind = 'permanent';
-    scope = 'provider';
-    retryable = false;
-    fallbackAllowed = false;
-  }
-
-  const errPrefix = `Gemini request failed with HTTP ${response.status}`;
-  const fullMessage = extractedMessage ? `${errPrefix}: ${extractedMessage}` : errPrefix;
-  return new ProviderInvocationError(fullMessage, {
-    kind,
-    scope,
-    fallbackAllowed,
-    retryable,
-    sourceStatus: response.status,
-    retryAfterMs,
-    message: extractedMessage,
-  });
+  let kind: import('../contracts.js').RouteFailureKind = 'permanent';
+  if (isOverflow) kind = 'context_overflow';
+  else if (response.status === 401 || response.status === 403) kind = 'authentication';
+  else if (response.status === 429) kind = 'rate_limit';
+  else if (response.status === 408 || response.status >= 500) kind = 'temporary';
+  else if (response.status === 404 || response.status === 400) kind = 'unsupported';
+  
+  return new ProviderInvocationError(`Gemini request failed: ${extractedMessage}`, { kind, scope: 'provider', fallbackAllowed: kind !== 'unsupported', retryable: kind === 'temporary' || kind === 'rate_limit' });
 }
