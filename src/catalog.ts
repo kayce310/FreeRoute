@@ -52,6 +52,17 @@ export class InMemoryCatalogStore implements CatalogStore {
 export class CatalogService {
   constructor(private readonly store: CatalogStore, private readonly adapters: ProviderDiscoveryAdapter[]) {}
 
+  registerAdapter(adapter: ProviderDiscoveryAdapter): void {
+    const existing = this.adapters.findIndex((item) => item.providerId === adapter.providerId);
+    if (existing >= 0) this.adapters[existing] = adapter;
+    else this.adapters.push(adapter);
+  }
+
+  removeAdapter(providerId: string): void {
+    const index = this.adapters.findIndex((adapter) => adapter.providerId === providerId);
+    if (index >= 0) this.adapters.splice(index, 1);
+  }
+
   /** Returns cached data immediately. Call refresh in the background after boot. */
   async loadCached(): Promise<ModelRecord[]> {
     return this.store.list();
@@ -74,13 +85,16 @@ export class CatalogService {
           return {
             providerId: adapter.providerId,
             modelId: model.modelId,
-            capabilities: model.capabilities,
+            capabilities: presetModel?.capabilities ?? model.capabilities,
             freeTier: (model.freeTier === 'free_unverified' && presetModel?.freeTier) ? presetModel.freeTier : model.freeTier,
             checkedAt,
             expiresAt: model.expiresAt,
             priority: model.priority ?? presetModel?.priority ?? 0,
           };
         });
+        if (models.length === 0) {
+          return { providerId: adapter.providerId, status: 'failed', error: 'provider returned no models; retained cached catalog' };
+        }
         await this.store.replaceProvider(adapter.providerId, models);
         return { providerId: adapter.providerId, status: 'updated', modelCount: models.length };
       } catch (error) {

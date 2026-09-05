@@ -68,7 +68,9 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const body = await response.json() as OpenAIModelList;
     return (body.data ?? []).map((model) => ({
       modelId: model.id,
-      capabilities: ['chat', 'streaming', 'tools', 'structured-output', 'vision'],
+      // OpenAI-compatible /models responses do not standardize capability metadata.
+      // Keep unknown models conservative; curated presets add verified capabilities.
+      capabilities: ['chat', 'streaming'],
       freeTier: this.classifyModel(model),
     }));
   }
@@ -162,6 +164,34 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
           finishReason: choice.finish_reason,
           toolCalls: choice.tool_calls,
         };
+      }
+    }
+    pending += decoder.decode();
+    const finalLine = pending.trim();
+    if (finalLine.startsWith('data:')) {
+      const data = finalLine.slice(5).trim();
+      if (data && data !== '[DONE]') {
+        try {
+          const chunk = JSON.parse(data) as OpenAIChatChunk;
+          if (chunk.id) lastChunkId = chunk.id;
+          if (chunk.usage) {
+            streamUsage = {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+              totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
+            };
+          }
+          const choice = chunk.choices?.[0];
+          if (choice) {
+            yield {
+              id: chunk.id ?? crypto.randomUUID(),
+              model: chunk.model ?? input.modelId,
+              delta: choice.delta?.content,
+              finishReason: choice.finish_reason,
+              toolCalls: choice.tool_calls,
+            };
+          }
+        } catch { /* Ignore an incomplete final SSE line. */ }
       }
     }
     // Yield a final usage-only event so inference.ts can capture exact token counts

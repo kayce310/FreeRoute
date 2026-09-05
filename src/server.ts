@@ -23,6 +23,7 @@ export interface FreeRouteServerOptions {
   providerStore?: SqliteProviderStore;
   combos?: SqliteComboStore;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
+  onProviderChanged?: (providerId: string) => Promise<void> | void;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -352,6 +353,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           classifyAsFree: body.classifyAsFree,
           enabled: body.enabled ?? true,
         });
+        await options.onProviderChanged?.(body.providerId.trim());
         sendJson(response, 200, { status: 'ok', provider: body });
         return;
       }
@@ -365,6 +367,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
         options.providerStore.remove(providerId);
+        await options.onProviderChanged?.(providerId);
         sendJson(response, 200, { status: 'ok', providerId });
         return;
       }

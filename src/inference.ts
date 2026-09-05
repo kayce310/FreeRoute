@@ -1,4 +1,4 @@
-import type { AdapterFailure, RouteCandidate, RouteDecision, RouteRequest, TokenUsage } from './contracts.js';
+import type { AdapterFailure, Capability, RouteCandidate, RouteDecision, RouteRequest, TokenUsage } from './contracts.js';
 import type { CatalogStore } from './catalog.js';
 import { applyFailureCooldown, chooseRoute } from './router.js';
 import { estimatePromptTokens, estimateTokensFromText } from './utils/token-estimator.js';
@@ -138,9 +138,19 @@ export class RouteState {
  */
 export class ChatService {
   private readonly now: () => Date;
+  private readonly adapters: Map<string, ChatProviderAdapter>;
 
   constructor(private readonly options: ChatServiceOptions) {
     this.now = options.now ?? (() => new Date());
+    this.adapters = new Map(options.adapters);
+  }
+
+  registerAdapter(adapter: ChatProviderAdapter): void {
+    this.adapters.set(adapter.providerId, adapter);
+  }
+
+  removeAdapter(providerId: string): void {
+    this.adapters.delete(providerId);
   }
 
   async complete(request: NormalizedChatRequest): Promise<ChatResult> {
@@ -159,7 +169,7 @@ export class ChatService {
         if (lastError) throw lastError;
         throw new Error('no eligible route candidates');
       }
-      const adapter = this.options.adapters.get(decision.candidate.providerId);
+      const adapter = this.adapters.get(decision.candidate.providerId);
       if (!adapter) {
         candidates = candidates.map((candidate) => candidate === decision.candidate
           ? { ...candidate, preference: 'block' as const }
@@ -229,7 +239,7 @@ export class ChatService {
         if (lastError) throw lastError;
         throw new Error('no eligible route candidates');
       }
-      const adapter = this.options.adapters.get(decision.candidate.providerId);
+      const adapter = this.adapters.get(decision.candidate.providerId);
       if (!adapter?.streamChat) {
         candidates = candidates.map((candidate) => candidate === decision.candidate ? { ...candidate, preference: 'block' as const } : candidate);
         fallbackCount += 1;

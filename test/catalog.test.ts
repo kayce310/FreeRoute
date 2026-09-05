@@ -46,3 +46,13 @@ test('a discovery failure retains the last good provider catalog', async () => {
   assert.equal(result?.status, 'failed');
   assert.equal((await service.loadCached())[0]?.modelId, 'gemini-cached');
 });
+
+test('a successful empty discovery retains the last good provider catalog', async () => {
+  const store = new InMemoryCatalogStore([cached('groq', 'cached-model')]);
+  const adapter: ProviderDiscoveryAdapter = { providerId: 'groq', async discoverModels() { return []; } };
+  const service = new CatalogService(store, [adapter]);
+
+  const [result] = await service.refresh({ groq: 'credential-1' }, checkedAt);
+  assert.deepEqual(result, { providerId: 'groq', status: 'failed', error: 'provider returned no models; retained cached catalog' });
+  assert.equal((await service.loadCached())[0]?.modelId, 'cached-model');
+});

@@ -8,7 +8,7 @@ interface GeminiResponse {
   responseId?: string;
   modelVersion?: string;
   candidates?: Array<{
-    content?: { parts?: Array<{ text: string }>; toolCalls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> };
+    content?: { parts?: Array<{ text?: string; functionCall?: { name: string; args?: Record<string, unknown> } }>; };
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -50,7 +50,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     } while (pageToken);
     return models
       .filter((model) => model.name && model.supportedGenerationMethods?.includes('generateContent'))
-      .map((model) => ({ modelId: model.name!.replace(/^models\//, ''), capabilities: ['chat', 'streaming', 'tools', 'structured-output', 'vision'], freeTier: 'free_unverified' as const }));
+      .map((model) => ({ modelId: model.name!.replace(/^models\//, ''), capabilities: ['chat', 'streaming'], freeTier: 'free_unverified' as const }));
   }
 
   async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -72,8 +72,9 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     if (!response.ok) throw await providerError(response);
     const body = await response.json() as GeminiResponse;
     const content = textFrom(body);
-    if (!content) throw new ProviderInvocationError('Gemini returned no assistant content', { kind: 'temporary' });
-    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content, usage: usageFrom(body.usageMetadata) };
+    const toolCalls = toolCallsFrom(body);
+    if (!content && !toolCalls.length) throw new ProviderInvocationError('Gemini returned no assistant content', { kind: 'temporary' });
+    return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content: content ?? '', toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(body.usageMetadata) };
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
@@ -108,14 +109,26 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         try {
           const chunk = JSON.parse(data) as GeminiResponse;
           const text = textFrom(chunk);
-          const toolCalls = (chunk.candidates?.[0]?.content?.toolCalls ?? []).map((tc) => ({
-            id: tc.id,
+          const toolCalls = (chunk.candidates?.[0]?.content?.parts ?? [])
+            .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
+            .map((part) => ({
+            id: crypto.randomUUID(),
             type: 'function' as const,
-            function: { name: tc.function.name, arguments: tc.function.arguments },
+            function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
           }));
           yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(chunk.usageMetadata) };
         } catch { /* Ignore non-data SSE lines. */ }
       }
+    }
+    pending += decoder.decode();
+    const finalLine = pending.trim();
+    if (finalLine.startsWith('data:')) {
+      try {
+        const chunk = JSON.parse(finalLine.slice(5).trim()) as GeminiResponse;
+        const text = textFrom(chunk);
+        const toolCalls = toolCallsFrom(chunk);
+        yield { id: chunk.responseId ?? crypto.randomUUID(), model: chunk.modelVersion ?? input.modelId, delta: text, toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(chunk.usageMetadata) };
+      } catch { /* Ignore an incomplete final SSE line. */ }
     }
   }
 
@@ -137,7 +150,15 @@ function toGeminiRequest(request: NormalizedChatRequest): object {
     parts: convertContentToGeminiParts(message.content),
   }));
   const extra: Record<string, unknown> = {};
-  if (request.tools) extra.tools = request.tools;
+  if (request.tools?.length) {
+    extra.tools = [{
+      functionDeclarations: request.tools.map((tool) => ({
+        name: tool.function.name,
+        ...(tool.function.description ? { description: tool.function.description } : {}),
+        ...(tool.function.parameters ? { parameters: tool.function.parameters } : {}),
+      })),
+    }];
+  }
   if (request.temperature !== undefined) extra.generationConfig = { temperature: request.temperature };
   return { contents, ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), ...extra };
 }
@@ -166,6 +187,16 @@ function convertContentToGeminiParts(content: string | Array<{ type: 'text'; tex
 function textFrom(response: GeminiResponse): string | undefined {
   const text = response.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('');
   return text || undefined;
+}
+
+function toolCallsFrom(response: GeminiResponse): ToolCall[] {
+  return (response.candidates?.[0]?.content?.parts ?? [])
+    .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
+    .map((part) => ({
+      id: crypto.randomUUID(),
+      type: 'function',
+      function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
+    }));
 }
 
 function usageFrom(metadata: GeminiResponse['usageMetadata']): TokenUsage | undefined {

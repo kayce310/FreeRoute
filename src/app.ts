@@ -84,9 +84,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   ];
 
   // Load custom providers from DB
-  const custom: import('./inference.js').ChatProviderAdapter[] = providerStore.list()
-    .filter((def: ProviderDefinition) => def.enabled)
-    .map((def: ProviderDefinition) => {
+  const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {
       if (def.adapterType === 'gemini') {
         return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
       }
@@ -97,12 +95,30 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
         fetch: options.fetch,
         classifyModel: def.classifyAsFree ? () => def.classifyAsFree as import('./contracts.js').FreeTierClass : undefined,
       });
-    });
+  };
+
+  const custom: Array<import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter> = providerStore.list()
+    .filter((def: ProviderDefinition) => def.enabled)
+    .map(createCustomAdapter);
 
   const adapters = [...builtIn, ...custom];
   const chat = createCatalogChatService({ catalog, credentials, adapters, routeState: new RouteState(), onEvent: (event) => events.record(event), onQuota: (observation) => quotas.record(observation), quotaScores: () => quotas.scores(), healthScores: () => events.scores(), preferences: () => preferences.map() });
   const discoveryAdapters = adapters as unknown as import('./catalog.js').ProviderDiscoveryAdapter[];
   const discovery = new CatalogService(catalog, discoveryAdapters);
+  const syncProvider = async (providerId: string): Promise<void> => {
+    const definition = providerStore.list().find((provider) => provider.providerId === providerId);
+    if (!definition || !definition.enabled) {
+      chat.removeAdapter(providerId);
+      discovery.removeAdapter(providerId);
+      await catalog.replaceProvider(providerId, []);
+      return;
+    }
+    const adapter = createCustomAdapter(definition);
+    chat.registerAdapter(adapter);
+    discovery.registerAdapter(adapter);
+    const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
+    await discovery.refresh({ [providerId]: credentialIds[providerId] ?? '' });
+  };
   const server = createFreeRouteServer({
     catalog,
     apiToken: options.apiToken,
@@ -113,6 +129,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     credentials,
     providerStore,
     combos: comboStore,
+    onProviderChanged: syncProvider,
     onCredentialChanged: async () => {
       const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
       void discovery.refresh(credentialIds);

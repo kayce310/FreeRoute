@@ -51,6 +51,7 @@ test('discovers zero-priced models and translates chat completions', async () =>
     assert.deepEqual(models.map(({ modelId, freeTier }) => [modelId, freeTier]), [
       ['free-model', 'free_verified'], ['paid-model', 'paid'],
     ]);
+    assert.deepEqual(models[0]?.capabilities, ['chat', 'streaming']);
     const response = await adapter.chat({
       credentialId: 'personal', modelId: 'free-model',
       request: { profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] },
@@ -67,6 +68,16 @@ test('translates OpenAI-compatible SSE chat chunks', async () => {
     for await (const event of adapter.streamChat!({ credentialId: 'personal', modelId: 'free-model', request: { profile: 'auto:free', requiredCapabilities: ['chat', 'streaming'], messages: [{ role: 'user', content: 'hello' }] } })) events.push(event);
     assert.deepEqual(events.map((event) => [event.delta, event.finishReason]), [['hello', null], [' world', 'stop']]);
   });
+});
+
+test('flushes the final OpenAI-compatible SSE chunk without a trailing newline', async () => {
+  const adapter = new OpenAICompatibleAdapter({
+    providerId: 'openrouter', baseUrl: 'https://example.test/v1', getCredential: async () => 'test-secret',
+    fetch: async () => new Response('data: {"id":"final","model":"free-model","choices":[{"delta":{"content":"last"},"finish_reason":"stop"}]}', { status: 200 }),
+  });
+  const events = [];
+  for await (const event of adapter.streamChat!({ credentialId: 'personal', modelId: 'free-model', request: { profile: 'auto:free', requiredCapabilities: ['chat', 'streaming'], messages: [{ role: 'user', content: 'hello' }] } })) events.push(event);
+  assert.deepEqual(events[0] && [events[0].delta, events[0].finishReason], ['last', 'stop']);
 });
 
 test('classifies an upstream 401 as an authentication error', async () => {

@@ -173,12 +173,12 @@ In your VS Code `settings.json`:
       "apiType": "chat-completions",
       "models": [
         {
-          "id": "auto:code",
-          "name": "FreeRoute Auto Code",
+          "id": "combo:smart-chat",
+          "name": "FreeRoute Smart Chat",
           "url": "http://127.0.0.1:8787/v1",
           "toolCalling": true,
           "vision": true,
-          "maxInputTokens": 128000,
+          "maxInputTokens": 1000000,
           "maxOutputTokens": 16000
         }
       ]
