@@ -1113,16 +1113,6 @@ export function dashboardHtml(): string {
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span id="title-health-matrix">Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)</span>
-          </div>
-        </div>
-        <div class="health-matrix" id="health-matrix-container">
-          <!-- Rendered dynamically -->
-        </div>
-      </div>
 
       <!-- Token Stats Card -->
       <div class="card">
@@ -1147,6 +1137,17 @@ export function dashboardHtml(): string {
               <tr><td colspan="5" style="text-align:center;color:var(--text-muted)" id="tok-stats-empty">Chưa có dữ liệu token</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span id="title-health-matrix">Lưới Sức Khỏe Nhà Cung Cấp (Provider Health Matrix)</span>
+          </div>
+        </div>
+        <div class="health-matrix" id="health-matrix-container">
+          <!-- Rendered dynamically -->
         </div>
       </div>
     </div>
@@ -1713,8 +1714,8 @@ print(response.choices[0].message.content)</div>
         thFallbacks: 'Fallback Hops',
         thLatency: 'Độ Trễ',
         thStatus: 'Trạng Thái',
-        thTokIn: 'Token In',
-        thTokOut: 'Token Out',
+        thTokIn: 'Token Vào',
+        thTokOut: 'Token Ra',
         noEvents: 'Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!',
         searchProviders: '🔍 Tìm nhà cung cấp...',
         pillAll: 'Tất cả',
@@ -2174,6 +2175,8 @@ print(response.choices[0].message.content)</div>
       if (thTokComp) thTokComp.textContent = t('thTokCompletion');
       const thTokTot = document.getElementById('th-tok-total');
       if (thTokTot) thTokTot.textContent = t('thTokTotal');
+      const tokStatsEmpty = document.getElementById('tok-stats-empty');
+      if (tokStatsEmpty) tokStatsEmpty.textContent = t('noTokenData');
       const guideHeadEl = document.getElementById('guide-head');
       if (guideHeadEl) guideHeadEl.textContent = t('guideHead');
       const guideVi = document.getElementById('guide-content-vi');
