@@ -1,0 +1,422 @@
+# Kế hoạch triển khai FreeRoute Gateway
+
+## 1. Mục tiêu
+
+Xây FreeRoute thành một gateway thống nhất cho toàn bộ provider/model:
+
+- Client chỉ gọi OpenAI/Anthropic-compatible API.
+- Router không biết chi tiết schema của từng provider.
+- Adapter chịu trách nhiệm dịch protocol.
+- Streaming, tool calling, vision và structured output có contract rõ ràng.
+- Lỗi upstream được phân loại chính xác.
+- Fallback chỉ xảy ra khi hợp lý.
+- Provider/model mới phải có test bảo vệ trước khi được bật.
+
+## 2. Phạm vi
+
+### Trong phạm vi
+
+- `/v1/chat/completions`
+- `/v1/responses`
+- `/v1/messages`
+- OpenAI-compatible providers
+- Gemini native provider
+- Anthropic native provider
+- Model capability/catalog
+- Streaming SSE
+- Tool calling
+- Vision
+- Error classification
+- Retry/cooldown/fallback
+- Contract tests
+- Observability và routing diagnostics
+
+### Ngoài phạm vi giai đoạn đầu
+
+- Viết riêng adapter cho từng provider preset.
+- Embeddings, image generation, audio và rerank.
+- Redis/Postgres như LiteLLM.
+- Live probe bắt buộc cho mọi request.
+- Refactor toàn bộ server trong một lần.
+
+## 3. Trạng thái đích
+
+Luồng request phải trở thành:
+
+```text
+Client request
+  -> parse protocol
+  -> normalize thành CanonicalRequest
+  -> capability filter
+  -> route candidate
+  -> adapter.toProviderRequest()
+  -> upstream
+  -> adapter.fromProviderResponse()
+  -> normalize thành CanonicalResponse/Event
+  -> client response
+```
+
+## 4. Giai đoạn 0: Baseline và inventory
+
+### Việc cần làm
+
+1. Liệt kê adapter runtime thật sự trong `app.ts`.
+2. Phân loại provider theo protocol:
+   - `openai-compatible`
+   - `gemini`
+   - `anthropic`
+3. Phân biệt:
+   - provider preset;
+   - adapter runtime;
+   - model catalog;
+   - credential;
+   - combo/fallback chain.
+4. Ghi lại capability hiện có của từng model.
+5. Chạy baseline:
+
+```powershell
+npm run check
+npm test
+```
+
+### Hoàn thành khi
+
+- Có danh sách adapter runtime.
+- Biết provider nào chỉ là preset nhưng chưa có adapter riêng.
+- Test baseline pass.
+- Không có thay đổi behavior trong giai đoạn này.
+
+## 5. Giai đoạn 1: Chuẩn hóa failure contract
+
+Tạo `RouteFailure` dùng chung:
+
+```ts
+interface RouteFailure {
+  kind:
+    | 'no_candidate'
+    | 'provider_bad_request'
+    | 'authentication'
+    | 'rate_limit'
+    | 'quota_exhausted'
+    | 'temporary'
+    | 'unsupported'
+    | 'context_overflow'
+    | 'client_cancelled';
+
+  scope: 'request' | 'key' | 'model' | 'provider' | 'adapter';
+
+  retryable: boolean;
+  fallbackAllowed: boolean;
+
+  sourceStatus?: number;
+  retryAfterMs?: number;
+  cooldownMs?: number;
+
+  source: 'client' | 'adapter' | 'upstream' | 'router';
+  message: string;
+}
+```
+
+### Quy tắc phân loại
+
+| Tình huống | Scope | Fallback |
+|---|---|---:|
+| Không có candidate | router | Không retry cùng request state |
+| JSON/schema request sai từ client | request | Không |
+| Adapter gửi sai schema | adapter | Không |
+| API key sai | key | Có, đổi key |
+| Model không tồn tại | model | Có, đổi model |
+| Provider 429 | key/model | Có |
+| Provider hết quota ngày | key/model | Có, cooldown dài |
+| Provider 5xx/timeout | provider | Có |
+| Context quá lớn | model | Có, đổi model lớn hơn |
+| Client hủy request | request | Không |
+
+### Lưu ý quan trọng
+
+`fallbackAllowed: false` cho lỗi adapter không có nghĩa toàn bộ gateway dừng vĩnh viễn. Nó nghĩa là không retry mù qua candidate dùng cùng adapter/translation path. Gateway phải trả lỗi rõ ràng để sửa code.
+
+### Test bắt buộc
+
+- HTTP 400 từ upstream giữ `sourceStatus: 400`.
+- HTTP 401 thành `authentication`.
+- HTTP 402 thành `quota_exhausted`.
+- HTTP 429 giữ `retryAfterMs`.
+- HTTP 5xx thành `temporary`.
+- Lỗi adapter nội bộ thành `scope: adapter`.
+- Client cancellation không cooldown provider.
+
+## 6. Giai đoạn 2: Canonical request/event tối thiểu
+
+Không refactor toàn bộ ngay. Tạo các type dùng chung:
+
+```ts
+interface CanonicalRequest {
+  model: string;
+  messages: CanonicalMessage[];
+  tools?: CanonicalTool[];
+  stream: boolean;
+  responseFormat?: CanonicalResponseFormat;
+  temperature?: number;
+  maxOutputTokens?: number;
+  hasVision: boolean;
+}
+
+interface CanonicalStreamEvent {
+  id: string;
+  text?: string;
+  reasoning?: string;
+  toolCallDelta?: ToolCallDelta;
+  finishReason?: string;
+  usage?: TokenUsage;
+}
+```
+
+### Việc cần làm
+
+- Chuyển OpenAI Chat request vào canonical form.
+- Chuyển Gemini adapter dùng canonical request.
+- Không để Gemini/OpenAI schema lọt vào router.
+- Chuẩn hóa tool-call delta thành:
+  - index;
+  - id;
+  - name;
+  - argument fragment.
+- Tạo `tool-call-assembler` để ghép nhiều SSE chunk.
+
+### Hoàn thành khi
+
+- Router chỉ nhận canonical types.
+- Adapter không tự quyết định retry.
+- Server không trực tiếp xử lý provider-specific fields.
+
+## 7. Giai đoạn 3: Shared streaming pipeline
+
+Tạo module dùng chung:
+
+```text
+src/streaming/sse-parser.ts
+src/streaming/tool-call-assembler.ts
+src/streaming/event-normalizer.ts
+```
+
+### Phải xử lý
+
+- SSE có newline cuối.
+- SSE không có newline cuối.
+- Chunk chỉ có usage.
+- Chunk chỉ có finish reason.
+- Tool call bị chia thành nhiều chunk.
+- Stream lỗi trước chunk đầu.
+- Stream lỗi sau chunk đầu.
+- Client disconnect.
+- Provider gửi event không hợp lệ.
+
+### Quy tắc fallback
+
+- Lỗi trước khi commit response: được fallback.
+- Đã gửi token đầu tiên: không đổi provider giữa stream.
+- Lỗi sau commit: gửi error event/terminal event, ghi failure, không ghi success giả.
+
+### Test passed khi
+
+- Không mất token cuối.
+- Tool arguments ghép lại đúng JSON.
+- Có `finish_reason`.
+- Usage được giữ lại.
+- Stream lỗi trước headers thử provider tiếp theo.
+- Stream lỗi sau headers không thử provider khác và được báo là interrupted.
+
+## 8. Giai đoạn 4: Capability và catalog
+
+Mỗi model cần capability theo model/endpoint, không chỉ theo provider:
+
+```ts
+interface ModelCapabilities {
+  chat: boolean;
+  streaming: boolean;
+  tools: boolean;
+  toolChoice: boolean;
+  vision: boolean;
+  structuredOutput: boolean;
+  responses: boolean;
+  messages: boolean;
+}
+```
+
+### Nguồn capability
+
+1. Adapter baseline.
+2. Preset/model catalog.
+3. Live probe có TTL.
+
+```ts
+capabilitySource: 'adapter' | 'catalog' | 'live_probe';
+capabilityVerifiedAt?: Date;
+```
+
+### Quy tắc
+
+- Model chưa biết: chỉ `chat + streaming`.
+- Không route vision nếu model không có `vision`.
+- Không route tools nếu model không có `tools`.
+- Không route `response_format` nếu thiếu `structuredOutput`.
+- Catalog rỗng không được xóa last-known-good catalog.
+- Model retired phải bị loại khỏi routing.
+
+### Test passed khi
+
+- Unknown model bị loại khỏi vision/tools route.
+- Model có preset capability được route đúng.
+- Catalog refresh rỗng giữ catalog cũ.
+- Capability hết TTL được đánh dấu stale.
+- Candidate diagnostics nói rõ bị loại vì capability nào.
+
+## 9. Giai đoạn 5: Contract test theo protocol family
+
+Không tạo 50 bộ test riêng. Tạo test harness:
+
+```ts
+runOpenAICompatibleContract(adapterFactory)
+runGeminiContract(adapterFactory)
+runAnthropicContract(adapterFactory)
+```
+
+### OpenAI-compatible contract
+
+- Chat non-stream.
+- Chat stream.
+- Tools non-stream.
+- Tools stream.
+- Tool call không có text.
+- Vision content.
+- Response format.
+- Usage.
+- 400/401/402/429/5xx.
+- Retry-After.
+- SSE không có newline cuối.
+
+### Gemini contract
+
+- `tools[].function` chuyển thành `functionDeclarations`.
+- `functionCall` chuyển thành OpenAI tool call.
+- Image data URL chuyển thành `inlineData`.
+- Remote image URL không được biến thành text giả.
+- System instruction.
+- Structured output.
+- Native SSE.
+- Tool call không có text.
+
+### Anthropic contract
+
+- Text blocks.
+- Image blocks.
+- `tool_use`.
+- `tool_result`.
+- `stop_reason: tool_use`.
+- Streaming content blocks.
+- Error mapping.
+
+### Mỗi test được coi là passed khi
+
+- Payload upstream đúng schema.
+- Response canonical đúng schema.
+- Không mất thông tin tool/id/usage.
+- Error có đúng `kind`, `scope`, `sourceStatus`.
+- Không retry khi lỗi adapter/request.
+- Có fallback khi lỗi key/provider/quota phù hợp.
+
+## 10. Giai đoạn 6: Router và cooldown
+
+Bổ sung vào router:
+
+```ts
+interface CandidateDiagnostic {
+  providerId: string;
+  modelId: string;
+  reason:
+    | 'blocked'
+    | 'cooldown'
+    | 'missing_credential'
+    | 'missing_capability'
+    | 'retired'
+    | 'model_not_found'
+    | 'adapter_unavailable';
+  retryAt?: Date;
+}
+```
+
+### Cần có
+
+- Retry budget theo thời gian.
+- Cooldown tôn trọng `Retry-After`.
+- Cooldown khác nhau theo key/model/provider.
+- Không cooldown vì lỗi client.
+- Không retry adapter bug.
+- Provider 5xx có thể loại cả provider trong request hiện tại.
+- Candidate diagnostics khi không còn route.
+
+### Test passed khi
+
+- 429 với `Retry-After: 2` không retry ngay key đó.
+- Key lỗi auth không làm chết các key khác.
+- Provider timeout không thử lại vô hạn cùng provider.
+- Adapter failure không tạo retry storm.
+- Error `no_candidate` chỉ xuất hiện khi chưa có route hợp lệ ngay từ đầu.
+- Upstream failure trả `provider_bad_request` hoặc `upstream_failed`, không giả dạng `no_candidate`.
+
+## 11. Giai đoạn 7: Observability và rollout
+
+### Header nên có
+
+```text
+x-freeroute-request-id
+x-freeroute-provider
+x-freeroute-model
+x-freeroute-fallback-count
+x-freeroute-failure-scope
+x-freeroute-source-status
+```
+
+Chi tiết fallback chỉ expose khi bật setting để tránh lộ thông tin nhạy cảm.
+
+### Dashboard cần hiển thị
+
+- Candidate bị loại vì lý do gì.
+- Provider/model/key nào đang cooldown.
+- Cooldown hết lúc nào.
+- Lỗi adapter hay lỗi upstream.
+- Success rate theo provider/model/key.
+- Stream interrupted count.
+- Tool-call failure count.
+
+## 12. Definition of Done
+
+Kế hoạch được coi là hoàn thành khi:
+
+- `npm run check` pass.
+- `npm test` pass.
+- Mọi protocol family có contract suite.
+- Có test cho stream + tools.
+- Có test cho stream lỗi trước/sau commit.
+- Có test cho 400/401/402/403/404/408/429/5xx.
+- Có test đảm bảo không retry lỗi adapter.
+- Có test đảm bảo fallback đúng với lỗi quota/provider.
+- Có candidate diagnostics khi không route được.
+- Catalog không mất last-known-good data khi refresh lỗi/rỗng.
+- Custom provider thêm/xóa không cần restart.
+- README mô tả đúng capability và giới hạn thực tế.
+- Có smoke test tùy chọn với provider thật, nhưng CI không phụ thuộc quota bên ngoài.
+
+## Thứ tự triển khai khuyến nghị
+
+1. Failure contract.
+2. Shared SSE/tool-call pipeline.
+3. Contract harness cho OpenAI-compatible và Gemini.
+4. Capability/catalog metadata.
+5. Shared fallback loop.
+6. Anthropic adapter.
+7. Live probe và degraded mode.
+8. E2E matrix với mock upstream.
+
+Đây là lộ trình an toàn vì mỗi giai đoạn tạo ra một lớp bảo vệ độc lập, không cần rewrite FreeRoute thành LiteLLM.

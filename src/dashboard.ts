@@ -1242,7 +1242,7 @@ export function dashboardHtml(): string {
           </div>
         </div>
         <div class="alert-box alert-info" id="creds-sec-note" style="margin-bottom:16px;">
-          <strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/credentials.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!
+          <strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/freeroute.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!
         </div>
         <div class="table-wrap">
           <table>
@@ -1660,7 +1660,7 @@ print(response.choices[0].message.content)</div>
         btnCreateCombo: '➕ Tạo Combo Mới',
         btnEditCombo: '✏️ Sửa',
         keysTitle: 'Khóa API Đã Lưu (Mã Hóa AES-256-GCM)',
-        credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/credentials.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
+        credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/freeroute.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
         thUpdated: 'Cập Nhật',
         thAction: 'Hành Động',
         deleteBtn: 'Xóa',
@@ -1781,7 +1781,7 @@ print(response.choices[0].message.content)</div>
         btnCreateCombo: '➕ Create Combo',
         btnEditCombo: '✏️ Edit',
         keysTitle: 'Stored API Keys (Encrypted with AES-256-GCM)',
-        credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/credentials.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
+        credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/freeroute.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
         thUpdated: 'Updated',
         thAction: 'Action',
         deleteBtn: 'Delete',
