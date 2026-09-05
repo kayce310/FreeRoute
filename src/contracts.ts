@@ -3,8 +3,11 @@ export type Capability =
   | 'streaming'
   | 'tools'
   | 'structured-output'
-  | 'vision'
-  | 'embeddings';
+    | 'vision'
+    | 'embeddings'
+    | 'toolChoice'
+    | 'responses'
+    | 'messages';
 
 export type FreeTierClass =
   | 'free_verified'
