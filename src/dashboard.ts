@@ -1144,7 +1144,7 @@ export function dashboardHtml(): string {
               </tr>
             </thead>
             <tbody id="token-stats-body">
-              <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Chưa có dữ liệu token</td></tr>
+              <tr><td colspan="5" style="text-align:center;color:var(--text-muted)" id="tok-stats-empty">Chưa có dữ liệu token</td></tr>
             </tbody>
           </table>
         </div>
@@ -1252,6 +1252,7 @@ export function dashboardHtml(): string {
                 <th id="th-k-id">ID Khóa</th>
                 <th id="th-k-updated">Cập Nhật</th>
                 <th style="text-align:right;" id="th-k-action">Hành Động</th>
+                <!-- th-k-prov and th-k-id are updated by applyLanguage -->
               </tr>
             </thead>
             <tbody id="creds-tbody">
@@ -1338,10 +1339,11 @@ export function dashboardHtml(): string {
           <strong>🔒 An Tâm Sử Dụng:</strong> FreeRoute chạy hoàn toàn trên máy cục bộ của bạn (<code style="color:#fff;">127.0.0.1:8787</code>). Mọi dữ liệu mã hóa lưu trong máy, không qua server trung gian nào, tự động gỡ bỏ telemetry và khử sạch các header lạ để tránh bị hệ thống quét của IDE phát hiện hoặc đánh dấu tài khoản bất thường!
         </div>
 
+        <div id="guide-content-vi">
         <div style="margin-bottom:24px;">
           <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">1. Cursor IDE (Cấu hình an toàn không lo xung đột)</h3>
           <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
-            Vào <strong>Settings -> Models -> OpenAI API Key</strong>:
+            Vào <strong>Settings → Models → OpenAI API Key</strong>:
           </p>
           <ul style="color:var(--text-muted); font-size:13px; margin-left:20px; margin-bottom:10px; line-height:1.6;">
             <li>Bật <strong>Override OpenAI Base URL</strong> và điền: <code style="color:#fff;">http://127.0.0.1:8787/v1</code></li>
@@ -1349,12 +1351,9 @@ export function dashboardHtml(): string {
             <li><strong>Mẹo tránh bị block:</strong> Chỉ thêm các model alias của FreeRoute như <code style="color:#fff;">auto:free</code>, <code style="color:#fff;">auto:code</code>, <code style="color:#fff;">auto:fast</code> hoặc tên combo của bạn như <code style="color:#fff;">combo:free-coders</code>. <em>Tuyệt đối không đặt tên model trùng với các model độc quyền Cursor (claude-3-5-sonnet-cursor...)</em> để tránh bị hệ thống verify server-side của Cursor gắn cờ!</li>
           </ul>
         </div>
-
         <div style="margin-bottom:24px;">
           <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">2. Cline / Roo Code (VS Code & JetBrains Extension)</h3>
-          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
-            Cline và Roo Code hỗ trợ chuẩn cả 2 giao thức OpenAI Compatible và Anthropic Messages:
-          </p>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">Cline và Roo Code hỗ trợ chuẩn cả 2 giao thức OpenAI Compatible và Anthropic Messages:</p>
           <div class="code-box">Option A: OpenAI Compatible
 - API Provider: OpenAI Compatible
 - Base URL: http://127.0.0.1:8787/v1
@@ -1367,12 +1366,9 @@ Option B: Anthropic Native Mode (Hỗ trợ Tool Calling / Function tốt nhất
 - API Key: freeroute-local
 - Model ID: auto:code</div>
         </div>
-
         <div style="margin-bottom:24px;">
           <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">3. Claude Code CLI & OpenCode</h3>
-          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">
-            Đặt biến môi trường terminal trong file profile (<code style="color:#fff;">.bashrc</code> hoặc PowerShell):
-          </p>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">Đặt biến môi trường terminal trong file profile (<code style="color:#fff;">.bashrc</code> hoặc PowerShell):</p>
           <div class="code-box"># Cho Claude Code CLI
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787/v1"
 export ANTHROPIC_API_KEY="freeroute-local"
@@ -1381,22 +1377,10 @@ export ANTHROPIC_API_KEY="freeroute-local"
 export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
 export OPENAI_API_KEY="freeroute-local"</div>
         </div>
-
         <div style="margin-bottom:24px;">
           <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">4. Continue.dev (Cấu hình config.json)</h3>
-          <div class="code-box">{
-  "models": [
-    {
-      "title": "FreeRoute Coding",
-      "provider": "openai",
-      "model": "auto:code",
-      "apiBase": "http://127.0.0.1:8787/v1",
-      "apiKey": "freeroute-local"
-    }
-  ]
-}</div>
+          <div class="code-box">{\n  "models": [\n    {\n      "title": "FreeRoute Coding",\n      "provider": "openai",\n      "model": "auto:code",\n      "apiBase": "http://127.0.0.1:8787/v1",\n      "apiKey": "freeroute-local"\n    }\n  ]\n}</div>
         </div>
-
         <div style="margin-bottom:24px;">
           <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">5. OpenAI Python SDK</h3>
           <div class="code-box">from openai import OpenAI
@@ -1413,6 +1397,65 @@ response = client.chat.completions.create(
 )
 print(response.choices[0].message.content)</div>
         </div>
+        </div><!-- /guide-content-vi -->
+
+        <div id="guide-content-en" style="display:none;">
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">1. Cursor IDE (Safe config — no conflicts)</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">Go to <strong>Settings → Models → OpenAI API Key</strong>:</p>
+          <ul style="color:var(--text-muted); font-size:13px; margin-left:20px; margin-bottom:10px; line-height:1.6;">
+            <li>Enable <strong>Override OpenAI Base URL</strong> and enter: <code style="color:#fff;">http://127.0.0.1:8787/v1</code></li>
+            <li>API Key: Enter any string (e.g. <code style="color:#fff;">freeroute-local</code>) or a token if you have one configured.</li>
+            <li><strong>Anti-block tip:</strong> Only add FreeRoute model aliases like <code style="color:#fff;">auto:free</code>, <code style="color:#fff;">auto:code</code>, <code style="color:#fff;">auto:fast</code> or your combo name like <code style="color:#fff;">combo:free-coders</code>. <em>Never use the same name as Cursor's proprietary models (claude-3-5-sonnet-cursor...)</em> to avoid triggering Cursor's server-side verification!</li>
+          </ul>
+        </div>
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">2. Cline / Roo Code (VS Code & JetBrains Extension)</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">Cline and Roo Code support both OpenAI Compatible and Anthropic Messages protocols:</p>
+          <div class="code-box">Option A: OpenAI Compatible
+- API Provider: OpenAI Compatible
+- Base URL: http://127.0.0.1:8787/v1
+- API Key: freeroute-local
+- Model ID: auto:code (or combo:free-coders)
+
+Option B: Anthropic Native Mode (Best for Tool Calling / Function support)
+- API Provider: Anthropic
+- Base URL: http://127.0.0.1:8787/v1
+- API Key: freeroute-local
+- Model ID: auto:code</div>
+        </div>
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">3. Claude Code CLI & OpenCode</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:8px;">Set environment variables in your shell profile (<code style="color:#fff;">.bashrc</code> or PowerShell):</p>
+          <div class="code-box"># For Claude Code CLI
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8787/v1"
+export ANTHROPIC_API_KEY="freeroute-local"
+
+# For Aider / OpenCode / AutoGPT
+export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
+export OPENAI_API_KEY="freeroute-local"</div>
+        </div>
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">4. Continue.dev (config.json)</h3>
+          <div class="code-box">{\n  "models": [\n    {\n      "title": "FreeRoute Coding",\n      "provider": "openai",\n      "model": "auto:code",\n      "apiBase": "http://127.0.0.1:8787/v1",\n      "apiKey": "freeroute-local"\n    }\n  ]\n}</div>
+        </div>
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">5. OpenAI Python SDK</h3>
+          <div class="code-box">from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8787/v1",
+    api_key="your-freeroute-token"
+)
+
+# Use a custom combo or auto profile
+response = client.chat.completions.create(
+    model="combo:free-coders",
+    messages=[{"role": "user", "content": "Write a string reverse function in Python"}]
+)
+print(response.choices[0].message.content)</div>
+        </div>
+        </div><!-- /guide-content-en -->
       </div>
     </div>
 
@@ -1707,6 +1750,8 @@ print(response.choices[0].message.content)</div>
         credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/freeroute.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
         thUpdated: 'Cập Nhật',
         thAction: 'Hành Động',
+        thKProv: 'Nhà Cung Cấp',
+        thKId: 'ID Khóa',
         deleteBtn: 'Xóa',
         playTitle: 'Thử Nghiệm Định Tuyến Prompt',
         lblPlayModel: 'Hồ Sơ / Model / Combo Mục Tiêu',
@@ -1828,6 +1873,8 @@ print(response.choices[0].message.content)</div>
         credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/freeroute.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
         thUpdated: 'Updated',
         thAction: 'Action',
+        thKProv: 'Provider',
+        thKId: 'Key ID',
         deleteBtn: 'Delete',
         playTitle: 'Prompt Routing Test Playground',
         lblPlayModel: 'Target Profile / Model / Combo',
@@ -2037,6 +2084,10 @@ print(response.choices[0].message.content)</div>
       document.getElementById('btn-add-key-sub').textContent = t('addKey');
       document.getElementById('th-k-updated').textContent = t('thUpdated');
       document.getElementById('th-k-action').textContent = t('thAction');
+      const thKProv = document.getElementById('th-k-prov');
+      if (thKProv) thKProv.textContent = t('thKProv');
+      const thKId = document.getElementById('th-k-id');
+      if (thKId) thKId.textContent = t('thKId');
 
       document.getElementById('title-play').textContent = t('playTitle');
       document.getElementById('lbl-play-model').textContent = t('lblPlayModel');
@@ -2125,8 +2176,15 @@ print(response.choices[0].message.content)</div>
       if (thTokTot) thTokTot.textContent = t('thTokTotal');
       const guideHeadEl = document.getElementById('guide-head');
       if (guideHeadEl) guideHeadEl.textContent = t('guideHead');
+      const guideVi = document.getElementById('guide-content-vi');
+      const guideEn = document.getElementById('guide-content-en');
+      if (guideVi) guideVi.style.display = currentLang === 'vi' ? '' : 'none';
+      if (guideEn) guideEn.style.display = currentLang === 'en' ? '' : 'none';
+      const guideAlertEl = document.getElementById('guide-sec-alert');
+      if (guideAlertEl) guideAlertEl.innerHTML = currentLang === 'vi'
+        ? '<strong>\uD83D\uDD12 An T\u00e2m S\u1EED D\u1EE5ng:</strong> FreeRoute ch\u1EA1y ho\u00e0n to\u00e0n tr\u00ean m\u00e1y c\u1EE5c b\u1ED9 c\u1EE7a b\u1EA1n (<code style="color:#fff;">127.0.0.1:8787</code>). M\u1ECDi d\u1EEF li\u1EC7u m\u00e3 h\u00F3a l\u01B0u trong m\u00E1y, kh\u00F4ng qua server trung gian n\u00E0o, t\u1EF1 \u0111\u1ED9ng g\u1EE1 b\u1ECF telemetry v\u00E0 kh\u1EED s\u1EA1ch c\u00E1c header l\u1EA1 \u0111\u1EC3 tr\u00E1nh b\u1ECB h\u1EC7 th\u1ED1ng qu\u00E9t c\u1EE7a IDE ph\u00E1t hi\u1EC7n ho\u1EB7c \u0111\u00E1nh d\u1EA5u t\u00E0i kho\u1EA3n b\u1EA5t th\u01B0\u1EDDng!'
+        : '<strong>\uD83D\uDD12 Fully Local & Private:</strong> FreeRoute runs entirely on your machine (<code style="color:#fff;">127.0.0.1:8787</code>). All data is encrypted locally, never routed through third-party servers, and automatically strips telemetry headers to prevent IDE detection or account flagging!';
 
-      // Update Modal Combo static & placeholder texts
       const titleComboModal = document.getElementById('modal-combo-title');
       if (titleComboModal) {
         if (!comboEditingId) titleComboModal.textContent = t('modalComboTitleCreate');
@@ -2393,7 +2451,7 @@ print(response.choices[0].message.content)</div>
         if (tbody) {
           const entries = Object.entries(stats.byProvider || {});
           if (countEl) countEl.textContent = entries.length + ' provider';
-          const empty = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Ch\u01b0a c\u00f3 d\u1eef li\u1ec7u token</td></tr>';
+          const empty = \`<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">\${t('noTokenData')}</td></tr>\`;
           const rows = entries.sort((a, b) => (b[1].totalTokens || 0) - (a[1].totalTokens || 0)).map(([pid, s]) => {
             const pct = total > 0 ? Math.round((s.totalTokens / total) * 100) : 0;
             const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n);
@@ -3365,9 +3423,7 @@ print(response.choices[0].message.content)</div>
         if (hasTools) toolSupportCount++;
 
         const isPrimary = i === 0;
-        const rankLabel = isPrimary 
-          ? (currentLang === 'vi' ? '★ #1 Ưu Tiên Chính' : '★ #1 Primary') 
-          : (currentLang === 'vi' ? \`#\${i + 1} Dự Phòng \${i}\` : \`#\${i + 1} Fallback \${i}\`);
+        const rankLabel = isPrimary ? t('rankPrimary') : t('rankFallback', i + 1, i);
         const rankColor = isPrimary ? 'var(--accent)' : 'var(--text-muted)';
         const rankBg = isPrimary ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.05)';
 
@@ -3403,11 +3459,13 @@ print(response.choices[0].message.content)</div>
 
       if (statusEl) {
         if (toolSupportCount === tempComboChain.length) {
-          statusEl.innerHTML = \`<span style="color:var(--success); font-weight:600;">✓ 100% mục (\${toolSupportCount}/\${tempComboChain.length}) hỗ trợ Function Calling / Tools (Sẵn sàng cho VS Code Copilot & Cursor).</span>\`;
+          const msg = (I18N[currentLang] || I18N.vi).toolsStatus100(toolSupportCount, tempComboChain.length);
+          statusEl.innerHTML = \`<span style="color:var(--success); font-weight:600;">\${msg}</span>\`;
         } else if (toolSupportCount > 0) {
-          statusEl.innerHTML = \`<span style="color:var(--warning); font-weight:600;">ℹ️ \${toolSupportCount}/\${tempComboChain.length} mục hỗ trợ Tools. Khi IDE gọi function tools, FreeRoute sẽ tự động định tuyến tới các model/combo có Tools.</span>\`;
+          const msg = (I18N[currentLang] || I18N.vi).toolsStatusPartial(toolSupportCount, tempComboChain.length);
+          statusEl.innerHTML = \`<span style="color:var(--warning); font-weight:600;">\${msg}</span>\`;
         } else {
-          statusEl.innerHTML = \`<span style="color:var(--error); font-weight:600;">⚠️ Chưa có mục nào hỗ trợ Tools. Nếu dùng cho IDE Copilot/Agent, hãy thêm model có biểu tượng 🔧 Tools (vd: Gemini, Groq Qwen, OpenRouter...).</span>\`;
+          statusEl.innerHTML = \`<span style="color:var(--danger); font-weight:600;">\${t('toolsStatusNone')}</span>\`;
         }
       }
     }
