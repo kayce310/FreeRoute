@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { CatalogStore } from './catalog.js';
-import { ChatService, ProviderInvocationError, type ChatMessage } from './inference.js';
+import { ChatService, ProviderInvocationError, NoRouteCandidatesError, type ChatMessage } from './inference.js';
+import { getCandidateDiagnostics } from './router.js';
 import { estimateTokensFromText } from './utils/token-estimator.js';
 import type { SqliteRoutingEventStore } from './storage/sqlite-routing-event-store.js';
 import type { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-store.js';
@@ -881,6 +882,18 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         });
         return;
       }
+      if (error instanceof NoRouteCandidatesError) {
+        const diagnostics = getCandidateDiagnostics(error.request, error.candidates);
+        sendJson(response, 503, {
+          error: {
+            message: 'Chưa có API key nào khả dụng cho profile/model này (hoặc tất cả upstream đều lỗi). Vui lòng truy cập http://127.0.0.1:8787 để kiểm tra hoặc thêm key! / No active route candidates available. Please open http://127.0.0.1:8787 to configure credentials.',
+            type: 'no_route_candidates',
+            code: 'no_candidates',
+            diagnostics: diagnostics.length ? diagnostics : undefined,
+          },
+        });
+        return;
+      }
       if (error instanceof Error && error.message === 'no eligible route candidates') {
         sendJson(response, 503, {
           error: {
@@ -892,7 +905,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
       if (error instanceof ProviderInvocationError) {
-        response.setHeader('x-freeroute-failure-scope', error.failure.kind);
+        response.setHeader('x-freeroute-failure-kind', error.failure.kind);
         if (error.failure.kind === 'context_overflow') {
           sendJson(response, 400, {
             error: {

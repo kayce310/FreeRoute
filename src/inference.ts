@@ -54,6 +54,15 @@ export class ProviderInvocationError extends Error {
   }
 }
 
+export class NoRouteCandidatesError extends Error {
+  constructor(
+    readonly request: RouteRequest,
+    readonly candidates: RouteCandidate[],
+  ) {
+    super('no eligible route candidates');
+  }
+}
+
 export interface ChatProviderAdapter {
   providerId: string;
   chat(input: {
@@ -167,7 +176,7 @@ export class ChatService {
           throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
         }
         if (lastError) throw lastError;
-        throw new Error('no eligible route candidates');
+        throw new NoRouteCandidatesError(request, candidates);
       }
       const adapter = this.adapters.get(decision.candidate.providerId);
       if (!adapter) {
@@ -237,7 +246,7 @@ export class ChatService {
           throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
         }
         if (lastError) throw lastError;
-        throw new Error('no eligible route candidates');
+        throw new NoRouteCandidatesError(request, candidates);
       }
       const adapter = this.adapters.get(decision.candidate.providerId);
       if (!adapter?.streamChat) {
