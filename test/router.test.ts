@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RouteCandidate } from '../src/contracts.js';
-import { applyFailureCooldown, chooseRoute } from '../src/router.js';
+import { applyFailureCooldown, chooseRoute, getCandidateDiagnostics } from '../src/router.js';
 
 const now = new Date('2026-09-03T00:00:00.000Z');
 
@@ -47,4 +47,46 @@ test('auto:long-context routes to chat-capable candidate', () => {
     now,
   );
   assert.strictEqual(decision?.candidate?.modelId, 'chat-only');
+});
+
+test('getCandidateDiagnostics returns empty when all candidates available', () => {
+  const diagnostics = getCandidateDiagnostics(
+    { profile: 'auto:free', requiredCapabilities: ['chat'] },
+    [candidate({ modelId: 'a' }), candidate({ modelId: 'b' })],
+    now,
+  );
+  assert.strictEqual(diagnostics.length, 0);
+});
+
+test('getCandidateDiagnostics reports blocked candidate', () => {
+  const diagnostics = getCandidateDiagnostics(
+    { profile: 'auto:free', requiredCapabilities: ['chat'] },
+    [candidate({ modelId: 'a', preference: 'block' })],
+    now,
+  );
+  assert.strictEqual(diagnostics.length, 1);
+  assert.strictEqual(diagnostics[0].reason, 'blocked');
+  assert.strictEqual(diagnostics[0].modelId, 'a');
+});
+
+test('getCandidateDiagnostics reports missing capability', () => {
+  const diagnostics = getCandidateDiagnostics(
+    { profile: 'auto:free', requiredCapabilities: ['chat', 'tools'] },
+    [candidate({ modelId: 'a', capabilities: ['chat'] })],
+    now,
+  );
+  assert.strictEqual(diagnostics.length, 1);
+  assert.strictEqual(diagnostics[0].reason, 'missing_capability');
+});
+
+test('getCandidateDiagnostics reports cooldown with retryAt', () => {
+  const retryAt = new Date(now.getTime() + 60_000);
+  const diagnostics = getCandidateDiagnostics(
+    { profile: 'auto:free', requiredCapabilities: ['chat'] },
+    [candidate({ modelId: 'a', cooldownUntil: retryAt })],
+    now,
+  );
+  assert.strictEqual(diagnostics.length, 1);
+  assert.strictEqual(diagnostics[0].reason, 'cooldown');
+  assert.strictEqual(diagnostics[0].retryAt?.getTime(), retryAt.getTime());
 });

@@ -58,6 +58,45 @@ export function chooseRoute(request: RouteRequest, candidates: RouteCandidate[],
   };
 }
 
+export type CandidateRejectReason =
+  | 'blocked'
+  | 'cooldown'
+  | 'missing_credential'
+  | 'missing_capability'
+  | 'retired'
+  | 'paid_tier'
+  | 'provider_mismatch'
+  | 'model_mismatch';
+
+export interface CandidateDiagnostic {
+  providerId: string;
+  modelId: string;
+  reason: CandidateRejectReason;
+  retryAt?: Date;
+}
+
+export function getCandidateDiagnostics(request: RouteRequest, candidates: RouteCandidate[], now = new Date()): CandidateDiagnostic[] {
+  const diagnostics: CandidateDiagnostic[] = [];
+  for (const c of candidates) {
+    if (c.preference === 'block') {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'blocked' });
+    } else if (c.freeTier === 'retired') {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'retired' });
+    } else if (c.freeTier === 'paid') {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'paid_tier' });
+    } else if (!supports(c, request.requiredCapabilities)) {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'missing_capability' });
+    } else if (request.requestedProviderId && c.providerId !== request.requestedProviderId) {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'provider_mismatch' });
+    } else if (request.requestedModel && c.modelId !== request.requestedModel) {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'model_mismatch' });
+    } else if (c.cooldownUntil && c.cooldownUntil > now) {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'cooldown', retryAt: c.cooldownUntil });
+    }
+  }
+  return diagnostics;
+}
+
 export function applyFailureCooldown(
   candidate: RouteCandidate,
   failure: AdapterFailure,

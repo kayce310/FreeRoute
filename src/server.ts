@@ -892,6 +892,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
       if (error instanceof ProviderInvocationError) {
+        response.setHeader('x-freeroute-failure-scope', error.failure.kind);
         if (error.failure.kind === 'context_overflow') {
           sendJson(response, 400, {
             error: {
