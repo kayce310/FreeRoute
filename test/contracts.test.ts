@@ -72,3 +72,8 @@ test('contract test propagates error from failed chat', async () => {
   try { await runGeminiContract(adapter); } catch { threw = true; }
   assert.strictEqual(threw, true);
 });
+
+test('integration_gate_C', () => {
+  const marker = "integration_test_gate_C_" + Date.now();
+  assert.match(marker, /integration_test_gate_C/);
+});

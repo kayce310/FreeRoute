@@ -1,27 +1,27 @@
-export type RouteFailureKind =
-  | 'no_candidate'
-  | 'provider_bad_request'
-  | 'authentication'
-  | 'rate_limit'
-  | 'quota_exhausted'
-  | 'temporary'
-  | 'unsupported'
-  | 'context_overflow'
-  | 'client_cancelled';
+import type { RouteFailureScope, RouteFailureKind, AdapterFailure } from './contracts.js';
 
-export type RouteFailureScope = 'request' | 'key' | 'model' | 'provider' | 'adapter';
+export type { RouteFailureScope, RouteFailureKind };
 export type RouteFailureSource = 'client' | 'adapter' | 'upstream' | 'router';
 
-export interface RouteFailure {
-  kind: RouteFailureKind;
-  scope: RouteFailureScope;
-  retryable: boolean;
-  fallbackAllowed: boolean;
-  sourceStatus?: number;
-  retryAfterMs?: number;
-  cooldownMs?: number;
+export interface RouteFailure extends AdapterFailure {
   source: RouteFailureSource;
   message: string;
+}
+
+export function isAdapterBug(failure: AdapterFailure): boolean {
+  return failure.scope === 'adapter';
+}
+
+export function isClientRequestError(failure: AdapterFailure): boolean {
+  return failure.scope === 'request';
+}
+
+export function isKeyFailure(failure: AdapterFailure): boolean {
+  return failure.scope === 'key';
+}
+
+export function isProviderFailure(failure: AdapterFailure): boolean {
+  return failure.scope === 'provider';
 }
 
 export function classifyFailure(

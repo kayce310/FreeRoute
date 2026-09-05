@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatService, createCatalogChatService, ProviderInvocationError, RouteState, type ChatProviderAdapter } from '../src/inference.js';
+import { ChatService, createCatalogChatService, NoRouteCandidatesError, ProviderInvocationError, RouteState, type ChatProviderAdapter } from '../src/inference.js';
 import type { RouteCandidate } from '../src/contracts.js';
 import { InMemoryCatalogStore } from '../src/catalog.js';
 
@@ -47,7 +47,7 @@ test('falls back after a provider reports a rate limit', async () => {
   assert.equal(result.fallbackCount, 1);
 });
 
-test('does not hide authentication errors behind fallback', async () => {
+test('reports no-route after automatic fallback exhausts authentication failures', async () => {
   const adapter: ChatProviderAdapter = {
     providerId: 'only',
     async chat() {
@@ -62,7 +62,19 @@ test('does not hide authentication errors behind fallback', async () => {
 
   await assert.rejects(
     service.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'hello' }] }),
-    ProviderInvocationError,
+    NoRouteCandidatesError,
+  );
+});
+
+test('reports no-route diagnostics after an automatic profile exhausts fallback candidates', async () => {
+  const candidate: RouteCandidate = { providerId: 'cline', modelId: 'claude', credentialId: 'expired', capabilities: ['chat', 'tools'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 };
+  const chat = new ChatService({
+    candidates: async () => [candidate],
+    adapters: new Map([['cline', { providerId: 'cline', async chat() { throw new ProviderInvocationError('unauthorized', { kind: 'authentication' }); } }]]),
+  });
+  await assert.rejects(
+    chat.complete({ profile: 'auto:free', requiredCapabilities: ['chat', 'tools'], messages: [{ role: 'user', content: 'hi' }] }),
+    (error: unknown) => error instanceof NoRouteCandidatesError && error.candidates[0]?.preference === 'block',
   );
 });
 

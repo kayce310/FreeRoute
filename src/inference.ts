@@ -175,7 +175,7 @@ export class ChatService {
         if (totalAttempts > 0 && contextOverflowCount === totalAttempts) {
           throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
         }
-        if (lastError) throw lastError;
+        if (lastError && request.profile === 'named') throw lastError;
         throw new NoRouteCandidatesError(request, candidates);
       }
       const adapter = this.adapters.get(decision.candidate.providerId);
@@ -207,25 +207,35 @@ export class ChatService {
       } catch (error) {
         if (!(error instanceof ProviderInvocationError)) throw error;
         lastError = error;
-        const { kind } = error.failure;
+        const { kind, fallbackAllowed, scope } = error.failure;
         totalAttempts += 1;
         if (kind === 'context_overflow') {
           contextOverflowCount += 1;
         }
-        if (request.profile === 'named' && (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent')) {
-          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
-          throw error;
-        }
-        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow' && kind !== 'authentication' && kind !== 'unsupported' && kind !== 'permanent') {
+        if (fallbackAllowed === false) {
           await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
           throw error;
         }
         const failureCount = (this.options.routeState?.getFailureCount(decision.candidate) ?? 0) + 1;
-        candidates = candidates.map((candidate) => candidate === decision.candidate
-          ? (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent'
-              ? { ...candidate, preference: 'block' as const }
-              : applyFailureCooldown(candidate, error.failure, this.now(), failureCount))
-          : candidate);
+        const isBlock = kind === 'authentication' || kind === 'unsupported' || kind === 'permanent' || kind === 'provider_bad_request';
+        candidates = candidates.map((candidate) => {
+          let matchesScope = false;
+          if (scope === 'provider') {
+            matchesScope = candidate.providerId === decision.candidate.providerId;
+          } else if (scope === 'key') {
+            matchesScope = candidate.providerId === decision.candidate.providerId && candidate.credentialId === decision.candidate.credentialId;
+          } else if (scope === 'model') {
+            matchesScope = candidate.providerId === decision.candidate.providerId && candidate.modelId === decision.candidate.modelId;
+          } else {
+            matchesScope = candidate === decision.candidate;
+          }
+
+          if (!matchesScope) return candidate;
+
+          return isBlock
+            ? { ...candidate, preference: 'block' as const }
+            : applyFailureCooldown(candidate, error.failure, this.now(), failureCount);
+        });
         this.options.routeState?.recordFailure(decision.candidate, error.failure, this.now());
         fallbackCount += 1;
       }
@@ -245,7 +255,7 @@ export class ChatService {
         if (totalAttempts > 0 && contextOverflowCount === totalAttempts) {
           throw new Error('Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model khả dụng. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all available models. Please clear context or start a new chat session.');
         }
-        if (lastError) throw lastError;
+        if (lastError && request.profile === 'named') throw lastError;
         throw new NoRouteCandidatesError(request, candidates);
       }
       const adapter = this.adapters.get(decision.candidate.providerId);
@@ -305,25 +315,35 @@ export class ChatService {
           ? error
           : new ProviderInvocationError(error instanceof Error ? error.message : 'upstream streaming failed', { kind: 'temporary' });
         lastError = invocationError;
-        const { kind } = invocationError.failure;
+        const { kind, fallbackAllowed, scope } = invocationError.failure;
         totalAttempts += 1;
         if (kind === 'context_overflow') {
           contextOverflowCount += 1;
         }
-        if (request.profile === 'named' && (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent')) {
-          await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
-          throw invocationError;
-        }
-        if (kind !== 'rate_limit' && kind !== 'quota_exhausted' && kind !== 'temporary' && kind !== 'context_overflow' && kind !== 'authentication' && kind !== 'unsupported' && kind !== 'permanent') {
+        if (fallbackAllowed === false) {
           await this.emitEvent(request, decision.candidate, fallbackCount, 'failure', kind);
           throw invocationError;
         }
         const failureCount = (this.options.routeState?.getFailureCount(decision.candidate) ?? 0) + 1;
-        candidates = candidates.map((candidate) => candidate === decision.candidate
-          ? (kind === 'authentication' || kind === 'unsupported' || kind === 'permanent'
-              ? { ...candidate, preference: 'block' as const }
-              : applyFailureCooldown(candidate, invocationError.failure, this.now(), failureCount))
-          : candidate);
+        const isBlock = kind === 'authentication' || kind === 'unsupported' || kind === 'permanent' || kind === 'provider_bad_request';
+        candidates = candidates.map((candidate) => {
+          let matchesScope = false;
+          if (scope === 'provider') {
+            matchesScope = candidate.providerId === decision.candidate.providerId;
+          } else if (scope === 'key') {
+            matchesScope = candidate.providerId === decision.candidate.providerId && candidate.credentialId === decision.candidate.credentialId;
+          } else if (scope === 'model') {
+            matchesScope = candidate.providerId === decision.candidate.providerId && candidate.modelId === decision.candidate.modelId;
+          } else {
+            matchesScope = candidate === decision.candidate;
+          }
+
+          if (!matchesScope) return candidate;
+
+          return isBlock
+            ? { ...candidate, preference: 'block' as const }
+            : applyFailureCooldown(candidate, invocationError.failure, this.now(), failureCount);
+        });
         this.options.routeState?.recordFailure(decision.candidate, invocationError.failure, this.now());
         fallbackCount += 1;
       }
@@ -414,3 +434,5 @@ function quotaKey(providerId: string, modelId: string, credentialRef: string): s
 function routeKey(candidate: Pick<RouteCandidate, 'providerId' | 'credentialId' | 'modelId'>): string {
   return `${candidate.providerId}\u0000${candidate.credentialId}\u0000${candidate.modelId}`;
 }
+
+export const testIntegrationGateB = () => "integration_test_gate_B_" + Date.now();

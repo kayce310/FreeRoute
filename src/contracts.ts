@@ -51,8 +51,26 @@ export interface RouteDecision {
   reasons: string[];
 }
 
+export type RouteFailureScope = 'request' | 'key' | 'model' | 'provider' | 'adapter';
+
+export type RouteFailureKind =
+  | 'authentication'
+  | 'rate_limit'
+  | 'quota_exhausted'
+  | 'temporary'
+  | 'unsupported'
+  | 'permanent'
+  | 'context_overflow'
+  | 'provider_bad_request'
+  | 'no_candidate'
+  | 'client_cancelled';
+
 export interface AdapterFailure {
-  kind: 'authentication' | 'rate_limit' | 'quota_exhausted' | 'temporary' | 'unsupported' | 'permanent' | 'context_overflow';
+  kind: RouteFailureKind;
+  scope?: RouteFailureScope;
+  retryable?: boolean;
+  fallbackAllowed?: boolean;
+  sourceStatus?: number;
   retryAfterMs?: number;
   message?: string;
 }

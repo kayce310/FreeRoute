@@ -37,11 +37,13 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       comboId: 'free-coders',
       name: 'Free Coding Agents',
       models: [
-        'groq/llama-3.3-70b-versatile',
-        'cerebras/llama-3.3-70b',
+        'gemini/gemini-2.5-flash',
+        'gemini/gemini-3.6-flash',
+        'groq/qwen/qwen3.8-27b',
+        'openrouter/google/gemini-2.0-flash-exp:free',
         'openrouter/qwen/qwen-2.5-coder-32b-instruct:free',
       ],
-      description: 'Mô hình lập trình và gọi hàm công cụ miễn phí tốc độ cao.',
+      description: 'Mô hình lập trình và gọi hàm công cụ miễn phí tốc độ cao cho VS Code Copilot, Cursor, Continue.dev.',
     });
     comboStore.put({
       comboId: 'speed-demons',

@@ -1,7 +1,54 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
-import type { FreeTierClass, TokenUsage } from '../contracts.js';
+import type { Capability, FreeTierClass, TokenUsage, RouteFailureKind, RouteFailureScope } from '../contracts.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
 import { estimatePromptTokens, estimateTokensFromText } from '../utils/token-estimator.js';
+
+export function inferModelCapabilities(modelId: string, baseCaps: Capability[] = ['chat', 'streaming']): Capability[] {
+  const caps = new Set<Capability>(baseCaps);
+  const lower = modelId.toLowerCase();
+
+  const hasTools =
+    lower.includes('coder') ||
+    lower.includes('claude') ||
+    lower.includes('gpt-4') ||
+    lower.includes('gpt-5') ||
+    lower.includes('chatgpt-4o') ||
+    lower.includes('gpt-3.5-turbo') ||
+    lower.includes('llama-3.3') ||
+    lower.includes('llama-3.1') ||
+    lower.includes('llama-3.2') ||
+    lower.includes('gemini') ||
+    lower.includes('qwen2.5') ||
+    lower.includes('qwen-2.5') ||
+    lower.includes('qwen3') ||
+    lower.includes('mistral-small') ||
+    lower.includes('mistral-large') ||
+    lower.includes('codestral') ||
+    lower.includes('devstral') ||
+    lower.includes('command-r') ||
+    lower.includes('deepseek-chat') ||
+    lower.includes('deepseek-v3');
+
+  if (hasTools) {
+    caps.add('tools');
+  }
+
+  const hasVision =
+    lower.includes('vision') ||
+    lower.includes('gemini') ||
+    lower.includes('gpt-4o') ||
+    lower.includes('gpt-4-turbo') ||
+    lower.includes('claude-3') ||
+    lower.includes('claude-sonnet') ||
+    lower.includes('qwen-vl') ||
+    lower.includes('qwen2-vl');
+
+  if (hasVision) {
+    caps.add('vision');
+  }
+
+  return [...caps];
+}
 
 interface OpenAIModel {
   id: string;
@@ -68,9 +115,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     const body = await response.json() as OpenAIModelList;
     return (body.data ?? []).map((model) => ({
       modelId: model.id,
-      // OpenAI-compatible /models responses do not standardize capability metadata.
-      // Keep unknown models conservative; curated presets add verified capabilities.
-      capabilities: ['chat', 'streaming'],
+      capabilities: inferModelCapabilities(model.id),
       freeTier: this.classifyModel(model),
     }));
   }
@@ -95,7 +140,12 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`upstream connection error to ${this.providerId}: ${msg}`, { kind: 'temporary' });
+      throw new ProviderInvocationError(`upstream connection error to ${this.providerId}: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
     }
 
     if (!response.ok) throw await providerError(response);
@@ -128,11 +178,21 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`upstream streaming connection error to ${this.providerId}: ${msg}`, { kind: 'temporary' });
+      throw new ProviderInvocationError(`upstream streaming connection error to ${this.providerId}: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
     }
 
     if (!response.ok) throw await providerError(response);
-    if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', { kind: 'temporary' });
+    if (!response.body) throw new ProviderInvocationError('upstream returned no streaming response body', {
+      kind: 'temporary',
+      scope: 'provider',
+      retryable: true,
+      fallbackAllowed: true,
+    });
     const decoder = new TextDecoder();
     let pending = '';
     let streamUsage: TokenUsage | undefined;
@@ -270,21 +330,58 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
     extractedMessage = rawBody.slice(0, 300);
   }
 
-  const kind = isContextOverflowError(response.status, rawBody)
-    ? 'context_overflow'
-    : response.status === 401 || response.status === 403
-      ? 'authentication'
-      : response.status === 402
-        ? 'quota_exhausted'
-      : response.status === 429
-        ? 'rate_limit'
-        : response.status === 408 || response.status >= 500
-          ? 'temporary'
-          : response.status === 404 || response.status === 400
-            ? 'unsupported'
-            : 'permanent';
+  const isOverflow = isContextOverflowError(response.status, rawBody);
+  let kind: RouteFailureKind;
+  let scope: RouteFailureScope;
+  let fallbackAllowed = true;
+  let retryable = false;
+
+  if (isOverflow) {
+    kind = 'context_overflow';
+    scope = 'model';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 401 || response.status === 403) {
+    kind = 'authentication';
+    scope = 'key';
+    retryable = false;
+    fallbackAllowed = true;
+  } else if (response.status === 402) {
+    kind = 'quota_exhausted';
+    scope = 'key';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 429) {
+    kind = 'rate_limit';
+    scope = 'key';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 408 || response.status >= 500) {
+    kind = 'temporary';
+    scope = 'provider';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 404 || response.status === 400) {
+    kind = 'unsupported';
+    scope = 'request';
+    retryable = false;
+    fallbackAllowed = false;
+  } else {
+    kind = 'permanent';
+    scope = 'provider';
+    retryable = false;
+    fallbackAllowed = false;
+  }
 
   const errPrefix = `upstream request failed with HTTP ${response.status}`;
   const fullMessage = extractedMessage ? `${errPrefix}: ${extractedMessage}` : errPrefix;
-  return new ProviderInvocationError(fullMessage, { kind, retryAfterMs, message: extractedMessage });
+  return new ProviderInvocationError(fullMessage, {
+    kind,
+    scope,
+    fallbackAllowed,
+    retryable,
+    sourceStatus: response.status,
+    retryAfterMs,
+    message: extractedMessage,
+  });
 }

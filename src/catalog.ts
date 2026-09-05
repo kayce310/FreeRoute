@@ -82,10 +82,11 @@ export class CatalogService {
         const preset = PROVIDER_PRESETS.find((p) => p.id === adapter.providerId);
         const models = discovered.map((model): ModelRecord => {
           const presetModel = preset?.seedModels.find((sm) => sm.modelId === model.modelId);
+          const combinedCaps = Array.from(new Set([...model.capabilities, ...(presetModel?.capabilities ?? [])]));
           return {
             providerId: adapter.providerId,
             modelId: model.modelId,
-            capabilities: presetModel?.capabilities ?? model.capabilities,
+            capabilities: combinedCaps,
             freeTier: (model.freeTier === 'free_unverified' && presetModel?.freeTier) ? presetModel.freeTier : model.freeTier,
             checkedAt,
             expiresAt: model.expiresAt,

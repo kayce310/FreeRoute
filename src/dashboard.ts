@@ -456,44 +456,151 @@ export function dashboardHtml(): string {
       padding-top: 12px;
     }
 
-    /* Combos Grid */
+    /* Combos Grid & Cards */
     .combos-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 14px;
     }
     .combo-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
-      padding: 18px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      gap: 10px;
       transition: all 0.2s;
+      cursor: default;
+      min-height: 180px;
     }
     .combo-card:hover {
-      border-color: var(--accent);
-      box-shadow: var(--shadow);
+      border-color: var(--border-focus);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
     }
-    .combo-chain {
+    .combo-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .combo-card-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    .combo-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .combo-card-id {
+      display: inline-block;
+      font-size: 11px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    .combo-card-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      min-height: 32px;
+      max-height: 32px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-top: 2px;
+    }
+    .combo-badge-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding-top: 2px;
+    }
+    .combo-model-badge {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .combo-model-badge:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .combo-expand-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+    .combo-expand-toggle:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.08);
+    }
+    .combo-expand-toggle .toggle-icon {
+      font-size: 9px;
+      transition: transform 0.2s;
+    }
+    .combo-expand-toggle.open .toggle-icon { transform: rotate(180deg); }
+    .combo-chain-collapse {
+      display: none;
       background: var(--bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius-sm);
-      padding: 10px 12px;
-      margin: 12px 0;
+      padding: 8px 10px;
       font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.7;
+      font-size: 11px;
+      line-height: 1.6;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 4px;
     }
+    .combo-chain-collapse.open { display: block; }
     .chain-step {
       display: flex;
       align-items: center;
       gap: 6px;
+      padding: 2px 0;
     }
     .chain-arrow {
       color: var(--accent);
-      font-weight: bold;
+      font-size: 10px;
+      padding-left: 4px;
+      opacity: 0.7;
+    }
+    .combo-card-actions {
+      display: flex;
+      gap: 6px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 10px;
+      margin-top: auto;
     }
 
     /* NOC Health Matrix */
@@ -739,6 +846,139 @@ export function dashboardHtml(): string {
       opacity: 1;
       transform: translateY(0);
     }
+
+    /* 9router Style Combo Modal */
+    .combo-modal-wrap {
+      max-width: 900px !important;
+      width: 95vw !important;
+      max-height: 92vh !important;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .combo-modal-body {
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex: 1;
+      min-height: 0;
+      padding-right: 4px;
+    }
+    .combo-quick-templates {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: rgba(56, 189, 248, 0.05);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .combo-modal-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      min-height: 0;
+      flex: 1;
+    }
+    .combo-modal-grid > div {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+    .combo-pill-btn {
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text-dim);
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .combo-pill-btn:hover {
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+    .combo-pill-btn.active {
+      background: var(--accent);
+      color: #050b14;
+      font-weight: 600;
+      border-color: var(--accent);
+    }
+    .combo-picker-box {
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      flex: 1;
+      min-height: 200px;
+      max-height: calc(55vh - 180px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 6px;
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .combo-picker-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      transition: all 0.2s;
+      min-width: 0;
+    }
+    .combo-picker-card:hover {
+      border-color: var(--accent);
+      transform: translateX(2px);
+    }
+    .chain-box {
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      flex: 1;
+      min-height: 200px;
+      max-height: calc(55vh - 180px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 6px;
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .chain-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 6px;
+      margin-bottom: 5px;
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.15s;
+      min-width: 0;
+    }
+    .chain-card:hover {
+      border-color: var(--accent);
+    }
+    .chain-btn-move {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 10px;
+      cursor: pointer;
+      color: var(--text-primary);
+      transition: all 0.15s;
+    }
+    .chain-btn-move:hover:not(:disabled) {
+      background: var(--accent);
+      color: #050b14;
+    }
+    @media (max-width: 768px) {
+      .combo-modal-grid { grid-template-columns: 1fr; }
+      .combo-picker-box, .chain-box { max-height: 250px; }
+    }
   </style>
 </head>
 <body>
@@ -862,6 +1102,8 @@ export function dashboardHtml(): string {
                 <th id="th-ev-fallbacks">Fallback Hops</th>
                 <th id="th-ev-latency">Độ Trễ</th>
                 <th id="th-ev-status">Trạng Thái</th>
+                <th id="th-ev-tokin" style="text-align:right;">Token In</th>
+                <th id="th-ev-tokout" style="text-align:right;">Token Out</th>
               </tr>
             </thead>
             <tbody id="events-tbody">
@@ -1234,38 +1476,80 @@ print(response.choices[0].message.content)</div>
     </div>
   </div>
 
-  <!-- MODAL: CREATE CUSTOM COMBO (NEW!) -->
+  <!-- MODAL: CREATE / EDIT CUSTOM COMBO (9ROUTER STYLE) -->
   <div class="modal-overlay" id="modal-create-combo">
-    <div class="modal" style="max-width:620px;">
+    <div class="modal combo-modal-wrap">
       <div class="modal-title">
-        <span id="modal-combo-title">➕ Tạo Custom Routing Combo</span>
+        <span id="modal-combo-title">🔀 Quản Lý Chuỗi Fallback (Custom Combo)</span>
         <button class="btn btn-sm" onclick="closeCreateComboModal()">✕</button>
       </div>
-      <div class="form-group">
-        <label id="lbl-combo-id">Mã Combo (ID duy nhất, dùng trong request model: "combo:xxx")</label>
-        <input type="text" class="form-control" id="combo-input-id" placeholder="vd: my-coding-chain">
-      </div>
-      <div class="form-group">
-        <label id="lbl-combo-name">Tên Combo Hiển Thị</label>
-        <input type="text" class="form-control" id="combo-input-name" placeholder="vd: Siêu Tốc & Lập Trình Dự Phòng">
-      </div>
-      <div class="form-group">
-        <label id="lbl-combo-desc">Mô Tả</label>
-        <input type="text" class="form-control" id="combo-input-desc" placeholder="vd: Chuỗi fallback khi cần lập trình">
-      </div>
-      <div class="form-group">
-        <label id="lbl-combo-models">Chuỗi Model Fallback (Theo Thứ Tự Ưu Tiên)</label>
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <select class="form-control" id="combo-add-model-select">
-            <!-- Populated with models -->
-          </select>
-          <button class="btn btn-sm btn-primary" onclick="addModelToComboChain()">➕ Thêm</button>
+
+      <div class="combo-modal-body">
+        <!-- Quick Templates -->
+        <div class="combo-quick-templates">
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted);" id="lbl-combo-templates">⚡ Mẫu gợi ý sẵn (1-Click):</span>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('coding')">💻 Coding & Copilot IDE</button>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('speed')">⚡ Siêu Tốc (Cerebras/Groq)</button>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('chat')">💬 Hội Thoại Thông Minh</button>
         </div>
-        <div id="combo-chain-list" style="max-height:160px; overflow-y:auto; border:1px solid var(--card-border); border-radius:var(--radius-sm); padding:8px;">
-          <!-- Items listed with remove button -->
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label id="lbl-combo-id">Mã Combo ID (dùng làm model: "combo:xxx")</label>
+            <input type="text" class="form-control" id="combo-input-id" placeholder="vd: my-coding-chain">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label id="lbl-combo-name">Tên Combo Hiển Thị</label>
+            <input type="text" class="form-control" id="combo-input-name" placeholder="vd: Siêu Tốc & Lập Trình Dự Phòng">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:12px;">
+          <label id="lbl-combo-desc">Mô Tả</label>
+          <input type="text" class="form-control" id="combo-input-desc" placeholder="vd: Chuỗi fallback ưu tiên cho VS Code Copilot và Cursor khi lập trình">
+        </div>
+
+        <div class="combo-modal-grid">
+          <!-- CỘT TRÁI: TÌM KIẾM VÀ CHỌN MODEL -->
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-weight:600; font-size:12px;" id="lbl-picker-heading">📦 Danh Sách Model Có Sẵn</span>
+              <span style="font-size:11px; color:var(--text-muted);" id="lbl-picker-count"></span>
+            </div>
+            <input type="text" class="form-control" id="combo-picker-search" placeholder="🔍 Tìm theo model hoặc provider..." oninput="filterComboPickerModels()" style="margin-bottom:6px; font-size:12px;">
+            <div style="display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap;">
+              <button type="button" class="combo-pill-btn active" id="cpill-all" onclick="setComboPickerFilter('all')">Tất cả</button>
+              <button type="button" class="combo-pill-btn" id="cpill-combos" onclick="setComboPickerFilter('combos')">🔀 Combos</button>
+              <button type="button" class="combo-pill-btn" id="cpill-free" onclick="setComboPickerFilter('free')">🎁 100% Free</button>
+              <button type="button" class="combo-pill-btn" id="cpill-tools" onclick="setComboPickerFilter('tools')">🔧 Tools (IDE)</button>
+              <button type="button" class="combo-pill-btn" id="cpill-vision" onclick="setComboPickerFilter('vision')">👁️ Vision</button>
+            </div>
+            <select class="form-control" id="combo-picker-prov-select" onchange="filterComboPickerModels()" style="margin-bottom:8px; font-size:11px; padding:4px 8px;">
+              <option value="">-- Tất cả Nhà Cung Cấp (Providers) --</option>
+            </select>
+            <div class="combo-picker-box" id="combo-picker-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- CỘT PHẢI: CHUỖI FALLBACK THỨ TỰ ƯU TIÊN -->
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-weight:600; font-size:12px;" id="lbl-chain-heading">🔀 Chuỗi Fallback (Thứ Tự Ưu Tiên)</span>
+              <button type="button" class="btn btn-outline btn-sm" style="font-size:10px; padding:1px 6px;" onclick="clearTempComboChain()">Xóa hết</button>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;" id="desc-chain-help">
+              Model #1 sẽ được gọi trước. Nếu gặp lỗi/rate-limit, tự động chuyển sang #2, #3...
+            </div>
+            <div class="chain-box" id="combo-chain-list">
+              <!-- Rendered dynamically -->
+            </div>
+            <div id="combo-tools-status" style="margin-top:8px; font-size:11px;"></div>
+          </div>
         </div>
       </div>
-      <div class="modal-actions">
+
+      <div class="modal-actions" style="margin-top:16px;">
         <button class="btn" onclick="closeCreateComboModal()" id="btn-combo-cancel">Hủy</button>
         <button class="btn btn-primary" onclick="submitCreateCombo()" id="btn-combo-save">Lưu Combo</button>
       </div>
@@ -1342,6 +1626,8 @@ print(response.choices[0].message.content)</div>
         thFallbacks: 'Fallback Hops',
         thLatency: 'Độ Trễ',
         thStatus: 'Trạng Thái',
+        thTokIn: 'Token In',
+        thTokOut: 'Token Out',
         noEvents: 'Chưa có sự kiện nào. Hãy gửi request qua cổng http://127.0.0.1:8787/v1!',
         searchProviders: '🔍 Tìm nhà cung cấp...',
         pillAll: 'Tất cả',
@@ -1372,6 +1658,7 @@ print(response.choices[0].message.content)</div>
         titleCombos: 'Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)',
         descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
         btnCreateCombo: '➕ Tạo Combo Mới',
+        btnEditCombo: '✏️ Sửa',
         keysTitle: 'Khóa API Đã Lưu (Mã Hóa AES-256-GCM)',
         credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/credentials.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
         thUpdated: 'Cập Nhật',
@@ -1460,6 +1747,8 @@ print(response.choices[0].message.content)</div>
         thFallbacks: 'Fallback Hops',
         thLatency: 'Latency',
         thStatus: 'Status',
+        thTokIn: 'Token In',
+        thTokOut: 'Token Out',
         noEvents: 'No events yet. Send requests to http://127.0.0.1:8787/v1!',
         searchProviders: '🔍 Search providers...',
         pillAll: 'All',
@@ -1490,6 +1779,7 @@ print(response.choices[0].message.content)</div>
         titleCombos: 'Custom Fallback Routing Chains (Combos)',
         descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
         btnCreateCombo: '➕ Create Combo',
+        btnEditCombo: '✏️ Edit',
         keysTitle: 'Stored API Keys (Encrypted with AES-256-GCM)',
         credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/credentials.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
         thUpdated: 'Updated',
@@ -1622,6 +1912,10 @@ print(response.choices[0].message.content)</div>
       document.getElementById('th-ev-fallbacks').textContent = t('thFallbacks');
       document.getElementById('th-ev-latency').textContent = t('thLatency');
       document.getElementById('th-ev-status').textContent = t('thStatus');
+      const thTokInEl = document.getElementById('th-ev-tokin');
+      if (thTokInEl) thTokInEl.textContent = t('thTokIn');
+      const thTokOutEl = document.getElementById('th-ev-tokout');
+      if (thTokOutEl) thTokOutEl.textContent = t('thTokOut');
 
       document.getElementById('search-presets').placeholder = t('searchProviders');
       document.getElementById('search-models').placeholder = t('searchModels');
@@ -1857,7 +2151,7 @@ print(response.choices[0].message.content)</div>
             item.isTrueFree = isTrueFreeModel(item);
             return item;
           });
-          populateComboAddSelect();
+          populateComboPickerProviders();
         }
       } catch (err) {
         console.error('Failed to load models:', err);
@@ -2306,6 +2600,11 @@ print(response.choices[0].message.content)</div>
           sel.appendChild(opt);
           sel.value = modelId;
         }
+        onPlayModelChange();
+      }
+      const p = document.getElementById('play-prompt');
+      if (p) {
+        p.focus();
       }
     }
 
@@ -2319,31 +2618,45 @@ print(response.choices[0].message.content)</div>
         } else {
           let html = '';
           for (const cb of combos) {
-            const chainHtml = (cb.models || []).map((m, idx) => \`
+            const cbModels = cb.models || [];
+            const modelCount = cbModels.length;
+            const safeId = 'chain_' + cb.comboId.replace(/[^a-z0-9]/gi, '_');
+            const chainHtml = cbModels.map((m, idx) => \`
               <div class="chain-step">
-                <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
+                <span style="color:var(--text-muted); font-size:10px; min-width:22px;">#\${idx + 1}</span>
                 <span>\${m}</span>
               </div>
-            \`).join('<div class="chain-arrow">↓ fallback</div>');
+              \${idx < cbModels.length - 1 ? '<div class="chain-arrow">↓</div>' : ''}
+            \`).join('');
 
             html += \`
               <div class="combo-card">
                 <div>
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div>
-                      <h3 style="font-size:16px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
-                      <code style="font-size:11px; color:var(--text-muted);">combo:\${cb.comboId}</code>
+                  <div class="combo-card-header">
+                    <div class="combo-card-meta">
+                      <div class="combo-card-name" title="\${cb.name}">\${cb.name}</div>
+                      <div class="combo-card-id">combo:\${cb.comboId}</div>
                     </div>
-                    <button class="btn btn-danger btn-sm" onclick="deleteCombo('\\\${cb.comboId}')" title="Delete">✕</button>
+                    <button class="btn btn-danger btn-sm" style="padding:2px 7px; font-size:12px; flex-shrink:0;" onclick="event.stopPropagation(); deleteCombo('\${cb.comboId}')" title="\${currentLang === 'vi' ? 'Xóa Combo' : 'Delete Combo'}">✕</button>
                   </div>
-                  <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
-                  <div class="combo-chain">
+                  <div class="combo-card-desc" style="\${!cb.description ? 'opacity:0.35; font-style:italic;' : ''}">
+                    \${cb.description || (currentLang === 'vi' ? 'Chưa có mô tả' : 'No description')}
+                  </div>
+                  <div class="combo-badge-row">
+                    <span class="badge badge-blue">📦 \${modelCount} model\${modelCount !== 1 ? 's' : ''}</span>
+                    <button class="combo-expand-toggle" id="toggle_\${safeId}" onclick="toggleComboChain('\${safeId}')">
+                      <span>\${currentLang === 'vi' ? 'Xem chuỗi' : 'View chain'}</span>
+                      <span class="toggle-icon">▼</span>
+                    </button>
+                  </div>
+                  <div class="combo-chain-collapse" id="\${safeId}">
                     \${chainHtml}
                   </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
-                  <button class="btn btn-sm btn-outline" onclick="copyToClipboard('combo:\\\${cb.comboId}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
-                  <button class="btn btn-sm btn-primary" onclick="testCombo('\\\${cb.comboId}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+                <div class="combo-card-actions">
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')">📋 Copy ID</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')">✏️ Sửa</button>
+                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')">🧪 Test</button>
                 </div>
               </div>
             \`;
@@ -2358,30 +2671,30 @@ print(response.choices[0].message.content)</div>
         const autoProfiles = [
           {
             id: 'auto:code',
-            name: currentLang === 'vi' ? 'Lập Trình & Tools (Coding & Agents)' : 'Coding & Function Calling',
-            desc: currentLang === 'vi' ? 'Chuỗi định tuyến tối ưu nhất cho VS Code Copilot, Cursor, Continue.dev, Roo Code.' : 'Top priority fallback chain for coding agents, function calling and tools.',
-            badge: currentLang === 'vi' ? 'Khuyên dùng cho IDE' : 'Recommended for IDEs',
+            name: currentLang === 'vi' ? 'L\\u1eadp Tr\\u00ecnh & Tools (Coding & Agents)' : 'Coding & Function Calling',
+            desc: currentLang === 'vi' ? 'Chu\\u1ed7i \\u0111\\u1ecbnh tuy\\u1ebfn t\\u1ed1i \\u01b0u nh\\u1ea5t cho VS Code Copilot, Cursor, Continue.dev, Roo Code.' : 'Top priority fallback chain for coding agents, function calling and tools.',
+            badge: currentLang === 'vi' ? 'Khuy\\u00ean d\\u00f9ng cho IDE' : 'Recommended for IDEs',
             steps: ['groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'gemini/gemini-2.5-flash', 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free']
           },
           {
             id: 'auto:free',
-            name: currentLang === 'vi' ? '100% Miễn Phí (Zero Cost)' : '100% Free Fallback',
-            desc: currentLang === 'vi' ? 'Tự động chọn model miễn phí có trạng thái tốt nhất từ Groq, Gemini, OpenRouter, Cerebras.' : 'Automatically selects the best-health model from completely free tiers.',
-            badge: currentLang === 'vi' ? 'Miễn phí' : '100% Free',
+            name: currentLang === 'vi' ? '100% Mi\\u1ec5n Ph\\u00ed (Zero Cost)' : '100% Free Fallback',
+            desc: currentLang === 'vi' ? 'T\\u1ef1 \\u0111\\u1ed9ng ch\\u1ecdn model mi\\u1ec5n ph\\u00ed c\\u00f3 tr\\u1ea1ng th\\u00e1i t\\u1ed1t nh\\u1ea5t t\\u1eeb Groq, Gemini, OpenRouter, Cerebras.' : 'Automatically selects the best-health model from completely free tiers.',
+            badge: currentLang === 'vi' ? 'Mi\\u1ec5n ph\\u00ed' : '100% Free',
             steps: ['gemini/gemini-2.5-flash', 'groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'openrouter:free']
           },
           {
             id: 'auto:fast',
-            name: currentLang === 'vi' ? 'Siêu Tốc Độ (Ultra Fast 500-1800 tps)' : 'Ultra-Fast Inference (500-1800 tps)',
-            desc: currentLang === 'vi' ? 'Tối ưu độ trễ thấp nhất cho autocomplete và inline chat tức thì.' : 'Optimized for minimum latency, ideal for inline completion and rapid chat.',
-            badge: currentLang === 'vi' ? 'Tốc độ' : 'Ultra Fast',
+            name: currentLang === 'vi' ? 'Si\\u00eau T\\u1ed1c \\u0110\\u1ed9 (Ultra Fast 500-1800 tps)' : 'Ultra-Fast Inference (500-1800 tps)',
+            desc: currentLang === 'vi' ? 'T\\u1ed1i \\u01b0u \\u0111\\u1ed9 tr\\u1ec5 th\\u1ea5p nh\\u1ea5t cho autocomplete v\\u00e0 inline chat t\\u1ee9c th\\u00ec.' : 'Optimized for minimum latency, ideal for inline completion and rapid chat.',
+            badge: currentLang === 'vi' ? 'T\\u1ed1c \\u0111\\u1ed9' : 'Ultra Fast',
             steps: ['cerebras/llama-3.3-70b', 'groq/llama-3.1-8b-instant', 'cerebras/llama-3.1-8b']
           },
           {
             id: 'auto:long-context',
-            name: currentLang === 'vi' ? 'Ngữ Cảnh Siêu Lớn (Long Context 1M+)' : 'Massive Context (1M+ Tokens)',
-            desc: currentLang === 'vi' ? 'Đọc toàn bộ codebase hoặc tài liệu khổng lồ với Gemini Flash 1M tokens.' : 'Process entire code repositories and massive books with 1M+ context window.',
-            badge: currentLang === 'vi' ? 'Ngữ cảnh' : '1M+ Context',
+            name: currentLang === 'vi' ? 'Ng\\u1eef C\\u1ea3nh Si\\u00eau L\\u1edbn (Long Context 1M+)' : 'Massive Context (1M+ Tokens)',
+            desc: currentLang === 'vi' ? '\\u0110\\u1ecdc to\\u00e0n b\\u1ed9 codebase ho\\u1eb7c t\\u00e0i li\\u1ec7u kh\\u1ed5ng l\\u1ed3 v\\u1edbi Gemini Flash 1M tokens.' : 'Process entire code repositories and massive books with 1M+ context window.',
+            badge: currentLang === 'vi' ? 'Ng\\u1eef c\\u1ea3nh' : '1M+ Context',
             steps: ['gemini/gemini-2.5-flash (1M)', 'openrouter/google/gemini-2.0-flash-exp:free', 'openrouter/minimax/minimax-m2.7:free']
           }
         ];
@@ -2399,27 +2712,27 @@ print(response.choices[0].message.content)</div>
           catHtml += \`
             <div class="combo-card" style="border-left: 3px solid var(--accent);">
               <div>
-                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                  <div>
-                    <h3 style="font-size:15px; font-weight:600; color:var(--accent);">\${ap.name}</h3>
-                    <code style="font-size:12px; color:var(--accent); background:var(--card-hover); padding:2px 6px; border-radius:4px; font-weight:bold;">\${ap.id}</code>
+                <div class="combo-card-header">
+                  <div class="combo-card-meta">
+                    <div class="combo-card-name" style="color:var(--accent);">\${ap.name}</div>
+                    <div class="combo-card-id">\${ap.id}</div>
                   </div>
                   <span class="badge badge-blue">\${ap.badge}</span>
                 </div>
-                <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${ap.desc}</div>
-                <div class="combo-chain">
+                <div class="combo-card-desc">\${ap.desc}</div>
+                <div class="combo-chain" style="margin-top:8px;">
                   \${chainSteps}
                 </div>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
-                <button class="btn btn-sm btn-outline" onclick="copyToClipboard('\\\${ap.id}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
-                <button class="btn btn-sm btn-primary" onclick="testModelId('\\\${ap.id}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+              <div class="combo-card-actions">
+                <button class="btn btn-sm btn-outline" style="flex:1;" onclick="copyToClipboard('\${ap.id}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
+                <button class="btn btn-sm btn-primary" style="flex:1;" onclick="testModelId('\${ap.id}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
               </div>
             </div>
           \`;
         }
 
-        // Render Custom Combos
+        // Render Custom Combos in Tab 3
         for (const cb of combos) {
           const chainHtml = (cb.models || []).map((m, idx) => \`
             <div class="chain-step">
@@ -2431,21 +2744,23 @@ print(response.choices[0].message.content)</div>
           catHtml += \`
             <div class="combo-card">
               <div>
-                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                  <div>
-                    <h3 style="font-size:15px; font-weight:600; color:var(--accent);">\${cb.name}</h3>
-                    <code style="font-size:12px; color:var(--success); background:var(--card-hover); padding:2px 6px; border-radius:4px; font-weight:bold;">combo:\${cb.comboId}</code>
+                <div class="combo-card-header">
+                  <div class="combo-card-meta">
+                    <div class="combo-card-name">\${cb.name}</div>
+                    <div class="combo-card-id">combo:\${cb.comboId}</div>
                   </div>
                   <span class="badge badge-green">Custom Combo</span>
                 </div>
-                <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">\${cb.description || ''}</div>
-                <div class="combo-chain">
+                <div class="combo-card-desc" style="\${!cb.description ? 'opacity:0.35; font-style:italic;' : ''}">
+                  \${cb.description || (currentLang === 'vi' ? 'Chưa có mô tả' : 'No description')}
+                </div>
+                <div class="combo-chain" style="margin-top:8px;">
                   \${chainHtml}
                 </div>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:10px;">
-                <button class="btn btn-sm btn-outline" onclick="copyToClipboard('combo:\\\${cb.comboId}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
-                <button class="btn btn-sm btn-primary" onclick="testCombo('\\\${cb.comboId}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
+              <div class="combo-card-actions">
+                <button class="btn btn-sm btn-outline" style="flex:1;" onclick="copyComboId('\${cb.comboId}')">📋 \${t('btnCopyId') || 'Copy ID'}</button>
+                <button class="btn btn-sm btn-primary" style="flex:1;" onclick="testCombo('\${cb.comboId}')">🧪 \${t('btnTestCombo') || 'Test'}</button>
               </div>
             </div>
           \`;
@@ -2468,80 +2783,452 @@ print(response.choices[0].message.content)</div>
       grp.innerHTML = html;
     }
 
+    // Utility: Copy to Clipboard with fallback
+    function copyToClipboard(text, msg = '') {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast(msg || ((currentLang === 'vi' ? 'Đã sao chép: ' : 'Copied: ') + text));
+        }).catch(() => fallbackCopy(text, msg));
+      } else {
+        fallbackCopy(text, msg);
+      }
+    }
+
+    function fallbackCopy(text, msg = '') {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(msg || ((currentLang === 'vi' ? 'Đã sao chép: ' : 'Copied: ') + text));
+      } catch (e) {
+        showToast((currentLang === 'vi' ? 'Không thể sao chép: ' : 'Failed to copy: ') + text, true);
+      }
+    }
+
+    function copyComboId(comboId) {
+      const fullId = 'combo:' + comboId;
+      copyToClipboard(fullId, (currentLang === 'vi' ? 'Đã sao chép ID: ' : 'Copied ID: ') + fullId);
+    }
+
+    function toggleComboChain(safeId) {
+      const chain = document.getElementById(safeId);
+      const toggle = document.getElementById('toggle_' + safeId);
+      if (!chain || !toggle) return;
+      const isOpen = chain.classList.toggle('open');
+      toggle.classList.toggle('open', isOpen);
+      const label = toggle.querySelector('span:first-child');
+      if (label) {
+        label.textContent = isOpen ? (currentLang === 'vi' ? 'Ẩn chuỗi' : 'Hide chain') : (currentLang === 'vi' ? 'Xem chuỗi' : 'View chain');
+      }
+    }
+
     function testCombo(comboId) {
-      switchTab('playground');
-      document.getElementById('play-model-select').value = 'combo:' + comboId;
+      const targetModel = 'combo:' + comboId;
+      testModelId(targetModel);
+      showToast((currentLang === 'vi' ? 'Đã chọn combo: ' : 'Selected combo: ') + targetModel);
     }
 
-    function populateComboAddSelect() {
-      const sel = document.getElementById('combo-add-model-select');
-      if (!sel) return;
-      let html = '';
-      // Group: True Free models first
-      const freeMods = models.filter(m => m.isTrueFree);
-      const paidMods = models.filter(m => !m.isTrueFree);
+    let comboEditingId = null;
+    let comboPickerActiveFilter = 'all';
 
-      html += '<optgroup label="🎁 Model 100% Miễn Phí">';
-      for (const m of freeMods) {
-        html += \`<option value="\${m.providerId}/\${m.modelId}">\${m.providerId}/\${m.modelId}</option>\`;
-      }
-      html += '</optgroup>';
+    function openCreateComboModal(editComboId = null) {
+      comboEditingId = editComboId;
+      const modal = document.getElementById('modal-create-combo');
+      const idInput = document.getElementById('combo-input-id');
+      const nameInput = document.getElementById('combo-input-name');
+      const descInput = document.getElementById('combo-input-desc');
+      const titleEl = document.getElementById('modal-combo-title');
 
-      if (paidMods.length > 0) {
-        html += '<optgroup label="💳 Model Thương Mại (Paid)">';
-        for (const m of paidMods.slice(0, 50)) {
-          html += \`<option value="\${m.providerId}/\${m.modelId}">\${m.providerId}/\${m.modelId}</option>\`;
+      if (editComboId) {
+        const cb = combos.find(c => c.comboId === editComboId);
+        if (cb) {
+          idInput.value = cb.comboId;
+          idInput.disabled = true;
+          nameInput.value = cb.name || '';
+          descInput.value = cb.description || '';
+          tempComboChain = [...(cb.models || [])];
+          if (titleEl) titleEl.textContent = (currentLang === 'vi' ? '✏️ Sửa Chuỗi Fallback: ' : '✏️ Edit Fallback Combo: ') + cb.comboId;
         }
-        html += '</optgroup>';
+      } else {
+        idInput.value = '';
+        idInput.disabled = false;
+        nameInput.value = '';
+        descInput.value = '';
+        tempComboChain = [];
+        if (titleEl) titleEl.textContent = currentLang === 'vi' ? '➕ Tạo Custom Routing Combo Mới' : '➕ Create New Fallback Combo';
       }
-      sel.innerHTML = html;
-    }
 
-    function openCreateComboModal() {
-      document.getElementById('modal-create-combo').classList.add('active');
-      document.getElementById('combo-input-id').value = '';
-      document.getElementById('combo-input-name').value = '';
-      document.getElementById('combo-input-desc').value = '';
-      tempComboChain = [];
+      modal.classList.add('active');
+      populateComboPickerProviders();
+      filterComboPickerModels();
       renderTempComboChain();
-      populateComboAddSelect();
     }
 
     function closeCreateComboModal() {
       document.getElementById('modal-create-combo').classList.remove('active');
+      comboEditingId = null;
     }
 
-    function addModelToComboChain() {
-      const sel = document.getElementById('combo-add-model-select');
-      const val = sel.value;
+    function populateComboPickerProviders() {
+      const sel = document.getElementById('combo-picker-prov-select');
+      if (!sel) return;
+      const provSet = new Set(models.map(m => m.providerId));
+      let html = '<option value="">-- ' + (currentLang === 'vi' ? 'Tất cả Nhà Cung Cấp' : 'All Providers') + ' --</option>';
+      html += '<option value="__combos__">🔀 ' + (currentLang === 'vi' ? 'Custom Combos (Ưu tiên)' : 'Custom Combos (Priority)') + '</option>';
+      for (const p of Array.from(provSet).sort()) {
+        const pr = presets.find(x => x.id === p);
+        const name = pr ? pr.name : p;
+        html += \`<option value="\${p}">\${name} (\${p})</option>\`;
+      }
+      sel.innerHTML = html;
+    }
+
+    function setComboPickerFilter(f) {
+      comboPickerActiveFilter = f;
+      ['all', 'combos', 'free', 'tools', 'vision'].forEach(type => {
+        const btn = document.getElementById('cpill-' + type);
+        if (btn) {
+          if (type === f) btn.classList.add('active');
+          else btn.classList.remove('active');
+        }
+      });
+      filterComboPickerModels();
+    }
+
+    function filterComboPickerModels() {
+      const search = (document.getElementById('combo-picker-search')?.value || '').trim().toLowerCase();
+      const prov = document.getElementById('combo-picker-prov-select')?.value || '';
+      const listEl = document.getElementById('combo-picker-list');
+      const countEl = document.getElementById('lbl-picker-count');
+      if (!listEl) return;
+
+      // 1. Lọc danh sách Combos (Ưu tiên hiển thị combo)
+      let availableCombos = [];
+      if (prov === '' || prov === '__combos__') {
+        availableCombos = combos.filter(cb => {
+          // Không cho phép chọn chính combo đang chỉnh sửa (tránh self-loop)
+          if (comboEditingId && cb.comboId === comboEditingId) return false;
+          if (search) {
+            const key = ('combo:' + cb.comboId).toLowerCase();
+            const name = (cb.name || '').toLowerCase();
+            const desc = (cb.description || '').toLowerCase();
+            if (!key.includes(search) && !name.includes(search) && !desc.includes(search)) return false;
+          }
+          return true;
+        });
+      }
+
+      // 2. Lọc danh sách Models thông thường theo provider và tính năng
+      let filteredModels = [];
+      if (prov !== '__combos__' && comboPickerActiveFilter !== 'combos') {
+        filteredModels = models.filter(m => {
+          if (prov && m.providerId !== prov) return false;
+          if (comboPickerActiveFilter === 'free' && !m.isTrueFree) return false;
+          if (comboPickerActiveFilter === 'tools' && !(m.capabilities || []).includes('tools')) return false;
+          if (comboPickerActiveFilter === 'vision' && !(m.capabilities || []).includes('vision')) return false;
+          if (search) {
+            const key = \`\${m.providerId}/\${m.modelId}\`.toLowerCase();
+            const pPreset = presets.find(x => x.id === m.providerId);
+            const pName = (pPreset?.name || '').toLowerCase();
+            if (!key.includes(search) && !pName.includes(search)) return false;
+          }
+          return true;
+        });
+      }
+
+      const totalItems = availableCombos.length + filteredModels.length;
+      if (countEl) {
+        countEl.textContent = \`\${availableCombos.length} combos • \${filteredModels.length} models\`;
+      }
+
+      if (totalItems === 0) {
+        listEl.innerHTML = \`<div style="color:var(--text-muted); font-size:11px; padding:16px; text-align:center;">\${currentLang === 'vi' ? 'Không tìm thấy combo hoặc model phù hợp.' : 'No matching combos or models found.'}</div>\`;
+        return;
+      }
+
+      let html = '';
+
+      // --- SECTION 1: ƯU TIÊN HIỂN THỊ COMBOS LÊN ĐẦU ---
+      if (availableCombos.length > 0) {
+        html += \`
+          <div style="position:sticky; top:0; z-index:2; background:var(--card-bg); border-left:3px solid var(--accent); padding:4px 8px; margin:2px 0 6px; display:flex; align-items:center; justify-content:space-between; border-radius:0 4px 4px 0;">
+            <span style="font-size:11px; font-weight:700; color:var(--accent); letter-spacing:0.5px;">🔀 \${currentLang === 'vi' ? 'CUSTOM COMBOS (ƯU TIÊN)' : 'CUSTOM COMBOS (PRIORITY)'}</span>
+            <span class="badge badge-purple" style="font-size:9px; padding:1px 5px;">\${availableCombos.length}</span>
+          </div>
+        \`;
+        for (const cb of availableCombos) {
+          const comboKey = 'combo:' + cb.comboId;
+          const inChain = tempComboChain.includes(comboKey);
+          const modelCount = (cb.models || []).length;
+          html += \`
+            <div class="combo-picker-card" style="border:1px solid rgba(99, 102, 241, 0.25); background:rgba(99, 102, 241, 0.04); margin-bottom:6px;">
+              <div style="min-width:0; flex:1; margin-right:8px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span style="font-size:12px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    \${cb.name}
+                  </span>
+                  <span class="badge badge-purple" style="font-size:9px; padding:0 4px; flex-shrink:0;">🔀 Combo</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                  <code style="font-size:11px; color:var(--accent);">\${comboKey}</code>
+                  <span style="font-size:10px; color:var(--text-muted);">• \${modelCount} models</span>
+                </div>
+                \${cb.description ? \`<div style="font-size:10px; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">\${cb.description}</div>\` : ''}
+              </div>
+              \${inChain
+                ? \`<button type="button" class="btn btn-outline btn-sm" style="font-size:10px; padding:2px 8px; opacity:0.6;" disabled>✓ \${currentLang === 'vi' ? 'Đã thêm' : 'Added'}</button>\`
+                : \`<button type="button" class="btn btn-primary btn-sm" style="font-size:10px; padding:2px 8px;" onclick="addModelToComboChain('\${comboKey}')">+ \${currentLang === 'vi' ? 'Thêm' : 'Add'}</button>\`
+              }
+            </div>
+          \`;
+        }
+      }
+
+      // --- SECTION 2: PHÂN LOẠI MODEL THEO PROVIDER ---
+      if (filteredModels.length > 0) {
+        const provGroups = new Map();
+        for (const m of filteredModels) {
+          if (!provGroups.has(m.providerId)) {
+            provGroups.set(m.providerId, []);
+          }
+          provGroups.get(m.providerId).push(m);
+        }
+
+        const sortedProvIds = Array.from(provGroups.keys()).sort((a, b) => {
+          const nameA = (presets.find(p => p.id === a)?.name || a).toLowerCase();
+          const nameB = (presets.find(p => p.id === b)?.name || b).toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+
+        for (const provId of sortedProvIds) {
+          const provModels = provGroups.get(provId);
+          const pr = presets.find(p => p.id === provId);
+          const provName = pr ? pr.name : provId;
+
+          html += \`
+            <div style="position:sticky; top:0; z-index:1; background:var(--card-bg); border-left:3px solid var(--border-focus); padding:4px 8px; margin:10px 0 4px; display:flex; align-items:center; justify-content:space-between; border-radius:0 4px 4px 0;">
+              <span style="font-size:11px; font-weight:700; color:var(--text); letter-spacing:0.3px;">🏢 \${provName} <span style="font-size:10px; font-weight:normal; color:var(--text-muted);">(\${provId})</span></span>
+              <span class="badge badge-gray" style="font-size:9px; padding:1px 5px;">\${provModels.length} models</span>
+            </div>
+          \`;
+
+          for (const m of provModels.slice(0, 50)) {
+            const key = \`\${m.providerId}/\${m.modelId}\`;
+            const inChain = tempComboChain.includes(key);
+            const hasTools = (m.capabilities || []).includes('tools');
+            const hasVision = (m.capabilities || []).includes('vision');
+            const isFree = m.isTrueFree;
+
+            html += \`
+              <div class="combo-picker-card">
+                <div style="min-width:0; flex:1; margin-right:8px;">
+                  <div style="font-size:12px; font-weight:600; font-family:var(--font-mono); color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    \${m.modelId}
+                  </div>
+                  <div style="display:flex; align-items:center; gap:4px; margin-top:2px; flex-wrap:wrap;">
+                    <span style="font-size:10px; color:var(--text-dim);">\${m.providerId}</span>
+                    \${isFree ? '<span class="badge badge-green" style="font-size:9px; padding:0 4px;">100% Free</span>' : ''}
+                    \${hasTools ? '<span class="badge badge-blue" style="font-size:9px; padding:0 4px;">🔧 Tools</span>' : ''}
+                    \${hasVision ? '<span class="badge badge-yellow" style="font-size:9px; padding:0 4px;">👁️</span>' : ''}
+                  </div>
+                </div>
+                \${inChain 
+                  ? \`<button type="button" class="btn btn-outline btn-sm" style="font-size:10px; padding:2px 8px; opacity:0.6;" disabled>✓ \${currentLang === 'vi' ? 'Đã thêm' : 'Added'}</button>\`
+                  : \`<button type="button" class="btn btn-primary btn-sm" style="font-size:10px; padding:2px 8px;" onclick="addModelToComboChain('\${key}')">+ \${currentLang === 'vi' ? 'Thêm' : 'Add'}</button>\`
+                }
+              </div>
+            \`;
+          }
+        }
+      }
+
+      listEl.innerHTML = html;
+    }
+
+    function addModelToComboChain(val) {
       if (!val) return;
       if (!tempComboChain.includes(val)) {
         tempComboChain.push(val);
         renderTempComboChain();
+        filterComboPickerModels();
       }
     }
 
     function removeModelFromComboChain(idx) {
       tempComboChain.splice(idx, 1);
       renderTempComboChain();
+      filterComboPickerModels();
+    }
+
+    function moveModelInComboChain(idx, dir) {
+      const targetIdx = idx + dir;
+      if (targetIdx < 0 || targetIdx >= tempComboChain.length) return;
+      const item = tempComboChain.splice(idx, 1)[0];
+      tempComboChain.splice(targetIdx, 0, item);
+      renderTempComboChain();
+    }
+
+    function clearTempComboChain() {
+      if (tempComboChain.length === 0) return;
+      tempComboChain = [];
+      renderTempComboChain();
+      filterComboPickerModels();
+    }
+
+    function applyComboTemplate(type) {
+      if (type === 'coding') {
+        const codingCandidates = [
+          'gemini/gemini-2.5-flash',
+          'gemini/gemini-3.6-flash',
+          'groq/qwen/qwen3.8-27b',
+          'openrouter/google/gemini-2.0-flash-exp:free',
+          'groq/llama-3.3-70b-versatile'
+        ];
+        tempComboChain = codingCandidates.filter(c => {
+          const [p, ...rest] = c.split('/');
+          const mid = rest.join('/');
+          return models.some(m => m.providerId === p && m.modelId === mid);
+        });
+        if (tempComboChain.length === 0) {
+          tempComboChain = ['gemini/gemini-2.5-flash', 'gemini/gemini-3.6-flash'];
+        }
+      } else if (type === 'speed') {
+        const speedCandidates = [
+          'cerebras/llama3.1-8b',
+          'groq/llama-3.1-8b-instant',
+          'cerebras/llama-3.3-70b',
+          'groq/llama-3.3-70b-versatile',
+          'gemini/gemini-2.5-flash'
+        ];
+        tempComboChain = speedCandidates.filter(c => {
+          const [p, ...rest] = c.split('/');
+          const mid = rest.join('/');
+          return models.some(m => m.providerId === p && m.modelId === mid);
+        });
+        if (tempComboChain.length === 0) {
+          tempComboChain = ['groq/llama-3.1-8b-instant', 'gemini/gemini-2.5-flash'];
+        }
+      } else if (type === 'chat') {
+        const chatCandidates = [
+          'api-airforce/chatgpt-4o-latest',
+          'gemini/gemini-2.5-flash',
+          'openrouter/meta-llama/llama-3.3-70b-instruct:free',
+          'groq/llama-3.3-70b-versatile'
+        ];
+        tempComboChain = chatCandidates.filter(c => {
+          const [p, ...rest] = c.split('/');
+          const mid = rest.join('/');
+          return models.some(m => m.providerId === p && m.modelId === mid);
+        });
+        if (tempComboChain.length === 0) {
+          tempComboChain = ['gemini/gemini-2.5-flash'];
+        }
+      }
+      renderTempComboChain();
+      filterComboPickerModels();
     }
 
     function renderTempComboChain() {
       const box = document.getElementById('combo-chain-list');
+      const statusEl = document.getElementById('combo-tools-status');
+      if (!box) return;
+
       if (tempComboChain.length === 0) {
-        box.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Chưa chọn model nào. Hãy chọn model và bấm Thêm!</div>';
+        box.innerHTML = \`<div style="color:var(--text-muted); font-size:12px; padding:24px 12px; text-align:center;">
+          \${currentLang === 'vi' ? 'Chuỗi đang trống. Hãy chọn combo hoặc model từ bảng bên trái hoặc bấm mẫu 1-Click ở trên!' : 'Chain is empty. Choose combos or models from the left panel or click a 1-Click template above!'}
+        </div>\`;
+        if (statusEl) statusEl.innerHTML = '';
         return;
       }
+
       let html = '';
+      let toolSupportCount = 0;
+
       for (let i = 0; i < tempComboChain.length; i++) {
+        const fullId = tempComboChain[i];
+        const isCombo = fullId.startsWith('combo:');
+        let displayName = fullId;
+        let subText = '';
+        let hasTools = false;
+        let isFree = false;
+        let hasVision = false;
+
+        if (isCombo) {
+          const cId = fullId.slice('combo:'.length);
+          const cbObj = combos.find(c => c.comboId === cId);
+          displayName = cbObj ? cbObj.name : cId;
+          subText = \`combo:\${cId} • \${(cbObj?.models || []).length} models\`;
+          if (cbObj && cbObj.models) {
+            hasTools = cbObj.models.some(mId => {
+              const [p, ...rest] = mId.split('/');
+              const mod = rest.join('/');
+              return models.some(m => m.providerId === p && m.modelId === mod && (m.capabilities || []).includes('tools'));
+            });
+          }
+        } else {
+          const [prov, ...rest] = fullId.split('/');
+          const modId = rest.join('/');
+          const mObj = models.find(m => m.providerId === prov && m.modelId === modId);
+          displayName = modId || fullId;
+          subText = prov;
+          hasTools = (mObj?.capabilities || []).includes('tools');
+          hasVision = (mObj?.capabilities || []).includes('vision');
+          isFree = mObj?.isTrueFree;
+        }
+
+        if (hasTools) toolSupportCount++;
+
+        const isPrimary = i === 0;
+        const rankLabel = isPrimary 
+          ? (currentLang === 'vi' ? '★ #1 Ưu Tiên Chính' : '★ #1 Primary') 
+          : (currentLang === 'vi' ? \`#\${i + 1} Dự Phòng \${i}\` : \`#\${i + 1} Fallback \${i}\`);
+        const rankColor = isPrimary ? 'var(--accent)' : 'var(--text-muted)';
+        const rankBg = isPrimary ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.05)';
+
         html += \`
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
-            <span style="font-family:var(--font-mono); font-size:12px;">\${i + 1}. \${tempComboChain[i]}</span>
-            <button class="btn btn-danger btn-sm" style="padding:1px 6px;" onclick="removeModelFromComboChain(\${i})">✕</button>
+          <div class="chain-card" style="\${isCombo ? 'border-left: 3px solid #a855f7;' : ''}">
+            <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+              <span style="font-size:10px; font-weight:700; color:\${rankColor}; background:\${rankBg}; padding:2px 6px; border-radius:4px; white-space:nowrap;">
+                \${rankLabel}
+              </span>
+              <div style="min-width:0; flex:1;">
+                <div style="font-size:12px; font-weight:600; font-family:\${isCombo ? 'var(--font-sans)' : 'var(--font-mono)'}; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  \${displayName}
+                </div>
+                <div style="display:flex; align-items:center; gap:4px; margin-top:2px; flex-wrap:wrap;">
+                  \${isCombo 
+                    ? \`<span class="badge badge-purple" style="font-size:9px; padding:0 4px;">🔀 Combo</span><span style="font-size:10px; color:var(--text-dim); font-family:var(--font-mono);">\${subText}</span>\` 
+                    : \`<span style="font-size:10px; color:var(--text-dim);">\${subText}</span>\`}
+                  \${isFree ? '<span class="badge badge-green" style="font-size:9px; padding:0 3px;">Free</span>' : ''}
+                  \${hasTools ? '<span class="badge badge-blue" style="font-size:9px; padding:0 3px;">🔧 Tools</span>' : '<span style="font-size:9px; color:var(--text-dim);">(No Tools)</span>'}
+                  \${hasVision ? '<span class="badge badge-yellow" style="font-size:9px; padding:0 3px;">👁️</span>' : ''}
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:3px; margin-left:6px; flex-shrink:0;">
+              <button type="button" class="chain-btn-move" title="\${currentLang === 'vi' ? 'Đẩy lên trước' : 'Move up'}" onclick="moveModelInComboChain(\${i}, -1)" \${i === 0 ? 'disabled style="opacity:0.25; cursor:not-allowed;"' : ''}>▲</button>
+              <button type="button" class="chain-btn-move" title="\${currentLang === 'vi' ? 'Đẩy xuống sau' : 'Move down'}" onclick="moveModelInComboChain(\${i}, 1)" \${i === tempComboChain.length - 1 ? 'disabled style="opacity:0.25; cursor:not-allowed;"' : ''}>▼</button>
+              <button type="button" class="btn btn-danger btn-sm" style="padding:1px 6px; font-size:11px; margin-left:4px;" title="\${currentLang === 'vi' ? 'Xóa khỏi chuỗi' : 'Remove'}" onclick="removeModelFromComboChain(\${i})">✕</button>
+            </div>
           </div>
         \`;
       }
       box.innerHTML = html;
+
+      if (statusEl) {
+        if (toolSupportCount === tempComboChain.length) {
+          statusEl.innerHTML = \`<span style="color:var(--success); font-weight:600;">✓ 100% mục (\${toolSupportCount}/\${tempComboChain.length}) hỗ trợ Function Calling / Tools (Sẵn sàng cho VS Code Copilot & Cursor).</span>\`;
+        } else if (toolSupportCount > 0) {
+          statusEl.innerHTML = \`<span style="color:var(--warning); font-weight:600;">ℹ️ \${toolSupportCount}/\${tempComboChain.length} mục hỗ trợ Tools. Khi IDE gọi function tools, FreeRoute sẽ tự động định tuyến tới các model/combo có Tools.</span>\`;
+        } else {
+          statusEl.innerHTML = \`<span style="color:var(--error); font-weight:600;">⚠️ Chưa có mục nào hỗ trợ Tools. Nếu dùng cho IDE Copilot/Agent, hãy thêm model có biểu tượng 🔧 Tools (vd: Gemini, Groq Qwen, OpenRouter...).</span>\`;
+        }
+      }
     }
 
     async function submitCreateCombo() {
@@ -2572,7 +3259,7 @@ print(response.choices[0].message.content)</div>
 
         if (res.ok) {
           closeCreateComboModal();
-          showToast(currentLang === 'vi' ? 'Tạo combo thành công!' : 'Combo created successfully!');
+          showToast(currentLang === 'vi' ? 'Lưu combo thành công!' : 'Combo saved successfully!');
           await fetchCombos();
           renderCombos();
         } else {
@@ -2583,6 +3270,7 @@ print(response.choices[0].message.content)</div>
         showToast(err.message, true);
       }
     }
+
 
     async function deleteCombo(comboId) {
       if (!confirm(currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa combo này?' : 'Delete this combo?')) return;

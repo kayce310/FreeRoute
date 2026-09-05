@@ -572,15 +572,32 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (target.profile === 'combo' && target.comboModels && target.comboModels.length > 0) {
           let lastError: unknown = null;
           let contextOverflowCount = 0;
+          const reqCaps = capabilitiesForProfile('named', !!(input.tools?.length), !!input.stream, input.responseFormat, input.hasVision);
+          const catalogModels = options.catalog ? await options.catalog.list() : [];
+          const attemptedSteps: Array<{ model: string; error: string }> = [];
+
           for (const cm of target.comboModels) {
-            const sep = cm.indexOf('/');
-            const cProv = sep > 0 ? cm.slice(0, sep) : undefined;
-            const cMod = sep > 0 ? cm.slice(sep + 1) : cm;
+            const parsedCm = parseRequestedModel(cm, options.combos);
+            const cProv = parsedCm.providerId;
+            const cMod = parsedCm.modelId ?? cm;
+
+            // If the request requires tools or vision, check if this combo model supports it
+            if (reqCaps.includes('tools') || reqCaps.includes('vision')) {
+              const matchedCatalog = catalogModels.filter(m => (!cProv || m.providerId === cProv) && m.modelId === cMod);
+              if (matchedCatalog.length > 0) {
+                const hasRequired = matchedCatalog.some(m => reqCaps.every(c => m.capabilities.includes(c)));
+                if (!hasRequired) {
+                  attemptedSteps.push({ model: cm, error: `missing required capability (${reqCaps.filter(c => c === 'tools' || c === 'vision').join(', ')})` });
+                  continue;
+                }
+              }
+            }
+
             try {
               if (input.stream) {
                 const result = await options.chat.stream({
                   profile: 'named',
-                  requiredCapabilities: capabilitiesForProfile('named', !!(input.tools?.length), true, input.responseFormat, input.hasVision),
+                  requiredCapabilities: reqCaps,
                   requestedProviderId: cProv,
                   requestedModel: cMod,
                   messages: input.messages,
@@ -626,7 +643,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               } else {
                 const result = await options.chat.complete({
                   profile: 'named',
-                  requiredCapabilities: capabilitiesForProfile('named', !!(input.tools?.length), false, input.responseFormat, input.hasVision),
+                  requiredCapabilities: reqCaps,
                   requestedProviderId: cProv,
                   requestedModel: cMod,
                   messages: input.messages,
@@ -672,6 +689,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               }
             } catch (err) {
               lastError = err;
+              const errMsg = err instanceof Error ? err.message : String(err);
+              attemptedSteps.push({ model: cm, error: errMsg });
               if (err instanceof ProviderInvocationError && err.failure.kind === 'context_overflow') {
                 contextOverflowCount += 1;
               }
@@ -688,7 +707,19 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             });
             return;
           }
-          throw lastError || new Error('no eligible route candidates in combo');
+
+          const stepsSummary = attemptedSteps.length > 0
+            ? attemptedSteps.map(s => `${s.model}: ${s.error}`).join('; ')
+            : 'no matching models found in combo';
+          sendJson(response, 503, {
+            error: {
+              message: `Không có model nào trong combo "${input.model}" hoàn thành được yêu cầu (hoặc tất cả upstream đều lỗi/thiếu capability). Chi tiết: [${stepsSummary}]. Vui lòng kiểm tra API key hoặc cấu hình lại combo tại http://127.0.0.1:8787!`,
+              type: 'combo_exhausted',
+              code: 'no_combo_candidates',
+              attempted: attemptedSteps,
+            },
+          });
+          return;
         }
 
         if (input.stream) {
@@ -889,7 +920,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             message: 'Chưa có API key nào khả dụng cho profile/model này (hoặc tất cả upstream đều lỗi). Vui lòng truy cập http://127.0.0.1:8787 để kiểm tra hoặc thêm key! / No active route candidates available. Please open http://127.0.0.1:8787 to configure credentials.',
             type: 'no_route_candidates',
             code: 'no_candidates',
-            diagnostics: diagnostics.length ? diagnostics : undefined,
+            diagnostics: diagnostics.length ? diagnostics.slice(0, 20) : undefined,
           },
         });
         return;
@@ -1123,26 +1154,75 @@ function isToolDefinition(value: unknown): value is import('./inference.js').Too
   return tool.type === 'function' && typeof tool.function?.name === 'string' && tool.function.name.length > 0;
 }
 
-function parseRequestedModel(model: string, comboStore?: import('./storage/sqlite-combo-store.js').SqliteComboStore): { profile: string; providerId?: string; modelId?: string; comboModels?: string[] } {
-  if (model.startsWith('auto:')) return { profile: model };
-  if (model.startsWith('combo:')) {
-    const cId = model.slice('combo:'.length).trim();
+export function expandComboModels(
+  models: string[],
+  comboStore?: import('./storage/sqlite-combo-store.js').SqliteComboStore,
+  visited = new Set<string>()
+): string[] {
+  const result: string[] = [];
+  if (!comboStore) return models;
+
+  for (const m of models) {
+    const trimmed = m.trim();
+    let subComboId: string | null = null;
+    if (trimmed.startsWith('combo:')) {
+      subComboId = trimmed.slice('combo:'.length).trim();
+    } else if (comboStore.get(trimmed)) {
+      subComboId = trimmed;
+    }
+
+    if (subComboId) {
+      if (visited.has(subComboId)) {
+        // Cycle detected: skip to prevent infinite recursion
+        continue;
+      }
+      const nextVisited = new Set(visited);
+      nextVisited.add(subComboId);
+      const subCombo = comboStore.get(subComboId);
+      if (subCombo && subCombo.models && subCombo.models.length > 0) {
+        const expanded = expandComboModels(subCombo.models, comboStore, nextVisited);
+        result.push(...expanded);
+      }
+    } else {
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+export function parseRequestedModel(model: string, comboStore?: import('./storage/sqlite-combo-store.js').SqliteComboStore): { profile: string; providerId?: string; modelId?: string; comboModels?: string[] } {
+  const trimmed = model.trim();
+  if (trimmed.startsWith('auto:')) return { profile: trimmed };
+  if (trimmed.startsWith('combo:')) {
+    const cId = trimmed.slice('combo:'.length).trim();
     const combo = comboStore?.get(cId);
     if (combo && combo.models.length > 0) {
-      return { profile: 'combo', comboModels: combo.models };
+      return { profile: 'combo', comboModels: expandComboModels(combo.models, comboStore, new Set([cId])) };
     }
   }
   if (comboStore) {
-    const combo = comboStore.get(model.trim());
+    const combo = comboStore.get(trimmed);
     if (combo && combo.models.length > 0) {
-      return { profile: 'combo', comboModels: combo.models };
+      return { profile: 'combo', comboModels: expandComboModels(combo.models, comboStore, new Set([trimmed])) };
     }
   }
-  const separator = model.indexOf('/');
-  if (separator > 0 && separator < model.length - 1) {
-    return { profile: 'named', providerId: model.slice(0, separator), modelId: model.slice(separator + 1) };
+
+  // Handle provider aliases where models start with known short prefixes
+  if (trimmed.startsWith('ag/')) {
+    return { profile: 'named', providerId: 'antigravity', modelId: trimmed };
   }
-  return { profile: 'named', modelId: model };
+  if (trimmed.startsWith('cl/')) {
+    return { profile: 'named', providerId: 'cline', modelId: trimmed };
+  }
+  if (trimmed.startsWith('kr/')) {
+    return { profile: 'named', providerId: 'kiro', modelId: trimmed };
+  }
+
+  const separator = trimmed.indexOf('/');
+  if (separator > 0 && separator < trimmed.length - 1) {
+    return { profile: 'named', providerId: trimmed.slice(0, separator), modelId: trimmed.slice(separator + 1) };
+  }
+  return { profile: 'named', modelId: trimmed };
 }
 
 function isAuthorized(request: IncomingMessage, expectedToken: string | undefined): boolean {

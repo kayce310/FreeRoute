@@ -1,5 +1,5 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
-import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
+import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent, type ToolCall } from '../inference.js';
 import type { TokenUsage } from '../contracts.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
@@ -50,10 +50,22 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     } while (pageToken);
     return models
       .filter((model) => model.name && model.supportedGenerationMethods?.includes('generateContent'))
-      .map((model) => ({ modelId: model.name!.replace(/^models\//, ''), capabilities: ['chat', 'streaming'], freeTier: 'free_unverified' as const }));
+      .map((model) => {
+        const id = model.name!.replace(/^models\//, '');
+        const isTtsOrAudio = id.includes('tts') || id.includes('audio');
+        const caps: import('../contracts.js').Capability[] = ['chat', 'streaming'];
+        if (!isTtsOrAudio) {
+          caps.push('tools', 'vision');
+        }
+        return {
+          modelId: id,
+          capabilities: caps,
+          freeTier: 'free_unverified' as const,
+        };
+      });
   }
 
-  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
+  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): Promise<{ id: string; model: string; content: string; toolCalls?: ToolCall[]; usage?: TokenUsage }> {
     let response: Response;
     try {
       const headers = await this.headers(input.credentialId);
@@ -66,10 +78,23 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`Gemini connection error: ${msg}`, { kind: 'temporary' });
+      throw new ProviderInvocationError(`Gemini connection error: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
     }
 
-    if (!response.ok) throw await providerError(response);
+    if (!response.ok) {
+      if (response.status === 404 && (input.modelId === 'gemini-2.5-flash' || input.modelId === 'gemini-2.0-flash')) {
+        const errorText = await response.clone().text().catch(() => '');
+        if (errorText.includes('gemini-3.6-flash') || errorText.includes('no longer available to new users')) {
+          return this.chat({ ...input, modelId: 'gemini-3.6-flash' });
+        }
+      }
+      throw await providerError(response);
+    }
     const body = await response.json() as GeminiResponse;
     const content = textFrom(body);
     const toolCalls = toolCallsFrom(body);
@@ -77,7 +102,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     return { id: body.responseId ?? crypto.randomUUID(), model: body.modelVersion ?? input.modelId, content: content ?? '', toolCalls: toolCalls.length ? toolCalls : undefined, usage: usageFrom(body.usageMetadata) };
   }
 
-  async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
+  async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): AsyncGenerator<NormalizedChatStreamEvent, void, unknown> {
     const url = new URL(this.url(input.modelId, 'streamGenerateContent'));
     url.searchParams.set('alt', 'sse');
     let response: Response;
@@ -92,10 +117,24 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
-      throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, { kind: 'temporary' });
+      throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
     }
 
-    if (!response.ok) throw await providerError(response);
+    if (!response.ok) {
+      if (response.status === 404 && (input.modelId === 'gemini-2.5-flash' || input.modelId === 'gemini-2.0-flash')) {
+        const errorText = await response.clone().text().catch(() => '');
+        if (errorText.includes('gemini-3.6-flash') || errorText.includes('no longer available to new users')) {
+          yield* this.streamChat({ ...input, modelId: 'gemini-3.6-flash' });
+          return;
+        }
+      }
+      throw await providerError(response);
+    }
     if (!response.body) throw new ProviderInvocationError('Gemini returned no streaming response body', { kind: 'temporary' });
     const decoder = new TextDecoder();
     let pending = '';
@@ -231,14 +270,58 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
     extractedMessage = rawBody.slice(0, 300);
   }
 
-  const kind = isContextOverflowError(response.status, rawBody)
-    ? 'context_overflow'
-    : response.status === 401 || response.status === 403 ? 'authentication'
-    : response.status === 429 ? 'rate_limit'
-      : response.status === 408 || response.status >= 500 ? 'temporary'
-        : response.status === 400 || response.status === 404 ? 'unsupported' : 'permanent';
+  const isOverflow = isContextOverflowError(response.status, rawBody);
+  let kind: import('../contracts.js').RouteFailureKind;
+  let scope: import('../contracts.js').RouteFailureScope;
+  let fallbackAllowed = true;
+  let retryable = false;
+
+  if (isOverflow) {
+    kind = 'context_overflow';
+    scope = 'model';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 401 || response.status === 403) {
+    kind = 'authentication';
+    scope = 'key';
+    retryable = false;
+    fallbackAllowed = true;
+  } else if (response.status === 429) {
+    kind = 'rate_limit';
+    scope = 'key';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 408 || response.status >= 500) {
+    kind = 'temporary';
+    scope = 'provider';
+    retryable = true;
+    fallbackAllowed = true;
+  } else if (response.status === 404) {
+    kind = 'unsupported';
+    scope = 'key';
+    retryable = false;
+    fallbackAllowed = true;
+  } else if (response.status === 400) {
+    kind = 'unsupported';
+    scope = 'request';
+    retryable = false;
+    fallbackAllowed = false;
+  } else {
+    kind = 'permanent';
+    scope = 'provider';
+    retryable = false;
+    fallbackAllowed = false;
+  }
 
   const errPrefix = `Gemini request failed with HTTP ${response.status}`;
   const fullMessage = extractedMessage ? `${errPrefix}: ${extractedMessage}` : errPrefix;
-  return new ProviderInvocationError(fullMessage, { kind, retryAfterMs, message: extractedMessage });
+  return new ProviderInvocationError(fullMessage, {
+    kind,
+    scope,
+    fallbackAllowed,
+    retryable,
+    sourceStatus: response.status,
+    retryAfterMs,
+    message: extractedMessage,
+  });
 }
