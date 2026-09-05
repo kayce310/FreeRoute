@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 export interface ProviderDefinition {
   providerId: string;
-  adapterType: 'openai-compatible' | 'gemini';
+  adapterType: 'openai-compatible' | 'gemini' | 'anthropic';
   baseUrl: string;
   classifyAsFree?: string;
   enabled: boolean;
