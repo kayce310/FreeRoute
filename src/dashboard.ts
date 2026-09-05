@@ -1741,12 +1741,12 @@ print(response.choices[0].message.content)</div>
         titleCatalogCombos: '🔀 Chuỗi Fallback Dự Phòng & Profile Khuyên Dùng Cho IDE / Tool',
         descCatalogCombos: 'Cấu hình các Model ID này vào VS Code Copilot, Cursor, Continue.dev... để tận hưởng tự động chuyển vùng fallback khi có sự cố.',
         btnGotoCombos: '⚙️ Quản Lý / Tạo Combo Mới',
-        btnCopyId: '📋 Copy ID',
-        btnTestCombo: '🧪 Test',
+        btnCopyId: 'Sao Chép',
+        btnTestCombo: 'Thử',
         titleCombos: 'Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)',
         descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
         btnCreateCombo: '➕ Tạo Combo Mới',
-        btnEditCombo: '✏️ Sửa',
+        btnEditCombo: 'Sửa',
         keysTitle: 'Khóa API Đã Lưu (Mã Hóa AES-256-GCM)',
         credsSecNote: '<strong>🛡️ An Toàn Tuyệt Đối & Tách Biệt GitHub:</strong> Tất cả khóa API được mã hóa AES-256-GCM và lưu trữ độc lập trong file SQLite cục bộ (<code>data/freeroute.sqlite</code>). File này được cấu hình trong <code>.gitignore</code>, hoàn toàn tách biệt với mã nguồn và không bao giờ bị đẩy lên GitHub!',
         thUpdated: 'Cập Nhật',
@@ -1864,12 +1864,12 @@ print(response.choices[0].message.content)</div>
         titleCatalogCombos: '🔀 Recommended Fallback Chains & Auto Profiles for IDEs / Tools',
         descCatalogCombos: 'Use these Model IDs in VS Code Copilot, Cursor, Continue.dev... to automatically failover to secondary models when errors or rate limits occur.',
         btnGotoCombos: '⚙️ Manage / Create Combos',
-        btnCopyId: '📋 Copy ID',
-        btnTestCombo: '🧪 Test',
+        btnCopyId: 'Copy ID',
+        btnTestCombo: 'Test',
         titleCombos: 'Custom Fallback Routing Chains (Combos)',
         descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
         btnCreateCombo: '➕ Create Combo',
-        btnEditCombo: '✏️ Edit',
+        btnEditCombo: 'Edit',
         keysTitle: 'Stored API Keys (Encrypted with AES-256-GCM)',
         credsSecNote: '<strong>🛡️ Security Guaranteed & GitHub-Safe:</strong> All API keys are encrypted with AES-256-GCM and stored locally in <code>data/freeroute.sqlite</code>. This file is excluded in <code>.gitignore</code> and will NEVER be leaked or committed to GitHub!',
         thUpdated: 'Updated',
@@ -2896,9 +2896,9 @@ print(response.choices[0].message.content)</div>
                   </div>
                 </div>
                 <div class="combo-card-actions">
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')" title="Copy combo ID">\${t('btnCopyId')}</button>
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')" title="Edit combo">\${t('btnEditCombo')}</button>
-                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')" title="Test combo">\${t('btnTestCombo')}</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')" title="Copy combo ID">📋 \${t('btnCopyId')}</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')" title="Edit combo">✏️ \${t('btnEditCombo')}</button>
+                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')" title="Test combo">🧪 \${t('btnTestCombo')}</button>
                 </div>
               </div>
             \`;
