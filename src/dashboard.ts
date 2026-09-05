@@ -1695,8 +1695,8 @@ print(response.choices[0].message.content)</div>
         tokenStatsTitle: 'Thống Kê Token Tiêu Thụ',
         thTokProvider: 'Nhà Cung Cấp',
         thTokCount: 'Số Yêu Cầu',
-        thTokPrompt: 'Prompt Tokens',
-        thTokCompletion: 'Completion Tokens',
+        thTokPrompt: 'Token Đầu Vào (Prompt)',
+        thTokCompletion: 'Token Đầu Ra (Completion)',
         thTokTotal: 'Tổng Token (với biểu đồ)',
         noTokenData: 'Chưa có dữ liệu token',
         guideHead: '🛡️ Cẩm Nang Kết Nối & Bảo Vệ Tài Khoản An Toàn Tuyệt Đối',
@@ -2896,9 +2896,9 @@ print(response.choices[0].message.content)</div>
                   </div>
                 </div>
                 <div class="combo-card-actions">
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')">📋 Copy ID</button>
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')">✏️ Sửa</button>
-                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')">🧪 Test</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')">📋 \${t('btnCopyId')}</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')">✏️ \${t('btnEditCombo')}</button>
+                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')">🧪 \${t('btnTestCombo')}</button>
                 </div>
               </div>
             \`;
