@@ -20,10 +20,11 @@ export function supports(candidate: RouteCandidate, required: Capability[]): boo
 }
 
 export function isAvailable(candidate: RouteCandidate, now = new Date()): boolean {
-  return candidate.preference !== 'block'
-    && candidate.freeTier !== 'retired'
-    && candidate.freeTier !== 'paid'
-    && (!candidate.cooldownUntil || candidate.cooldownUntil <= now);
+  return Boolean(candidate.preference !== 'block')
+    && Boolean(candidate.freeTier !== 'retired')
+    && Boolean(candidate.freeTier !== 'paid')
+    && Boolean(candidate.credentialId) // Ensure a credentialId is present
+    && Boolean(!candidate.cooldownUntil || candidate.cooldownUntil <= now);
 }
 
 export function scoreCandidate(candidate: RouteCandidate): number {
@@ -90,6 +91,8 @@ export function getCandidateDiagnostics(request: RouteRequest, candidates: Route
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'provider_mismatch' });
     } else if (request.requestedModel && c.modelId !== request.requestedModel) {
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'model_mismatch' });
+    } else if (!c.credentialId) {
+      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'missing_credential' });
     } else if (c.cooldownUntil && c.cooldownUntil > now) {
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'cooldown', retryAt: c.cooldownUntil });
     }

@@ -98,9 +98,9 @@ npm start
 
 ### 4. Configure Your Keys (Web Dashboard)
 Open your browser at **[http://127.0.0.1:8787](http://127.0.0.1:8787)**:
-- Click **`⚡ Nhập Từ 9router & OmniRoute`** to automatically import your existing keys.
-- Or navigate to **Tab 5: Quản Lý API Key** to add keys manually.
-- Or click **`📥 Xuất Backup JSON`** / **`📤 Nhập từ JSON`** to migrate keys between machines.
+- Click **`⚡ Import From 9router & OmniRoute`** to automatically import your existing keys.
+- Or navigate to **Tab 5: API Key Management** to add keys manually.
+- Or click **`📥 Export Backup JSON`** / **`📤 Import from JSON`** to migrate keys between machines.
 
 ---
 
