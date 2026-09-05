@@ -1741,8 +1741,8 @@ print(response.choices[0].message.content)</div>
         titleCatalogCombos: '🔀 Chuỗi Fallback Dự Phòng & Profile Khuyên Dùng Cho IDE / Tool',
         descCatalogCombos: 'Cấu hình các Model ID này vào VS Code Copilot, Cursor, Continue.dev... để tận hưởng tự động chuyển vùng fallback khi có sự cố.',
         btnGotoCombos: '⚙️ Quản Lý / Tạo Combo Mới',
-        btnCopyId: '📋 Sao Chép ID',
-        btnTestCombo: '🧪 Thử Nghiệm',
+        btnCopyId: '📋 Copy ID',
+        btnTestCombo: '🧪 Test',
         titleCombos: 'Chuỗi Định Tuyến Dự Phòng Tùy Biến (Custom Combos)',
         descCombos: 'Tự thiết lập chuỗi Fallback theo ý muốn. Khi model trước gặp sự cố hoặc hết quota, FreeRoute sẽ tự động chuyển sang model kế tiếp!',
         btnCreateCombo: '➕ Tạo Combo Mới',
@@ -1865,7 +1865,7 @@ print(response.choices[0].message.content)</div>
         descCatalogCombos: 'Use these Model IDs in VS Code Copilot, Cursor, Continue.dev... to automatically failover to secondary models when errors or rate limits occur.',
         btnGotoCombos: '⚙️ Manage / Create Combos',
         btnCopyId: '📋 Copy ID',
-        btnTestCombo: '🧪 Test Model',
+        btnTestCombo: '🧪 Test',
         titleCombos: 'Custom Fallback Routing Chains (Combos)',
         descCombos: 'Define your own priority chains. When the primary model fails or hits quota limits, FreeRoute transparently routes to the next model in sequence!',
         btnCreateCombo: '➕ Create Combo',
@@ -2896,9 +2896,9 @@ print(response.choices[0].message.content)</div>
                   </div>
                 </div>
                 <div class="combo-card-actions">
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')">📋 \${t('btnCopyId')}</button>
-                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')">✏️ \${t('btnEditCombo')}</button>
-                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')">🧪 \${t('btnTestCombo')}</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="copyComboId('\${cb.comboId}')" title="Copy combo ID">\${t('btnCopyId')}</button>
+                  <button class="btn btn-sm btn-outline" style="flex:1; font-size:11px;" onclick="openCreateComboModal('\${cb.comboId}')" title="Edit combo">\${t('btnEditCombo')}</button>
+                  <button class="btn btn-sm btn-primary" style="flex:1; font-size:11px;" onclick="testCombo('\${cb.comboId}')" title="Test combo">\${t('btnTestCombo')}</button>
                 </div>
               </div>
             \`;
@@ -2913,44 +2913,36 @@ print(response.choices[0].message.content)</div>
         const autoProfiles = [
           {
             id: 'auto:code',
-            name: currentLang === 'vi' ? 'L\\u1eadp Tr\\u00ecnh & Tools (Coding & Agents)' : 'Coding & Function Calling',
-            desc: currentLang === 'vi' ? 'Chu\\u1ed7i \\u0111\\u1ecbnh tuy\\u1ebfn t\\u1ed1i \\u01b0u nh\\u1ea5t cho VS Code Copilot, Cursor, Continue.dev, Roo Code.' : 'Top priority fallback chain for coding agents, function calling and tools.',
-            badge: currentLang === 'vi' ? 'Khuy\\u00ean d\\u00f9ng cho IDE' : 'Recommended for IDEs',
+            name: currentLang === 'vi' ? 'Lập Trình & Tools' : 'Coding & Function Calling',
+            desc: currentLang === 'vi' ? 'Chuỗi định tuyến tối ưu cho VS Code Copilot, Cursor, Continue.dev, Roo Code.' : 'Top priority fallback chain for coding agents, function calling and tools.',
+            badge: currentLang === 'vi' ? 'Khuyên dùng IDE' : 'Recommended for IDEs',
             steps: ['groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'gemini/gemini-2.5-flash', 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free']
           },
           {
             id: 'auto:free',
-            name: currentLang === 'vi' ? '100% Mi\\u1ec5n Ph\\u00ed (Zero Cost)' : '100% Free Fallback',
-            desc: currentLang === 'vi' ? 'T\\u1ef1 \\u0111\\u1ed9ng ch\\u1ecdn model mi\\u1ec5n ph\\u00ed c\\u00f3 tr\\u1ea1ng th\\u00e1i t\\u1ed1t nh\\u1ea5t t\\u1eeb Groq, Gemini, OpenRouter, Cerebras.' : 'Automatically selects the best-health model from completely free tiers.',
-            badge: currentLang === 'vi' ? 'Mi\\u1ec5n ph\\u00ed' : '100% Free',
+            name: currentLang === 'vi' ? '100% Miễn Phí' : '100% Free Fallback',
+            desc: currentLang === 'vi' ? 'Chọn model miễn phí tốt nhất.' : 'Automatically selects best free-tier model.',
+            badge: currentLang === 'vi' ? 'Free' : 'Free',
             steps: ['gemini/gemini-2.5-flash', 'groq/llama-3.3-70b-versatile', 'cerebras/llama-3.3-70b', 'openrouter:free']
           },
           {
             id: 'auto:fast',
-            name: currentLang === 'vi' ? 'Si\\u00eau T\\u1ed1c \\u0110\\u1ed9 (Ultra Fast 500-1800 tps)' : 'Ultra-Fast Inference (500-1800 tps)',
-            desc: currentLang === 'vi' ? 'T\\u1ed1i \\u01b0u \\u0111\\u1ed9 tr\\u1ec5 th\\u1ea5p nh\\u1ea5t cho autocomplete v\\u00e0 inline chat t\\u1ee9c th\\u00ec.' : 'Optimized for minimum latency, ideal for inline completion and rapid chat.',
-            badge: currentLang === 'vi' ? 'T\\u1ed1c \\u0111\\u1ed9' : 'Ultra Fast',
+            name: currentLang === 'vi' ? 'Siêu Tốc' : 'Ultra-Fast Inference',
+            desc: currentLang === 'vi' ? 'Tối ưu độ trễ cho chat nhanh.' : 'Optimized for minimum latency.',
+            badge: currentLang === 'vi' ? 'Tốc độ' : 'Ultra Fast',
             steps: ['cerebras/llama-3.3-70b', 'groq/llama-3.1-8b-instant', 'cerebras/llama-3.1-8b']
           },
           {
             id: 'auto:long-context',
-            name: currentLang === 'vi' ? 'Ng\\u1eef C\\u1ea3nh Si\\u00eau L\\u1edbn (Long Context 1M+)' : 'Massive Context (1M+ Tokens)',
-            desc: currentLang === 'vi' ? '\\u0110\\u1ecdc to\\u00e0n b\\u1ed9 codebase ho\\u1eb7c t\\u00e0i li\\u1ec7u kh\\u1ed5ng l\\u1ed3 v\\u1edbi Gemini Flash 1M tokens.' : 'Process entire code repositories and massive books with 1M+ context window.',
-            badge: currentLang === 'vi' ? 'Ng\\u1eef c\\u1ea3nh' : '1M+ Context',
+            name: currentLang === 'vi' ? 'Ngữ Cảnh Siêu Lớn' : 'Massive Context (1M+)',
+            desc: currentLang === 'vi' ? 'Đọc toàn bộ codebase.' : 'Process massive repositories.',
+            badge: currentLang === 'vi' ? 'Context' : '1M+ Context',
             steps: ['gemini/gemini-2.5-flash (1M)', 'openrouter/google/gemini-2.0-flash-exp:free', 'openrouter/minimax/minimax-m2.7:free']
           }
         ];
 
         let catHtml = '';
-        // Render Auto Profiles
         for (const ap of autoProfiles) {
-          const chainSteps = ap.steps.map((s, idx) => \`
-            <div class="chain-step">
-              <span style="color:var(--text-muted); font-size:11px;">#\${idx + 1}</span>
-              <span>\${s}</span>
-            </div>
-          \`).join('<div class="chain-arrow">↓ fallback</div>');
-
           catHtml += \`
             <div class="combo-card" style="border-left: 3px solid var(--accent);">
               <div>
