@@ -1064,7 +1064,7 @@ export function dashboardHtml(): string {
       <button class="tab-btn active" onclick="switchTab('monitor')" id="tab-btn-monitor">📡 Giám Sát Sức Khỏe</button>
       <button class="tab-btn" onclick="switchTab('directory')" id="tab-btn-directory">🌐 Danh Mục Provider</button>
       <button class="tab-btn" onclick="switchTab('models')" id="tab-btn-models">📚 Danh Sách Model</button>
-      <button class="tab-btn" onclick="switchTab('combos')" id="tab-btn-combos">🔀 Custom Combos</button>
+      <button class="tab-btn" onclick="switchTab('combos')" id="tab-btn-combos">🔀 Chuỗi Fallback (Combos)</button>
       <button class="tab-btn" onclick="switchTab('credentials')" id="tab-btn-credentials">🔑 Quản Lý API Key</button>
       <button class="tab-btn" onclick="switchTab('playground')" id="tab-btn-playground">🧪 Test Playground</button>
       <button class="tab-btn" onclick="switchTab('guide')" id="tab-btn-guide">📖 Hướng Dẫn An Toàn</button>
@@ -1303,7 +1303,7 @@ export function dashboardHtml(): string {
           <div class="form-group" style="margin-bottom:0;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <label id="lbl-play-prompt" style="font-weight:600; margin-bottom:0;">Prompt Thử Nghiệm</label>
-              <span style="font-size:11px; color:var(--text-dim);">Nhấn <kbd style="background:var(--card-border); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); color:var(--text);">Ctrl + Enter</kbd> để gửi</span>
+              <span id="lbl-play-shortcut" style="font-size:11px; color:var(--text-dim);">Nhấn <kbd style="background:var(--card-border); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); color:var(--text);">Ctrl + Enter</kbd> để gửi</span>
             </div>
             <textarea class="form-control" id="play-prompt" rows="3" placeholder="Nhập câu hỏi tại đây..." style="font-family:var(--font); resize:vertical;">Giải thích ngắn gọn cơ chế Fallback của FreeRoute trong 2 câu.</textarea>
           </div>
@@ -1488,9 +1488,9 @@ print(response.choices[0].message.content)</div>
         <!-- Quick Templates -->
         <div class="combo-quick-templates">
           <span style="font-size:11px; font-weight:600; color:var(--text-muted);" id="lbl-combo-templates">⚡ Mẫu gợi ý sẵn (1-Click):</span>
-          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('coding')">💻 Coding & Copilot IDE</button>
-          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('speed')">⚡ Siêu Tốc (Cerebras/Groq)</button>
-          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('chat')">💬 Hội Thoại Thông Minh</button>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('coding')" id="btn-tpl-coding">💻 Coding & Copilot IDE</button>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('speed')" id="btn-tpl-speed">⚡ Siêu Tốc (Cerebras/Groq)</button>
+          <button type="button" class="btn btn-outline btn-sm" style="font-size:11px; padding:2px 8px;" onclick="applyComboTemplate('chat')" id="btn-tpl-chat">💬 Hội Thoại Thông Minh</button>
         </div>
 
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
@@ -1536,7 +1536,7 @@ print(response.choices[0].message.content)</div>
           <div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <span style="font-weight:600; font-size:12px;" id="lbl-chain-heading">🔀 Chuỗi Fallback (Thứ Tự Ưu Tiên)</span>
-              <button type="button" class="btn btn-outline btn-sm" style="font-size:10px; padding:1px 6px;" onclick="clearTempComboChain()">Xóa hết</button>
+              <button type="button" class="btn btn-outline btn-sm" style="font-size:10px; padding:1px 6px;" onclick="clearTempComboChain()" id="btn-chain-clear">Xóa hết</button>
             </div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;" id="desc-chain-help">
               Model #1 sẽ được gọi trước. Nếu gặp lỗi/rate-limit, tự động chuyển sang #2, #3...
@@ -1612,7 +1612,51 @@ print(response.choices[0].message.content)</div>
         tabMonitor: '📡 Giám Sát Sức Khỏe',
         tabDirectory: '🌐 Danh Mục Provider',
         tabModels: '📚 Danh Sách Model',
-        tabCombos: '🔀 Custom Combos',
+                tabCombos: '🔀 Chuỗi Fallback (Combos)',
+        playCombosOptgroup: 'Chuỗi Dự Phòng (Custom Combos)',
+        playDesc: 'Kiểm tra trực tiếp tốc độ streaming và khả năng tự động Fallback khi model gặp sự cố.',
+        playShortcutHint: 'Nhấn <kbd style="background:var(--card-border); padding:2px 6px; border-radius:4px; font-family:var(--font-mono); color:var(--text);">Ctrl + Enter</kbd> để gửi',
+        playNothingToCopy: 'Chưa có nội dung để sao chép!',
+        modalComboTitleCreate: '➕ Tạo Custom Routing Combo Mới',
+        modalComboTitleEdit: (id) => '✏️ Sửa Chuỗi Fallback: ' + id,
+        lblComboTemplates: '⚡ Mẫu gợi ý sẵn (1-Click):',
+        tplCoding: '💻 Coding & Copilot IDE',
+        tplSpeed: '⚡ Siêu Tốc (Cerebras/Groq)',
+        tplChat: '💬 Hội Thoại Thông Minh',
+        lblComboId: 'Mã Combo ID (dùng làm model: "combo:xxx")',
+        comboIdPlaceholder: 'vd: my-coding-chain',
+        lblComboName: 'Tên Combo Hiển Thị',
+        comboNamePlaceholder: 'vd: Siêu Tốc & Lập Trình Dự Phòng',
+        lblComboDesc: 'Mô Tả',
+        comboDescPlaceholder: 'vd: Chuỗi fallback ưu tiên cho VS Code Copilot và Cursor khi lập trình',
+        lblPickerHeading: '📦 Danh Sách Model Có Sẵn',
+        pickerSearchPlaceholder: '🔍 Tìm theo model hoặc provider...',
+        cpillAll: 'Tất cả',
+        cpillCombos: '🔀 Combos',
+        cpillFree: '🎁 100% Free',
+        cpillTools: '🔧 Tools (IDE)',
+        cpillVision: '👁️ Vision',
+        lblChainHeading: '🔀 Chuỗi Fallback (Thứ Tự Ưu Tiên)',
+        btnChainClear: 'Xóa hết',
+        descChainHelp: 'Model #1 sẽ được gọi trước. Nếu gặp lỗi/rate-limit, tự động chuyển sang #2, #3...',
+        btnComboCancel: 'Hủy',
+        btnComboSave: 'Lưu Combo',
+        chainEmpty: 'Chuỗi đang trống. Hãy chọn combo hoặc model từ bảng bên trái hoặc bấm mẫu 1-Click ở trên!',
+        rankPrimary: '★ #1 Ưu Tiên Chính',
+        rankFallback: (i) => '#' + (i + 1) + ' Dự Phòng ' + i,
+        toolsStatus100: (c, t) => '✓ 100% mục (' + c + '/' + t + ') hỗ trợ Function Calling / Tools (Sẵn sàng cho VS Code Copilot & Cursor).',
+        toolsStatusPartial: (c, t) => 'ℹ️ ' + c + '/' + t + ' mục hỗ trợ Tools. Khi IDE gọi function tools, FreeRoute sẽ tự động định tuyến tới các model/combo có Tools.',
+        toolsStatusNone: '⚠️ Chưa có mục nào hỗ trợ Tools. Nếu dùng cho IDE Copilot/Agent, hãy thêm model có biểu tượng 🔧 Tools (vd: Gemini, Groq Qwen, OpenRouter...).',
+        kpiTokens: 'Tổng Token Đã Dùng',
+        tokenStatsTitle: 'Thống Kê Token Tiêu Thụ',
+        thTokProvider: 'Nhà Cung Cấp',
+        thTokCount: 'Số Yêu Cầu',
+        thTokPrompt: 'Prompt Tokens',
+        thTokCompletion: 'Completion Tokens',
+        thTokTotal: 'Tổng Token (với biểu đồ)',
+        noTokenData: 'Chưa có dữ liệu token',
+        guideHead: '🛡️ Cẩm Nang Kết Nối & Bảo Vệ Tài Khoản An Toàn Tuyệt Đối',
+
         tabCredentials: '🔑 Quản Lý API Key',
         tabPlayground: '🧪 Test Playground',
         tabGuide: '📖 Hướng Dẫn An Toàn',
@@ -1996,6 +2040,100 @@ print(response.choices[0].message.content)</div>
       document.getElementById('btn-sync-confirm').textContent = t('syncConfirm');
       document.getElementById('sync-quick-btn').textContent = t('syncAllNow');
       document.getElementById('sync-review-btn').textContent = t('syncReview');
+      const descPlayEl = document.getElementById('desc-play');
+      if (descPlayEl) descPlayEl.textContent = t('playDesc');
+      const lblShortcut = document.getElementById('lbl-play-shortcut');
+      if (lblShortcut) lblShortcut.innerHTML = t('playShortcutHint');
+      const playCombosGrp = document.getElementById('play-combos-group');
+      if (playCombosGrp) playCombosGrp.label = t('playCombosOptgroup');
+
+      // Update test playground response initial placeholder / status
+      const playOutputEl = document.getElementById('play-output');
+      if (playOutputEl) {
+        if (playOutputEl.textContent === I18N.vi.playConsoleInitial || playOutputEl.textContent === I18N.en.playConsoleInitial) {
+          playOutputEl.textContent = t('playConsoleInitial');
+        }
+      }
+      const playStatEl = document.getElementById('play-stream-status');
+      if (playStatEl) {
+        if (playStatEl.textContent === I18N.vi.playStatusWaiting || playStatEl.textContent === I18N.en.playStatusWaiting) {
+          playStatEl.textContent = t('playStatusWaiting');
+        } else if (playStatEl.textContent === I18N.vi.playStatusDone || playStatEl.textContent === I18N.en.playStatusDone) {
+          playStatEl.textContent = t('playStatusDone');
+        } else if (playStatEl.textContent === I18N.vi.playStatusError || playStatEl.textContent === I18N.en.playStatusError) {
+          playStatEl.textContent = t('playStatusError');
+        }
+      }
+
+      // Update Token Stats headers & KPI
+      const kpiTokLbl = document.getElementById('kpi-lbl-tokens');
+      if (kpiTokLbl) kpiTokLbl.textContent = t('kpiTokens');
+      const titleTokStats = document.getElementById('title-token-stats');
+      if (titleTokStats) titleTokStats.textContent = t('tokenStatsTitle');
+      const thTokProv = document.getElementById('th-tok-provider');
+      if (thTokProv) thTokProv.textContent = t('thTokProvider');
+      const thTokCnt = document.getElementById('th-tok-count');
+      if (thTokCnt) thTokCnt.textContent = t('thTokCount');
+      const thTokPr = document.getElementById('th-tok-prompt');
+      if (thTokPr) thTokPr.textContent = t('thTokPrompt');
+      const thTokComp = document.getElementById('th-tok-completion');
+      if (thTokComp) thTokComp.textContent = t('thTokCompletion');
+      const thTokTot = document.getElementById('th-tok-total');
+      if (thTokTot) thTokTot.textContent = t('thTokTotal');
+      const guideHeadEl = document.getElementById('guide-head');
+      if (guideHeadEl) guideHeadEl.textContent = t('guideHead');
+
+      // Update Modal Combo static & placeholder texts
+      const titleComboModal = document.getElementById('modal-combo-title');
+      if (titleComboModal) {
+        if (!comboEditingId) titleComboModal.textContent = t('modalComboTitleCreate');
+        else titleComboModal.textContent = t('modalComboTitleEdit', comboEditingId);
+      }
+      const lblTemplates = document.getElementById('lbl-combo-templates');
+      if (lblTemplates) lblTemplates.textContent = t('lblComboTemplates');
+      const btnTplCoding = document.getElementById('btn-tpl-coding');
+      if (btnTplCoding) btnTplCoding.textContent = t('tplCoding');
+      const btnTplSpeed = document.getElementById('btn-tpl-speed');
+      if (btnTplSpeed) btnTplSpeed.textContent = t('tplSpeed');
+      const btnTplChat = document.getElementById('btn-tpl-chat');
+      if (btnTplChat) btnTplChat.textContent = t('tplChat');
+      const lblComboId = document.getElementById('lbl-combo-id');
+      if (lblComboId) lblComboId.textContent = t('lblComboId');
+      const inputComboId = document.getElementById('combo-input-id');
+      if (inputComboId) inputComboId.placeholder = t('comboIdPlaceholder');
+      const lblComboName = document.getElementById('lbl-combo-name');
+      if (lblComboName) lblComboName.textContent = t('lblComboName');
+      const inputComboName = document.getElementById('combo-input-name');
+      if (inputComboName) inputComboName.placeholder = t('comboNamePlaceholder');
+      const lblComboDesc = document.getElementById('lbl-combo-desc');
+      if (lblComboDesc) lblComboDesc.textContent = t('lblComboDesc');
+      const inputComboDesc = document.getElementById('combo-input-desc');
+      if (inputComboDesc) inputComboDesc.placeholder = t('comboDescPlaceholder');
+      const lblPickHead = document.getElementById('lbl-picker-heading');
+      if (lblPickHead) lblPickHead.textContent = t('lblPickerHeading');
+      const inputPickSearch = document.getElementById('combo-picker-search');
+      if (inputPickSearch) inputPickSearch.placeholder = t('pickerSearchPlaceholder');
+      const cpAll = document.getElementById('cpill-all');
+      if (cpAll) cpAll.textContent = t('cpillAll');
+      const cpCombos = document.getElementById('cpill-combos');
+      if (cpCombos) cpCombos.textContent = t('cpillCombos');
+      const cpFree = document.getElementById('cpill-free');
+      if (cpFree) cpFree.textContent = t('cpillFree');
+      const cpTools = document.getElementById('cpill-tools');
+      if (cpTools) cpTools.textContent = t('cpillTools');
+      const cpVision = document.getElementById('cpill-vision');
+      if (cpVision) cpVision.textContent = t('cpillVision');
+      const lblChainHead = document.getElementById('lbl-chain-heading');
+      if (lblChainHead) lblChainHead.textContent = t('lblChainHeading');
+      const btnChainClr = document.getElementById('btn-chain-clear');
+      if (btnChainClr) btnChainClr.textContent = t('btnChainClear');
+      const descChainHelp = document.getElementById('desc-chain-help');
+      if (descChainHelp) descChainHelp.textContent = t('descChainHelp');
+      const btnComboCncl = document.getElementById('btn-combo-cancel');
+      if (btnComboCncl) btnComboCncl.textContent = t('btnComboCancel');
+      const btnComboSv = document.getElementById('btn-combo-save');
+      if (btnComboSv) btnComboSv.textContent = t('btnComboSave');
+
     }
 
     function updateTempDisplay(val) {
@@ -3588,7 +3726,7 @@ print(response.choices[0].message.content)</div>
       if (!output) return;
       const text = output.innerText || output.textContent || '';
       if (!text || text === t('playConsoleInitial')) {
-        showToast(currentLang === 'vi' ? 'Chưa có nội dung để sao chép!' : 'Nothing to copy yet!', true);
+        showToast(t('playNothingToCopy'), true);
         return;
       }
       copyToClipboard(text);
