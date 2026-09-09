@@ -3,6 +3,8 @@ import { createCatalogChatService, RouteState } from './inference.js';
 import { OpenAICompatibleAdapter } from './providers/openai-compatible.js';
 import { GeminiAdapter } from './providers/gemini.js';
 import { AnthropicAdapter } from './providers/anthropic.js';
+import { OllamaAdapter } from './providers/ollama.js';
+import { KiroAdapter } from './providers/kiro.js';
 import { createFreeRouteServer } from './server.js';
 import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
 import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
@@ -92,12 +94,18 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   ];
 
   // Load custom providers from DB
-  const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {
+    const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {
       if (def.adapterType === 'gemini') {
         return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
       }
-      if (def.adapterType === 'anthropic' as any) {
+      if (def.adapterType === 'anthropic') {
         return new AnthropicAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+      }
+      if (def.adapterType === 'ollama') {
+        return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+      }
+      if (def.adapterType === 'kiro') {
+        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
       }
       return new OpenAICompatibleAdapter({
         providerId: def.providerId,

@@ -160,6 +160,22 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         } catch { /* Ignore non-data SSE lines. */ }
       }
     }
+
+    // Flush remaining buffered SSE data on stream end
+    if (pending.trim().startsWith("data:")) {
+      try {
+        const chunk = JSON.parse(pending.trim().slice(5).trim()) as GeminiResponse;
+        const text = textFrom(chunk);
+        yield {
+          id: chunk.responseId ?? crypto.randomUUID(),
+          model: chunk.modelVersion ?? input.modelId,
+          delta: text || "",
+          thought: (chunk.candidates?.[0]?.content?.parts ?? []).find(p => "thought" in p && typeof p.thought === "string")?.thought,
+          toolCalls: toolCallsFrom(chunk),
+          usage: usageFrom(chunk.usageMetadata)
+        };
+      } catch { /* ignore malformed final chunk */ }
+    }
   }
 
   private url(modelId: string, method: string): string {
@@ -218,5 +234,5 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
   else if (response.status === 408 || response.status >= 500) kind = 'temporary';
   else if (response.status === 404 || response.status === 400) kind = 'unsupported';
   
-  return new ProviderInvocationError(`Gemini request failed: ${extractedMessage}`, { kind, scope: 'provider', fallbackAllowed: kind !== 'unsupported', retryable: kind === 'temporary' || kind === 'rate_limit' });
+  return new ProviderInvocationError(`Gemini request failed: ${extractedMessage}`, { kind, scope: 'key', fallbackAllowed: kind !== 'unsupported', retryable: kind === 'temporary' || kind === 'rate_limit' });
 }

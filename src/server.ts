@@ -511,7 +511,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             if (!existing) {
               options.providerStore.put({
                 providerId: target.providerId,
-                adapterType: preset?.adapterType ?? 'openai-compatible',
+                adapterType: (preset?.adapterType as any) ?? 'openai-compatible',
                 baseUrl: preset?.baseUrl ?? `https://api.${target.providerId}.com/v1`,
                 classifyAsFree: (preset?.category === 'free' || preset?.category === 'freemium') ? 'free_verified' : undefined,
                 enabled: true,
@@ -618,7 +618,14 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   if (event.usage) usageState.captured = event.usage;
                   if (event.delta) usageState.accumulatedText += event.delta;
                   const includeUsage = event.usage ?? usageState.captured;
-                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+                  index: 0,
+                  delta: {
+                    ...(event.delta !== undefined ? { content: event.delta } : {}),
+                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                  },
+                  finish_reason: event.finishReason ?? null,
+                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
                 }
                 response.end('data: [DONE]\n\n');
                 if (options.events) {
@@ -694,16 +701,61 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               if (err instanceof ProviderInvocationError && err.failure.kind === 'context_overflow') {
                 contextOverflowCount += 1;
               }
+              // Record failure event for this combo model attempt (use unique requestId to avoid overwrite by success)
+              if (options.events) {
+                const failureKind = err instanceof ProviderInvocationError ? err.failure.kind : 'temporary';
+                await options.events.record({
+                  requestId: `${requestId}-fail-${attemptedSteps.length}`,
+                  occurredAt: new Date(),
+                  profile: 'named',
+                  providerId: cProv || 'unknown',
+                  modelId: cMod || cm,
+                  credentialRef: '',
+                  fallbackCount: attemptedSteps.length - 1,
+                  outcome: 'failure',
+                  failureKind,
+                  latencyMs: 0,
+                  promptTokens: 0,
+                  completionTokens: 0,
+                  totalTokens: 0,
+                });
+              }
               continue;
             }
           }
           if (contextOverflowCount > 0 && contextOverflowCount === target.comboModels.length) {
-            sendJson(response, 400, {
-              error: {
-                message: 'Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model trong combo. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all models in this combo. Please clear context or start a new chat session.',
-                type: 'context_length_exceeded',
-                code: 'context_length_exceeded',
-              },
+            const errMsg = 'Ngữ cảnh hội thoại vượt quá giới hạn token của tất cả model trong combo. Vui lòng làm mới phiên chat (clear context / start new session) để tiếp tục. / Context length exceeded limits of all models in this combo. Please clear context or start a new chat session.';
+            if (options.events) {
+              const lastAttempt = attemptedSteps[attemptedSteps.length - 1];
+              const lastProvider = lastAttempt ? lastAttempt.model.split('/')[0] || 'unknown' : 'unknown';
+              const lastModel = lastAttempt ? lastAttempt.model : 'unknown';
+              await options.events.record({
+                requestId: `${requestId}-exhausted`,
+                occurredAt: new Date(),
+                profile: 'combo',
+                providerId: lastProvider,
+                modelId: lastModel,
+                credentialRef: '',
+                fallbackCount: attemptedSteps.length,
+                outcome: 'failure',
+                failureKind: 'context_overflow',
+                latencyMs: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
+            sendJson(response, 200, {
+              id: `chatcmpl-${requestId}`,
+              object: 'chat.completion',
+              created: Math.floor(Date.now() / 1_000),
+              model: input.model,
+              choices: [{
+                index: 0,
+                message: { role: 'assistant', content: `[FreeRoute] ${errMsg}` },
+                finish_reason: 'stop',
+              }],
+              usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
             });
             return;
           }
@@ -711,13 +763,39 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           const stepsSummary = attemptedSteps.length > 0
             ? attemptedSteps.map(s => `${s.model}: ${s.error}`).join('; ')
             : 'no matching models found in combo';
-          sendJson(response, 503, {
-            error: {
-              message: `Không có model nào trong combo "${input.model}" hoàn thành được yêu cầu (hoặc tất cả upstream đều lỗi/thiếu capability). Chi tiết: [${stepsSummary}]. Vui lòng kiểm tra API key hoặc cấu hình lại combo tại http://127.0.0.1:8787!`,
-              type: 'combo_exhausted',
-              code: 'no_combo_candidates',
-              attempted: attemptedSteps,
-            },
+          // Record failure event for combo exhaustion (use unique requestId to avoid overwrite)
+          if (options.events) {
+            const lastAttempt = attemptedSteps[attemptedSteps.length - 1];
+            const lastProvider = lastAttempt ? lastAttempt.model.split('/')[0] || 'unknown' : 'unknown';
+            const lastModel = lastAttempt ? lastAttempt.model : 'unknown';
+            await options.events.record({
+              requestId: `${requestId}-exhausted`,
+              occurredAt: new Date(),
+              profile: 'combo',
+              providerId: lastProvider,
+              modelId: lastModel,
+              credentialRef: '',
+              fallbackCount: attemptedSteps.length,
+              outcome: 'failure',
+              failureKind: 'temporary',
+              latencyMs: 0,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            });
+          }
+          const errMsg = `Không có model nào trong combo "${input.model}" hoàn thành được yêu cầu (hoặc tất cả upstream đều lỗi/thiếu capability). Chi tiết: [${stepsSummary}]. Vui lòng kiểm tra API key hoặc cấu hình lại combo tại http://127.0.0.1:8787!`;
+          sendJson(response, 200, {
+            id: `chatcmpl-${requestId}`,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1_000),
+            model: input.model,
+            choices: [{
+              index: 0,
+              message: { role: 'assistant', content: `[FreeRoute] ${errMsg}` },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
           });
           return;
         }
@@ -739,7 +817,14 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             if (event.usage) usageState.captured = event.usage;
             if (event.delta) usageState.accumulatedText += event.delta;
             const includeUsage = event.usage ?? usageState.captured;
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: event.delta === undefined ? {} : { content: event.delta }, finish_reason: event.finishReason ?? null, ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {}) }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+                  index: 0,
+                  delta: {
+                    ...(event.delta !== undefined ? { content: event.delta } : {}),
+                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                  },
+                  finish_reason: event.finishReason ?? null,
+                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
           }
           response.end('data: [DONE]\n\n');
           if (options.events) {
@@ -835,6 +920,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           }
           writeResponseEvent(response, 'response.completed', { type: 'response.completed', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed', model } });
           response.end('data: [DONE]\n\n');
+          // Record event for streaming /v1/responses success
+          if (options.events) {
+            await options.events.record({
+              requestId,
+              occurredAt: new Date(),
+              profile: target.profile,
+              providerId: result.decision.candidate.providerId,
+              modelId: result.decision.candidate.modelId,
+              credentialRef: result.decision.candidate.credentialId ? '***' : '',
+              fallbackCount: result.fallbackCount ?? 0,
+              outcome: 'success',
+              latencyMs: 0,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            });
+          }
           return;
         }
         const result = await options.chat.complete({
@@ -850,6 +952,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           output: [{ type: 'message', id: `msg_${result.response.id}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: result.response.content, annotations: [] }] }],
           output_text: result.response.content,
         });
+        // Record event for non-streaming /v1/responses success
+        if (options.events) {
+          await options.events.record({
+            requestId,
+            occurredAt: new Date(),
+            profile: target.profile,
+            providerId: result.response.providerId,
+            modelId: result.response.modelId,
+            credentialRef: result.decision?.candidate?.credentialId ? '***' : '',
+            fallbackCount: result.fallbackCount ?? 0,
+            outcome: 'success',
+            latencyMs: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          });
+        }
         return;
       }
 
@@ -880,6 +999,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });
           writeAnthropicEvent(response, 'message_stop', { type: 'message_stop' });
           response.end();
+          // Record event for streaming /v1/messages success
+          if (options.events) {
+            await options.events.record({
+              requestId,
+              occurredAt: new Date(),
+              profile: target.profile,
+              providerId: result.decision.candidate.providerId,
+              modelId: result.decision.candidate.modelId,
+              credentialRef: result.decision.candidate.credentialId ? '***' : '',
+              fallbackCount: result.fallbackCount ?? 0,
+              outcome: 'success',
+              latencyMs: 0,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            });
+          }
           return;
         }
         const result = await options.chat.complete({
@@ -894,6 +1030,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           content: [{ type: 'text', text: result.response.content }], stop_reason: 'end_turn', stop_sequence: null,
           usage: { input_tokens: 0, output_tokens: 0 },
         });
+        // Record event for non-streaming /v1/messages success
+        if (options.events) {
+          await options.events.record({
+            requestId,
+            occurredAt: new Date(),
+            profile: target.profile,
+            providerId: result.response.providerId,
+            modelId: result.response.modelId,
+            credentialRef: result.decision?.candidate?.credentialId ? '***' : '',
+            fallbackCount: result.fallbackCount ?? 0,
+            outcome: 'success',
+            latencyMs: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          });
+        }
         return;
       }
 

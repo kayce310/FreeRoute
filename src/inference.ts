@@ -389,21 +389,26 @@ export class ChatService {
     totalTokens?: number
   ): Promise<void> {
     if (!this.options.onEvent) return;
-    await this.options.onEvent({
-      requestId: request.traceId ?? crypto.randomUUID(),
-      occurredAt: this.now(),
-      profile: request.profile,
-      providerId: candidate.providerId,
-      modelId: candidate.modelId,
-      credentialRef: redactCredential(candidate.credentialId),
-      fallbackCount,
-      outcome,
-      failureKind,
-      ...(latencyMs === undefined ? {} : { latencyMs }),
-      ...(promptTokens === undefined ? {} : { promptTokens }),
-      ...(completionTokens === undefined ? {} : { completionTokens }),
-      ...(totalTokens === undefined ? {} : { totalTokens }),
-    });
+    try {
+      await this.options.onEvent({
+        requestId: request.traceId ?? crypto.randomUUID(),
+        occurredAt: this.now(),
+        profile: request.profile,
+        providerId: candidate.providerId,
+        modelId: candidate.modelId,
+        credentialRef: redactCredential(candidate.credentialId),
+        fallbackCount,
+        outcome,
+        failureKind,
+        ...(latencyMs === undefined ? {} : { latencyMs }),
+        ...(promptTokens === undefined ? {} : { promptTokens }),
+        ...(completionTokens === undefined ? {} : { completionTokens }),
+        ...(totalTokens === undefined ? {} : { totalTokens }),
+      });
+    } catch (err) {
+      console.error(`[TELEMETRY ERROR] emitEvent failed: ${err instanceof Error ? err.message : err}`);
+      if (err instanceof Error) console.error(err.stack);
+    }
   }
 }
 

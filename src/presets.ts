@@ -3,7 +3,7 @@ import type { Capability, FreeTierClass } from './contracts.js';
 export interface ProviderPreset {
   id: string;
   name: string;
-  adapterType: 'openai-compatible' | 'gemini';
+  adapterType: 'openai-compatible' | 'gemini' | 'anthropic' | 'ollama' | 'kiro';
   baseUrl: string;
   apiKeyUrl: string;
   website: string;
@@ -107,8 +107,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'kiro',
     name: 'Kiro AI (AWS Q Developer)',
-    adapterType: 'openai-compatible',
-    baseUrl: 'https://api.kiro.ai/v1',
+    adapterType: 'kiro',
+    baseUrl: 'https://codewhisperer.us-east-1.amazonaws.com',
     apiKeyUrl: 'https://kiro.ai',
     website: 'https://kiro.ai',
     category: 'freemium',
@@ -519,8 +519,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'ollama',
     name: 'Ollama Local',
-    adapterType: 'openai-compatible',
-    baseUrl: 'http://127.0.0.1:11434/v1',
+    adapterType: 'ollama',
+    baseUrl: 'http://127.0.0.1:11434',
     apiKeyUrl: 'https://ollama.com',
     website: 'https://ollama.com',
     category: 'local',
@@ -591,7 +591,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'anthropic',
     name: 'Anthropic',
-    adapterType: 'openai-compatible',
+    adapterType: 'anthropic',
     baseUrl: 'https://api.anthropic.com/v1',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     website: 'https://anthropic.com',

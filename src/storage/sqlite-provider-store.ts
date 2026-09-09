@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 export interface ProviderDefinition {
   providerId: string;
-  adapterType: 'openai-compatible' | 'gemini' | 'anthropic';
+  adapterType: 'openai-compatible' | 'gemini' | 'anthropic' | 'ollama' | 'kiro';
   baseUrl: string;
   classifyAsFree?: string;
   enabled: boolean;
@@ -30,7 +30,7 @@ export function createSqliteProviderStore(filename: string): SqliteProviderStore
     list(): ProviderDefinition[] {
       const rows = db.prepare('SELECT provider_id, adapter_type, base_url, classify_as_free, enabled FROM providers ORDER BY provider_id').all() as unknown as Array<{
         provider_id: string;
-        adapter_type: 'openai-compatible' | 'gemini';
+        adapter_type: 'openai-compatible' | 'gemini' | 'anthropic' | 'ollama' | 'kiro';
         base_url: string;
         classify_as_free: string | null;
         enabled: number;

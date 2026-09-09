@@ -2292,10 +2292,18 @@ print(response.choices[0].message.content)</div>
     }
 
     async function refreshMonitoring() {
-      await fetchHealthAndEvents();
-      renderHealthMatrix();
-      renderEvents();
-      updateKpis();
+      const pollStart = Date.now();
+      console.log('[dashboard-stream] poll:start ' + new Date().toISOString());
+      try {
+        await fetchHealthAndEvents();
+        const elapsed = Date.now() - pollStart;
+        console.log('[dashboard-stream] poll:after-fetch elapsed=' + elapsed + 'ms ' + new Date().toISOString());
+        renderHealthMatrix();
+        renderEvents();
+        updateKpis();
+      } catch (err) {
+        console.error('[dashboard-stream] poll:error', err);
+      }
     }
 
     async function fetchPresets() {
@@ -2401,11 +2409,14 @@ print(response.choices[0].message.content)</div>
     }
 
     async function fetchHealthAndEvents() {
+      const startTime = Date.now();
+      console.log('[dashboard-stream] fetch:start');
       try {
         const [hRes, eRes] = await Promise.all([
           fetch('/v1/provider-health'),
           fetch('/v1/routing-events')
         ]);
+        console.log('[dashboard-stream] fetch:resolved elapsed=' + (Date.now() - startTime) + 'ms health=' + hRes.status + ' events=' + eRes.status);
         if (hRes.ok) {
           const hJson = await hRes.json();
           healthData = hJson.data || [];
@@ -2413,9 +2424,11 @@ print(response.choices[0].message.content)</div>
         if (eRes.ok) {
           const eJson = await eRes.json();
           eventsData = eJson.data || [];
+          const newest = eventsData.length > 0 ? eventsData[0] : null;
+          console.log('[dashboard-stream] state:update count=' + eventsData.length + ' newest=' + (newest?.requestId || 'none') + ' occurredAt=' + (newest?.occurredAt || 'none'));
         }
       } catch (err) {
-        console.error('Failed to fetch health/events:', err);
+        console.error('[dashboard-stream] fetch:error', err);
       }
     }
 
@@ -2548,12 +2561,15 @@ print(response.choices[0].message.content)</div>
     }
 
     function renderEvents() {
+      const startTime = Date.now();
+      console.log('[dashboard-stream] render:start ' + new Date().toISOString());
       const tbody = document.getElementById('events-tbody');
       const countBadge = document.getElementById('stream-count-badge');
       if (countBadge) {
         countBadge.textContent = t('streamCountBadge', eventsData ? eventsData.length : 0);
       }
       if (!eventsData || eventsData.length === 0) {
+        console.log('[dashboard-stream] render:empty');
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">' + t('noEvents') + '</td></tr>';
         return;
       }
@@ -2577,7 +2593,8 @@ print(response.choices[0].message.content)</div>
         const served = (ev.providerId || '—') + ' / ' + (ev.modelId || '—');
         const fallbacks = ev.fallbackCount || ev.fallbacks || 0;
         const latency = ev.latencyMs ? ev.latencyMs + 'ms' : '—';
-        const isOk = !ev.errorCode;
+        const isOk = ev.outcome !== 'failure';
+        const failureLabel = ev.failureKind ? ev.failureKind.replace(/_/g, ' ') : 'Failure';
 
         html += \`
           <tr class="\${isLatest ? 'newest-stream-row' : ''}">
@@ -2596,7 +2613,7 @@ print(response.choices[0].message.content)</div>
             <td>
               \${isOk 
                 ? '<span class="badge badge-green">200 OK</span>' 
-                : \`<span class="badge badge-red">\${ev.errorCode || 'Error'}</span>\`}
+                : \`<span class="badge badge-red">\${failureLabel}</span>\`}
             </td>
             <td style="font-family:var(--font-mono); font-size:11px; text-align:right;">
               \${ev.promptTokens != null ? ev.promptTokens : '—'}
@@ -2607,7 +2624,10 @@ print(response.choices[0].message.content)</div>
           </tr>
         \`;
       }
+      
+      console.log('[dashboard-stream] render:html length=' + html.length + ' rows=' + recent.length);
       tbody.innerHTML = html;
+      console.log('[dashboard-stream] render:dom-updated elapsed=' + (Date.now() - startTime) + 'ms');
 
       const latestReqId = recent.length > 0 ? recent[recent.length - 1].requestId : null;
       const isNewEvent = latestReqId && latestReqId !== lastStreamEventId;

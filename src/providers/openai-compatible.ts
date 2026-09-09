@@ -77,7 +77,7 @@ interface OpenAIChatCompletion {
 interface OpenAIChatChunk {
   id?: string;
   model?: string;
-  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null; tool_calls?: ToolCall[] }>;
+  choices?: Array<{ delta?: { content?: string; tool_calls?: ToolCall[] }; finish_reason?: string | null }>;
   usage?: OpenAIUsage;
 }
 
@@ -228,7 +228,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
         delta: choice?.delta?.content,
         thought: thought,
         finishReason: choice?.finish_reason,
-        toolCalls: choice?.tool_calls,
+        toolCalls: choice?.delta?.tool_calls,
       };
     }
     }
@@ -254,7 +254,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
               delta: choice?.delta?.content,
               thought: choice?.delta?.reasoning_content || choice?.delta?.thought,
               finishReason: choice?.finish_reason,
-              toolCalls: choice?.tool_calls,
+              toolCalls: choice?.delta?.tool_calls,
               usage: streamUsage,
             };
           }

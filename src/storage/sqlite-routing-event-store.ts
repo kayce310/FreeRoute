@@ -41,15 +41,20 @@ export class SqliteRoutingEventStore {
     }
   }
 
-  async record(event: RoutingEvent): Promise<void> {
-    this.database.prepare(`INSERT OR REPLACE INTO routing_events
-      (request_id, occurred_at, profile, provider_id, model_id, credential_ref, fallback_count, outcome, failure_kind, latency_ms, prompt_tokens, completion_tokens, total_tokens)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        event.requestId, event.occurredAt.toISOString(), event.profile, event.providerId, event.modelId,
-        event.credentialRef, event.fallbackCount, event.outcome, event.failureKind ?? null, event.latencyMs ?? null,
-        event.promptTokens ?? null, event.completionTokens ?? null, event.totalTokens ?? null
-      );
+    async record(event: RoutingEvent): Promise<void> {
+    console.log(`[STORAGE] record() called for request: ${event.requestId}`);
+    try {
+      this.database.prepare(`INSERT OR REPLACE INTO routing_events\n      (request_id, occurred_at, profile, provider_id, model_id, credential_ref, fallback_count, outcome, failure_kind, latency_ms, prompt_tokens, completion_tokens, total_tokens)\n      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          event.requestId, event.occurredAt.toISOString(), event.profile, event.providerId, event.modelId,
+          event.credentialRef, event.fallbackCount, event.outcome, event.failureKind ?? null, event.latencyMs ?? null,
+          event.promptTokens ?? null, event.completionTokens ?? null, event.totalTokens ?? null
+        );
+      console.log(`[STORAGE] record() successfully executed for ${event.requestId}`);
+    } catch (err) {
+      console.error(`[STORAGE ERROR] record() failed: ${err instanceof Error ? err.message : err}`);
+      throw err;
+    }
   }
 
   async list(limit = 50): Promise<RoutingEvent[]> {

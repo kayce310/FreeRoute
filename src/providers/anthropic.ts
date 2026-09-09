@@ -1,6 +1,5 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent } from '../inference.js';
-import type { TokenUsage } from '../contracts.js';
 import { translateAnthropicRequest } from '../translators/anthropic-translator.js';
 
 interface AnthropicAdapterOptions {
@@ -22,7 +21,6 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
   }
 
   async discoverModels(_credentialId: string): Promise<DiscoveredModel[]> {
-    // Anthropic doesn't have a model discovery API, using a static list for integration
     return [
       { modelId: 'claude-3-5-sonnet-latest', capabilities: ['chat', 'streaming', 'tools', 'vision'], freeTier: 'paid', priority: 0 },
       { modelId: 'claude-3-5-haiku-latest', capabilities: ['chat', 'streaming', 'tools', 'vision'], freeTier: 'paid', priority: 0 },
@@ -77,46 +75,78 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
         stream: true,
       }),
     });
-
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('no stream body', { kind: 'temporary' });
-    
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let pending = '';
-    
+    const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       pending += decoder.decode(value, { stream: true });
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
-      
+
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
         const data = JSON.parse(line.slice(5));
-        
-        if (data.type === 'content_block_delta') {
+
+        if (data.type === 'content_block_start' && data.content_block?.type === 'tool_use') {
+          toolCalls.set(data.index, { id: data.content_block.id, name: data.content_block.name, args: '' });
+          yield {
+            id: `tc-${data.index}`,
+            model: input.modelId,
+            toolCalls: [{ id: data.content_block.id, type: 'function', function: { name: data.content_block.name, arguments: '' } }],
+          };
+        } else if (data.type === 'content_block_delta') {
           if (data.delta.type === 'text_delta') {
-            yield { id: data.index, model: input.modelId, delta: data.delta.text };
+            yield { id: String(data.index), model: input.modelId, delta: data.delta.text };
+          } else if (data.delta.type === 'input_json_delta') {
+            const tc = toolCalls.get(data.index);
+            if (tc) {
+              tc.args += data.delta.partial_json;
+              yield {
+                id: `tc-${data.index}`,
+                model: input.modelId,
+                toolCalls: [{ id: tc.id, type: 'function', function: { name: tc.name, arguments: data.delta.partial_json } } as any],
+              };
+            }
           }
         } else if (data.type === 'message_delta') {
+          if (data.delta?.stop_reason) {
+            yield {
+              id: 'finish',
+              model: input.modelId,
+              finishReason: data.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
+            };
+          }
           if (data.usage) {
-            yield { id: 'usage', model: input.modelId, usage: { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens, totalTokens: data.usage.input_tokens + data.usage.output_tokens } };
+            yield {
+              id: 'usage',
+              model: input.modelId,
+              usage: {
+                promptTokens: data.usage.input_tokens,
+                completionTokens: data.usage.output_tokens,
+                totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+              },
+            };
           }
         }
       }
     }
   }
 
-  private async headers(credentialId: string, modelId: string): Promise<Record<string, string>> {
+  private async headers(credentialId: string, _modelId: string): Promise<Record<string, string>> {
     const secret = await this.getCredential(credentialId);
     if (!secret) throw new ProviderInvocationError('credential not found', { kind: 'authentication' });
     return { 
       'x-api-key': secret,
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
-      'anthropic-dangerous-direct-browser-access': 'true' // For local dev
+      'anthropic-dangerous-direct-browser-access': 'true'
     };
   }
 }
