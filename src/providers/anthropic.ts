@@ -1,6 +1,6 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent } from '../inference.js';
-import { translateAnthropicRequest } from '../translators/anthropic-translator.js';
+import { translateRequest } from '../translators/index.js';
 
 interface AnthropicAdapterOptions {
   baseUrl?: string;
@@ -32,7 +32,7 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
       method: 'POST',
       headers: await this.headers(input.credentialId, input.modelId),
       body: JSON.stringify({
-        ...translateAnthropicRequest(input.request),
+        ...translateRequest('openai', 'anthropic', input.modelId, input.request),
         model: input.modelId,
         max_tokens: 4096,
       }),
@@ -69,7 +69,7 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
       method: 'POST',
       headers: { ...(await this.headers(input.credentialId, input.modelId)), 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        ...translateAnthropicRequest(input.request),
+        ...translateRequest('openai', 'anthropic', input.modelId, input.request),
         model: input.modelId,
         max_tokens: 4096,
         stream: true,

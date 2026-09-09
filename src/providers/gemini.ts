@@ -1,7 +1,7 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent, type ToolCall } from '../inference.js';
 import type { TokenUsage } from '../contracts.js';
-import { translateGeminiRequest } from '../translators/gemini-translator.js';
+import { translateRequest } from '../translators/index.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
 interface GeminiList { models?: GeminiModel[]; nextPageToken?: string; }
@@ -74,7 +74,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify(translateGeminiRequest(input.request)),
+        body: JSON.stringify(translateRequest('openai', 'gemini', input.modelId, input.request)),
       });
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;
@@ -109,7 +109,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify(translateGeminiRequest(input.request)),
+        body: JSON.stringify(translateRequest('openai', 'gemini', input.modelId, input.request)),
       });
     } catch (err: unknown) {
       if (err instanceof ProviderInvocationError) throw err;

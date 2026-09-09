@@ -22,7 +22,6 @@ export function supports(candidate: RouteCandidate, required: Capability[]): boo
 export function isAvailable(candidate: RouteCandidate, now = new Date()): boolean {
   return Boolean(candidate.preference !== 'block')
     && Boolean(candidate.freeTier !== 'retired')
-    && Boolean(candidate.freeTier !== 'paid')
     && Boolean(candidate.credentialId) // Ensure a credentialId is present
     && Boolean(!candidate.cooldownUntil || candidate.cooldownUntil <= now);
 }
@@ -83,8 +82,6 @@ export function getCandidateDiagnostics(request: RouteRequest, candidates: Route
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'blocked' });
     } else if (c.freeTier === 'retired') {
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'retired' });
-    } else if (c.freeTier === 'paid') {
-      diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'paid_tier' });
     } else if (!supports(c, request.requiredCapabilities)) {
       diagnostics.push({ providerId: c.providerId, modelId: c.modelId, reason: 'missing_capability' });
     } else if (request.requestedProviderId && c.providerId !== request.requestedProviderId) {
