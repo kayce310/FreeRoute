@@ -120,10 +120,10 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     }));
   }
 
-  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
+  async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest; isRawKey?: boolean }) {
     let response: Response;
     try {
-      const headers = await this.headers(input.credentialId);
+      const headers = await this.headers(input.credentialId, input.isRawKey);
       response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
@@ -165,10 +165,10 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     return { id: body.id ?? crypto.randomUUID(), model: body.model ?? input.modelId, content: content ?? '', ...(toolCalls?.length ? { toolCalls } : {}), quota: quotaFromHeaders(response.headers), usage };
   }
 
-  async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }) {
+  async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest; isRawKey?: boolean }) {
     let response: Response;
     try {
-      const headers = await this.headers(input.credentialId);
+      const headers = await this.headers(input.credentialId, input.isRawKey);
       response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
@@ -270,8 +270,13 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     }
   }
 
-  private async headers(credentialId: string): Promise<Record<string, string>> {
-    const secret = await this.getCredential(credentialId);
+  private async headers(credentialId: string, isRawKey?: boolean): Promise<Record<string, string>> {
+    let secret: string | undefined;
+    if (isRawKey) {
+      secret = credentialId;
+    } else {
+      secret = await this.getCredential(credentialId);
+    }
     if (!secret) throw new ProviderInvocationError('credential not found', { kind: 'authentication' });
     return { authorization: `Bearer ${secret}` };
   }
