@@ -20,6 +20,7 @@ export interface NormalizedChatRequest extends RouteRequest {
   tools?: ToolDefinition[];
   responseFormat?: { type: 'json_object' };
   traceId?: string;
+  isRawKey?: boolean;
 }
 
 export interface NormalizedChatResponse {
@@ -83,11 +84,13 @@ export interface ChatProviderAdapter {
     credentialId: string;
     modelId: string;
     request: NormalizedChatRequest;
+    isRawKey?: boolean;
   }): Promise<Omit<NormalizedChatResponse, 'providerId' | 'modelId'>>;
   streamChat?(input: {
     credentialId: string;
     modelId: string;
     request: NormalizedChatRequest;
+    isRawKey?: boolean;
   }): AsyncIterable<NormalizedChatStreamEvent>;
 }
 
@@ -207,6 +210,7 @@ export class ChatService {
           credentialId: decision.candidate.credentialId,
           modelId: decision.candidate.modelId,
           request: { ...request, responseFormat: request.responseFormat },
+          isRawKey: request.isRawKey,
         });
         const completed = {
           response: { ...result, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId },
@@ -289,6 +293,7 @@ export class ChatService {
           credentialId: decision.candidate.credentialId,
           modelId: decision.candidate.modelId,
           request: { ...request, responseFormat: request.responseFormat },
+          isRawKey: request.isRawKey,
         });
         const iterator = streamIterable[Symbol.asyncIterator]();
         const first = await iterator.next();
