@@ -658,6 +658,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   tools: input.tools,
                   responseFormat: input.responseFormat,
                   traceId: requestId,
+                  isRawKey: input.isRawKey,
                 });
                 const usage = result.response.usage;
                 response.setHeader('x-freeroute-provider', result.decision.candidate.providerId);
@@ -857,6 +858,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           tools: input.tools,
           responseFormat: input.responseFormat,
           traceId: requestId,
+          isRawKey: input.isRawKey,
         });
         const usage = result.response.usage;
         response.setHeader('x-freeroute-provider', result.response.providerId);
@@ -941,7 +943,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const result = await options.chat.complete({
           profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), false, input.responseFormat), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId, isRawKey: input.isRawKey,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -1020,7 +1022,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const result = await options.chat.complete({
           profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), false, input.responseFormat), requestedProviderId: target.providerId,
-          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
+          requestedModel: target.modelId, messages: input.messages, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId, isRawKey: input.isRawKey,
         });
         response.setHeader('x-freeroute-provider', result.response.providerId);
         response.setHeader('x-freeroute-model', result.response.modelId);
@@ -1132,6 +1134,7 @@ export interface OpenAIChatRequest {
   tools?: import('./inference.js').ToolDefinition[];
   responseFormat?: { type: 'json_object' };
   hasVision?: boolean;
+  isRawKey?: boolean;
 }
 
 class InvalidChatRequestError extends Error {}
@@ -1148,30 +1151,32 @@ function capabilitiesForProfile(profile: string, hasTools: boolean, streaming = 
 async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequest> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
+  const value = body as { model?: unknown; messages?: unknown; temperature?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown; isRawKey?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) throw new InvalidChatRequestError('messages must contain role and valid content');
   if (value.temperature !== undefined && typeof value.temperature !== 'number') throw new InvalidChatRequestError('temperature must be a number');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isToolDefinition))) throw new InvalidChatRequestError('tools must be OpenAI function definitions');
   if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
+  if (value.isRawKey !== undefined && typeof value.isRawKey !== 'boolean') throw new InvalidChatRequestError('isRawKey must be a boolean');
   const hasVision = (value.messages as unknown[]).some(msg => {
     if (!msg || typeof msg !== 'object') return false;
     const m = msg as { content?: unknown };
     return Array.isArray(m.content);
   });
-  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, hasVision };
+  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, hasVision, isRawKey: value.isRawKey as boolean | undefined };
 }
 
-async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' } }> {
+async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' }; isRawKey?: boolean }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; input?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
+  const value = body as { model?: unknown; input?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown; isRawKey?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isToolDefinition))) throw new InvalidChatRequestError('tools must be OpenAI function definitions');
   if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
-  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined };
+  if (value.isRawKey !== undefined && typeof value.isRawKey !== 'boolean') throw new InvalidChatRequestError('isRawKey must be a boolean');
+  if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, isRawKey: value.isRawKey as boolean | undefined };
   if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
     return {
       model: value.model,
@@ -1183,24 +1188,26 @@ async function readResponsesRequest(request: IncomingMessage): Promise<{ model: 
       stream: value.stream,
       tools: value.tools,
       responseFormat: value.response_format as { type: 'json_object' } | undefined,
+      isRawKey: value.isRawKey as boolean | undefined,
     };
   }
   throw new InvalidChatRequestError('input must be a string or messages with role and string content');
 }
 
-async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' } }> {
+async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' }; isRawKey?: boolean }> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
-  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown };
+  const value = body as { model?: unknown; system?: unknown; messages?: unknown; stream?: unknown; tools?: unknown; response_format?: unknown; isRawKey?: unknown };
   if (typeof value.model !== 'string' || !value.model) throw new InvalidChatRequestError('model is required');
   if (value.system !== undefined && typeof value.system !== 'string') throw new InvalidChatRequestError('system must be a string');
   if (value.stream !== undefined && typeof value.stream !== 'boolean') throw new InvalidChatRequestError('stream must be a boolean');
   if (!Array.isArray(value.messages) || !value.messages.every(isAnthropicMessage)) throw new InvalidChatRequestError('messages must contain user or assistant roles and string content');
   if (value.tools !== undefined && (!Array.isArray(value.tools) || !value.tools.every(isAnthropicToolDefinition))) throw new InvalidChatRequestError('tools must be Anthropic tool definitions');
   if (value.response_format !== undefined && (typeof value.response_format !== 'object' || !value.response_format || (value.response_format as { type?: unknown }).type !== 'json_object')) throw new InvalidChatRequestError('response_format must be { type: "json_object" }');
+  if (value.isRawKey !== undefined && typeof value.isRawKey !== 'boolean') throw new InvalidChatRequestError('isRawKey must be a boolean');
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
-  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined, responseFormat: value.response_format as { type: 'json_object' } | undefined };
+  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined, responseFormat: value.response_format as { type: 'json_object' } | undefined, isRawKey: value.isRawKey as boolean | undefined };
 }
 
 function isAnthropicToolDefinition(value: unknown): boolean {
