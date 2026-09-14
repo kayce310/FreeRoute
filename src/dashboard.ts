@@ -2878,7 +2878,7 @@ print(response.choices[0].message.content)</div>
     }
 
     // UTILS: CLIPBOARD & PLAYGROUND SELECTION
-    function copyToClipboard(text) {
+    function copyToClipboardLegacy(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
           showToast((currentLang === 'vi' ? 'Đã sao chép: ' : 'Copied: ') + text);
