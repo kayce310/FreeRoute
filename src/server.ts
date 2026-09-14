@@ -255,6 +255,28 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/credentials/test') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { providerId?: unknown; credentialId?: unknown; modelId?: unknown };
+        const providerId = typeof body.providerId === 'string' ? body.providerId.trim() : '';
+        const credentialId = typeof body.credentialId === 'string' && body.credentialId.trim() ? body.credentialId.trim() : 'default';
+        if (!providerId) { sendJson(response, 400, { error: { message: 'providerId is required', type: 'invalid_request_error' } }); return; }
+        const preset = PROVIDER_PRESETS.find((item) => item.id === providerId);
+        if (!preset) { sendJson(response, 404, { error: { message: `provider preset not found: ${providerId}`, type: 'invalid_request_error' } }); return; }
+        const secret = await options.credentials.get(providerId, credentialId);
+        if (!secret) { sendJson(response, 404, { error: { message: 'credential not found', type: 'invalid_request_error' } }); return; }
+        const validation = await validateProviderConnection(preset.adapterType, preset.baseUrl, secret, typeof body.modelId === 'string' ? body.modelId : preset.seedModels[0]?.modelId);
+        await options.credentials.updateStatus(providerId, credentialId, {
+          testStatus: validation.valid ? 'valid' : validation.errorKind === 'rate_limit' ? 'rate_limited' : 'invalid',
+          lastTestAt: new Date(),
+          lastError: validation.valid ? undefined : validation.error,
+          cooldownUntil: validation.valid ? null : undefined,
+          enabled: validation.valid || validation.errorKind === 'rate_limit',
+        });
+        sendJson(response, validation.valid ? 200 : 502, { status: validation.valid ? 'valid' : 'invalid', providerId, credentialId, validation });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/credentials/import') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
         const body = await readJsonBody(request) as {

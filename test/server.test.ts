@@ -443,6 +443,34 @@ test('marks only live enabled models backed by usable credentials', async () => 
   }
 });
 
+test('tests a stored credential and persists verification status', async () => {
+  const originalFetch = globalThis.fetch;
+  const updates: unknown[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('http://127.0.0.1:')) return originalFetch(input, init);
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  }) as typeof fetch;
+  const credentials = {
+    async list() { return [{ providerId: 'groq', credentialId: 'default', enabled: true, priority: 0, testStatus: 'untested', createdAt: new Date(), updatedAt: new Date() }]; },
+    async get() { return 'secret'; },
+    async updateStatus(_provider: string, _credential: string, update: unknown) { updates.push(update); return true; },
+  };
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), credentials: credentials as never, apiToken: 'local-token' });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/credentials/test`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ providerId: 'groq', credentialId: 'default' }) });
+    const body = await response.json() as { status: string; validation: { valid: boolean } };
+    assert.equal(response.status, 200);
+    assert.equal(body.status, 'valid');
+    assert.equal(body.validation.valid, true);
+    assert.equal((updates[0] as { testStatus: string }).testStatus, 'valid');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('validates provider probe input without persisting credentials', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/providers/validate`, {
