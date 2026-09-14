@@ -471,6 +471,25 @@ test('tests a stored credential and persists verification status', async () => {
   }
 });
 
+test('updates model enabled state and exposes it in the usable projection', async () => {
+  const catalog = new InMemoryCatalogStore([{ providerId: 'groq', modelId: 'toggle-me', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), enabled: true, catalogStatus: 'live', priority: 0 }]);
+  const credentials = { list: async () => [{ providerId: 'groq', credentialId: 'key', enabled: true, priority: 0, testStatus: 'valid', createdAt: new Date(), updatedAt: new Date() }] };
+  const server = createFreeRouteServer({ catalog, credentials: credentials as never, apiToken: 'local-token' });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const patch = await fetch(`http://127.0.0.1:${port}/v1/models/groq/toggle-me`, { method: 'PATCH', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) });
+    assert.equal(patch.status, 200);
+    const models = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { authorization: 'Bearer local-token' } });
+    const body = await models.json() as { data: Array<{ id: string; freeroute: { usable: boolean; enabled: boolean } }> };
+    const model = body.data.find((item) => item.id === 'groq/toggle-me');
+    assert.equal(model?.freeroute.enabled, false);
+    assert.equal(model?.freeroute.usable, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('validates provider probe input without persisting credentials', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/providers/validate`, {

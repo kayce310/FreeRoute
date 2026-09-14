@@ -173,6 +173,27 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      const modelStateMatch = request.method === 'PATCH' ? path.match(/^\/v1\/models\/([^/]+)\/(.+)$/) : null;
+      if (modelStateMatch) {
+        const providerId = decodeURIComponent(modelStateMatch[1]!);
+        const modelId = decodeURIComponent(modelStateMatch[2]!);
+        const body = await readJsonBody(request) as { enabled?: unknown };
+        if (typeof body.enabled !== 'boolean') {
+          sendJson(response, 400, { error: { message: 'enabled must be a boolean', type: 'invalid_request_error' } });
+          return;
+        }
+        const enabled = body.enabled;
+        const models = await options.catalog.list();
+        const target = models.find((model) => model.providerId === providerId && model.modelId === modelId);
+        if (!target) {
+          sendJson(response, 404, { error: { message: `model not found: ${providerId}/${modelId}`, type: 'invalid_request_error' } });
+          return;
+        }
+        await options.catalog.replaceProvider(providerId, models.filter((model) => model.providerId === providerId).map((model) => model.modelId === modelId ? { ...model, enabled } : model));
+        sendJson(response, 200, { status: 'ok', model: { ...target, enabled } });
+        return;
+      }
+
       if (request.method === 'GET' && path === '/v1/routing-events') {
         if (!options.events) { sendJson(response, 503, { error: { message: 'routing event storage is not configured', type: 'server_error' } }); return; }
         const events = await options.events.list();
