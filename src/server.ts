@@ -172,6 +172,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           data: creds.map((c) => ({
             providerId: c.providerId,
             credentialId: c.credentialId,
+            name: c.name,
+            enabled: c.enabled,
+            priority: c.priority,
+            testStatus: c.testStatus,
+            lastTestAt: c.lastTestAt?.toISOString(),
+            lastError: c.lastError,
+            cooldownUntil: c.cooldownUntil?.toISOString(),
             createdAt: c.createdAt.toISOString(),
             updatedAt: c.updatedAt.toISOString(),
           })),
@@ -199,8 +206,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       if (request.method === 'POST' && path === '/v1/credentials/import') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
         const body = await readJsonBody(request) as {
-          credentials?: Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string }>;
-        } | Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string }>;
+          credentials?: Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string; name?: string; enabled?: boolean; priority?: number }>;
+        } | Array<{ providerId?: string; provider_id?: string; credentialId?: string; credential_id?: string; secret?: string; apiKey?: string; name?: string; enabled?: boolean; priority?: number }>;
         
         const items = Array.isArray(body) ? body : (Array.isArray(body?.credentials) ? body.credentials : []);
         if (!items.length) {
@@ -215,7 +222,11 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           const secret = (item.secret ?? item.apiKey)?.trim();
           if (!providerId || !secret) continue;
 
-          await options.credentials.put(providerId, credentialId, secret);
+          await options.credentials.put(providerId, credentialId, secret, new Date(), {
+            name: typeof item.name === 'string' ? item.name : undefined,
+            enabled: item.enabled !== false,
+            priority: typeof item.priority === 'number' ? item.priority : 0,
+          });
 
           // Auto-seed preset models
           const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
@@ -252,7 +263,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
       if (request.method === 'POST' && path === '/v1/credentials') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
-        const body = await readJsonBody(request) as { providerId?: unknown; provider_id?: unknown; credentialId?: unknown; credential_id?: unknown; secret?: unknown; apiKey?: unknown; api_key?: unknown };
+        const body = await readJsonBody(request) as { providerId?: unknown; provider_id?: unknown; credentialId?: unknown; credential_id?: unknown; secret?: unknown; apiKey?: unknown; api_key?: unknown; name?: unknown; enabled?: unknown; priority?: unknown };
         const providerId = (body.providerId ?? body.provider_id) as string | undefined;
         const credentialId = ((body.credentialId ?? body.credential_id) as string | undefined) || 'default';
         const secret = (body.secret ?? body.apiKey ?? body.api_key) as string | undefined;
@@ -266,7 +277,11 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           return;
         }
 
-        await options.credentials.put(providerId.trim(), credentialId.trim(), secret.trim());
+        await options.credentials.put(providerId.trim(), credentialId.trim(), secret.trim(), new Date(), {
+          name: typeof body.name === 'string' ? body.name : undefined,
+          enabled: body.enabled !== false,
+          priority: typeof body.priority === 'number' ? body.priority : 0,
+        });
 
         // Auto-seed known models for this provider if not yet present in catalog
         const preset = PROVIDER_PRESETS.find((p) => p.id === providerId.trim());
@@ -301,6 +316,9 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           status: 'ok',
           providerId: providerId.trim(),
           credentialId: credentialId.trim(),
+          name: typeof body.name === 'string' ? body.name : undefined,
+          enabled: body.enabled !== false,
+          priority: typeof body.priority === 'number' ? body.priority : 0,
         });
         return;
       }

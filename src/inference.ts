@@ -423,7 +423,7 @@ export class ChatService {
  */
 export function createCatalogChatService(options: {
   catalog: CatalogStore;
-  credentials: { list(): Promise<Array<{ providerId: string; credentialId: string }>> };
+  credentials: { list(): Promise<Array<{ providerId: string; credentialId: string; enabled?: boolean; priority?: number; testStatus?: string; cooldownUntil?: Date }>> };
   adapters: Iterable<ChatProviderAdapter>;
   routeState?: RouteState;
   onEvent?: ChatServiceOptions['onEvent'];
@@ -437,10 +437,14 @@ export function createCatalogChatService(options: {
       const [models, credentials, quotaScores, preferences, healthScores] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>()), options.preferences?.() ?? Promise.resolve(new Map<string, import('./contracts.js').Preference>()), options.healthScores?.() ?? Promise.resolve(new Map<string, { healthScore: number; latencyScore: number }>())]);
       return models.flatMap((model) => credentials
         .filter((credential) => credential.providerId === model.providerId)
+        .filter((credential) => credential.enabled !== false)
+        .filter((credential) => credential.testStatus !== 'invalid')
+        .filter((credential) => !credential.cooldownUntil || credential.cooldownUntil <= new Date())
         .map((credential): RouteCandidate => {
           const health = healthScores.get(`${model.providerId}\u0000${model.modelId}`);
           return {
           ...model,
+          priority: (model.priority ?? 0) + (credential.priority ?? 0),
           credentialId: credential.credentialId,
           preference: preferences.get(`${model.providerId}\u0000${model.modelId}`) ?? 'neutral',
           healthScore: health?.healthScore ?? 0,

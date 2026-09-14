@@ -62,3 +62,32 @@ test('deletes an existing credential and returns true, or false if not found', a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('persists credential lifecycle metadata and status updates', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'freeroute-credentials-'));
+  const databaseFile = join(directory, 'state.sqlite');
+  try {
+    const store = new SqliteCredentialStore(databaseFile, masterSecret);
+    await store.put('groq', 'secondary', 'secret', new Date(), { name: 'Backup', enabled: false, priority: 7 });
+    let [metadata] = await store.list();
+    assert.equal(metadata.name, 'Backup');
+    assert.equal(metadata.enabled, false);
+    assert.equal(metadata.priority, 7);
+    assert.equal(metadata.testStatus, 'untested');
+
+    const testedAt = new Date('2026-09-14T00:00:00.000Z');
+    const changed = await store.updateStatus('groq', 'secondary', {
+      testStatus: 'rate_limited', lastTestAt: testedAt, lastError: '429', cooldownUntil: new Date('2026-09-14T00:01:00.000Z'), enabled: true,
+    });
+    assert.equal(changed, true);
+    [metadata] = await store.list();
+    assert.equal(metadata.enabled, true);
+    assert.equal(metadata.testStatus, 'rate_limited');
+    assert.equal(metadata.lastError, '429');
+    assert.equal(metadata.lastTestAt?.toISOString(), testedAt.toISOString());
+    assert.equal(metadata.cooldownUntil?.toISOString(), '2026-09-14T00:01:00.000Z');
+    store.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
