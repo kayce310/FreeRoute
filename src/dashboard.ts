@@ -1487,6 +1487,14 @@ print(response.choices[0].message.content)</div>
     </div>
   </div>
 
+  <div class="modal-overlay" id="modal-provider-details">
+    <div class="modal" style="max-width:720px;">
+      <div class="modal-title"><span id="provider-details-title">Provider details</span><button class="btn btn-sm" onclick="closeProviderDetails()">✕</button></div>
+      <div id="provider-details-body" style="max-height:55vh; overflow:auto;"></div>
+      <div class="modal-actions"><button class="btn" onclick="closeProviderDetails()">Close</button><button class="btn btn-primary" id="provider-details-key">Add key</button></div>
+    </div>
+  </div>
+
   <!-- MODAL: 1-CLICK SYNC FROM 9ROUTER & OMNIROUTE -->
   <div class="modal-overlay" id="modal-sync">
     <div class="modal" style="max-width:640px;">
@@ -2665,6 +2673,32 @@ print(response.choices[0].message.content)</div>
       switchTab('credentials');
     }
 
+    async function openProviderDetails(providerId) {
+      const preset = presets.find(p => p.id === providerId);
+      if (!preset) return;
+      const modal = document.getElementById('modal-provider-details');
+      const body = document.getElementById('provider-details-body');
+      document.getElementById('provider-details-title').textContent = preset.name + ' (' + providerId + ')';
+      body.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading provider status...</div>';
+      document.getElementById('provider-details-key').onclick = () => { closeProviderDetails(); openAddKeyModal(providerId); };
+      modal.classList.add('active');
+      try {
+        const [modelRes, healthRes] = await Promise.all([fetch('/v1/models'), fetch('/v1/provider-health')]);
+        const modelJson = modelRes.ok ? await modelRes.json() : { data: [] };
+        const healthJson = healthRes.ok ? await healthRes.json() : { data: [] };
+        const providerModels = (modelJson.data || []).filter(m => m.owned_by === providerId);
+        const health = (healthJson.data || []).find(h => h.providerId === providerId);
+        body.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">' +
+          '<div class="card"><small>Models</small><strong>' + providerModels.length + '</strong></div>' +
+          '<div class="card"><small>Usable</small><strong>' + providerModels.filter(m => m.freeroute?.usable).length + '</strong></div>' +
+          '<div class="card"><small>Success</small><strong>' + (health ? Math.round((health.successRate || 0) * 100) + '%' : '—') + '</strong></div></div>' +
+          '<div style="font-size:12px;font-weight:600;margin-bottom:6px;">Discovered models</div>' +
+          (providerModels.length ? providerModels.map(m => '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--card-border);"><code>' + m.id + '</code><span class="badge ' + (m.freeroute?.usable ? 'badge-green' : 'badge-gray') + '">' + (m.freeroute?.usable ? 'Usable' : 'Unavailable') + '</span></div>').join('') : '<div style="color:var(--text-muted);">No discovered models yet. Add a key and refresh.</div>');
+      } catch (error) { body.innerHTML = '<div style="color:var(--danger);padding:12px;">Unable to load provider details.</div>'; }
+    }
+
+    function closeProviderDetails() { document.getElementById('modal-provider-details').classList.remove('active'); }
+
     function renderPresets() {
       const container = document.getElementById('presets-container');
       const q = (document.getElementById('search-presets').value || '').toLowerCase().trim();
@@ -2716,7 +2750,7 @@ print(response.choices[0].message.content)</div>
           : \`<span class="badge badge-gray">⚪ \${t('badgeNotConnected')}</span>\`;
 
         html += \`
-          <div class="preset-card">
+          <div class="preset-card" role="button" tabindex="0" onclick="openProviderDetails('\${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' ') openProviderDetails('\${p.id}')">
             <div>
               <div class="preset-header">
                 <div>
