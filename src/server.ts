@@ -553,7 +553,15 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (options.credentials) {
           const projection = await getModelProjection(options);
           const usableIds = new Set(projection.filter((model) => model.usable).map((model) => `${model.providerId}/${model.modelId}`));
-          const unavailable = body.models.map((model) => String(model).trim()).filter((model) => !usableIds.has(model));
+          const normalizedComboId = comboId.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+          // A combo may include another combo. Validate its resolved model leaves,
+          // not the `combo:` reference itself, while rejecting empty/cyclic chains.
+          const expandedModels = expandComboModels(body.models.map((model) => String(model).trim()), options.combos, new Set([normalizedComboId]));
+          if (expandedModels.length === 0) {
+            sendJson(response, 400, { error: { message: 'combo must resolve to at least one model; remove self-references or empty nested combos', type: 'invalid_request_error' } });
+            return;
+          }
+          const unavailable = expandedModels.filter((model) => !usableIds.has(model));
           if (unavailable.length > 0) {
             sendJson(response, 400, { error: { message: 'combo contains models that are not enabled, live, or backed by a usable credential', type: 'invalid_request_error', unavailableModels: [...new Set(unavailable)] } });
             return;

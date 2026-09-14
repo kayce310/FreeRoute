@@ -728,6 +728,41 @@ export function dashboardHtml(): string {
       margin-top: 20px;
     }
 
+    /* Provider detail: keep setup, connections, and models visually distinct. */
+    .provider-detail-modal { max-width: 860px; }
+    .provider-detail-body { max-height: 62vh; overflow: auto; padding-right: 2px; }
+    .provider-setup-banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      padding: 14px; margin-bottom: 16px; border: 1px solid var(--card-border);
+      border-radius: var(--radius-md); background: rgba(99, 102, 241, 0.08);
+    }
+    .provider-setup-banner strong { display: block; font-size: 13px; }
+    .provider-setup-banner span { display: block; margin-top: 3px; color: var(--text-muted); font-size: 12px; }
+    .provider-section { margin-top: 18px; }
+    .provider-section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .provider-section-title { font-size: 13px; font-weight: 700; }
+    .provider-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .provider-stat { padding: 13px; border: 1px solid var(--card-border); border-radius: var(--radius-md); background: var(--bg); }
+    .provider-stat small { display: block; color: var(--text-muted); font-size: 11px; }
+    .provider-stat strong { display: block; margin-top: 5px; font-size: 20px; }
+    .provider-connection, .provider-model-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 12px; border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+      margin-bottom: 7px; background: var(--bg);
+    }
+    .provider-connection-meta, .provider-model-meta { min-width: 0; }
+    .provider-model-meta code { overflow-wrap: anywhere; }
+    .provider-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .provider-test-result { margin-top: 5px; font-size: 11px; color: var(--text-muted); }
+    .provider-power { min-width: 76px; }
+    .provider-empty { padding: 16px; border: 1px dashed var(--card-border); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 12px; }
+    @media (max-width: 620px) {
+      .provider-stats { grid-template-columns: 1fr; }
+      .provider-setup-banner, .provider-connection, .provider-model-row { align-items: flex-start; flex-direction: column; }
+      .provider-row-actions { width: 100%; }
+      .provider-row-actions .btn { flex: 1; }
+    }
+
     /* Code Snippet Box */
     .code-box {
       background: var(--bg);
@@ -1488,9 +1523,9 @@ print(response.choices[0].message.content)</div>
   </div>
 
   <div class="modal-overlay" id="modal-provider-details">
-    <div class="modal" style="max-width:720px;">
+    <div class="modal provider-detail-modal">
       <div class="modal-title"><span id="provider-details-title">Provider details</span><button class="btn btn-sm" onclick="closeProviderDetails()">✕</button></div>
-      <div id="provider-details-body" style="max-height:55vh; overflow:auto;"></div>
+      <div id="provider-details-body" class="provider-detail-body"></div>
       <div class="modal-actions"><button class="btn" onclick="closeProviderDetails()">Close</button><button class="btn btn-primary" id="provider-details-key">Add key</button></div>
     </div>
   </div>
@@ -1628,6 +1663,8 @@ print(response.choices[0].message.content)</div>
     let modelSortAsc = false;
     let tempComboChain = [];
     let lastStreamEventId = null;
+    let openProviderDetailsId = null;
+    let providerModelTestResults = {};
 
     // Helper: Identify True Free models
     function isTrueFreeModel(m) {
@@ -2673,10 +2710,15 @@ print(response.choices[0].message.content)</div>
       switchTab('credentials');
     }
 
+    function escapeProviderDetailHtml(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     async function openProviderDetails(providerId) {
       const preset = presets.find(p => p.id === providerId);
       if (!preset) return;
       const modal = document.getElementById('modal-provider-details');
+      openProviderDetailsId = providerId;
       const body = document.getElementById('provider-details-body');
       document.getElementById('provider-details-title').textContent = preset.name + ' (' + providerId + ')';
       body.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading provider status...</div>';
@@ -2686,22 +2728,55 @@ print(response.choices[0].message.content)</div>
         const [modelRes, healthRes] = await Promise.all([fetch('/v1/models'), fetch('/v1/provider-health')]);
         const modelJson = modelRes.ok ? await modelRes.json() : { data: [] };
         const healthJson = healthRes.ok ? await healthRes.json() : { data: [] };
-        const providerModels = (modelJson.data || []).filter(m => m.owned_by === providerId);
+        // Disabled models stay visible for recovery, grouped after active models.
+        const providerModels = (modelJson.data || [])
+          .filter(m => m.owned_by === providerId)
+          .sort((left, right) => {
+            const leftEnabled = left.freeroute?.enabled !== false;
+            const rightEnabled = right.freeroute?.enabled !== false;
+            if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+            return String(left.id).localeCompare(String(right.id));
+          });
         const health = (healthJson.data || []).find(h => h.providerId === providerId);
         const providerCredentials = credentials.filter(c => c.providerId === providerId);
-        const refreshButton = '<button class="btn btn-outline btn-sm" data-provider="' + providerId + '" onclick="refreshProviderModels(this.dataset.provider)">↻ Fetch models</button>';
-        const credentialSummary = providerCredentials.length ? '<div style="font-size:12px;font-weight:700;margin:12px 0 6px;">Connections (' + providerCredentials.length + ')</div>' + providerCredentials.map(c => '<div style="display:flex;justify-content:space-between;padding:7px;border:1px solid var(--card-border);border-radius:6px;margin-bottom:5px;"><code>' + c.credentialId + '</code><span class="badge badge-gray">' + (c.testStatus || 'untested') + '</span><button class="btn btn-outline btn-sm" data-provider="' + providerId + '" data-credential="' + c.credentialId + '" onclick="testCredential(this.dataset.provider,this.dataset.credential)">Test</button></div>').join('') : '<div style="color:var(--text-muted);padding:8px;">No credentials configured.</div>';
-        body.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">' +
-          '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' + refreshButton + '</div>' + credentialSummary +
-          '<div class="card"><small>Models</small><strong>' + providerModels.length + '</strong></div>' +
-          '<div class="card"><small>Usable</small><strong>' + providerModels.filter(m => m.freeroute?.usable).length + '</strong></div>' +
-          '<div class="card"><small>Success</small><strong>' + (health ? Math.round((health.successRate || 0) * 100) + '%' : '—') + '</strong></div></div>' +
-          '<div style="font-size:12px;font-weight:600;margin-bottom:6px;">Discovered models</div>' +
-          (providerModels.length ? providerModels.map(m => '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--card-border);"><code>' + m.id + '</code><span class="badge ' + (m.freeroute?.usable ? 'badge-green' : 'badge-gray') + '">' + (m.freeroute?.usable ? 'Usable' : 'Unavailable') + '</span></div>').join('') : '<div style="color:var(--text-muted);">No discovered models yet. Add a key and refresh.</div>');
+        const hasCredential = providerCredentials.length > 0;
+        const providerSafe = escapeProviderDetailHtml(providerId);
+        const refreshButton = hasCredential
+          ? '<button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" onclick="refreshProviderModels(this.dataset.provider)">Refresh models</button>'
+          : '';
+        const setupBanner = hasCredential
+          ? '<div class="provider-setup-banner"><div><strong>Provider connected</strong><span>Test a connection, then refresh the available models.</span></div>' + refreshButton + '</div>'
+          : '<div class="provider-setup-banner"><div><strong>Start by adding an API key</strong><span>A saved key is required before FreeRoute can discover or use this provider’s models.</span></div><button class="btn btn-primary btn-sm" data-provider="' + providerSafe + '" onclick="closeProviderDetails();openAddKeyModal(this.dataset.provider)">Add key</button></div>';
+        const credentialSummary = hasCredential ? providerCredentials.map(c => {
+          const credentialSafe = escapeProviderDetailHtml(c.credentialId);
+          const status = escapeProviderDetailHtml(c.testStatus || 'untested');
+          const enabled = c.enabled !== false;
+          const statusClass = status === 'valid' ? 'badge-green' : status === 'invalid' ? 'badge-red' : 'badge-gray';
+          return '<div class="provider-connection"><div class="provider-connection-meta"><code>' + credentialSafe + '</code><div style="margin-top:5px;"><span class="badge ' + statusClass + '">' + status + '</span>' + (enabled ? '' : ' <span class="badge badge-gray">disabled</span>') + '</div></div><div class="provider-row-actions"><button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-credential="' + credentialSafe + '" onclick="testCredential(this.dataset.provider,this.dataset.credential)">Test key</button></div></div>';
+        }).join('') : '<div class="provider-empty">No API key is configured for this provider.</div>';
+        const modelRows = providerModels.length ? providerModels.map(m => {
+          const routedModelId = String(m.id || m.modelId);
+          const modelId = routedModelId.startsWith(providerId + '/') ? routedModelId.slice(providerId.length + 1) : routedModelId;
+          const modelSafe = escapeProviderDetailHtml(modelId);
+          const routedModelSafe = escapeProviderDetailHtml(routedModelId);
+          const usable = m.freeroute?.usable;
+          const enabled = m.freeroute?.enabled !== false && m.enabled !== false;
+          const testResult = providerModelTestResults[routedModelId];
+          const resultHtml = testResult ? '<div class="provider-test-result" style="color:' + (testResult.state === 'success' ? 'var(--success)' : testResult.state === 'error' ? 'var(--danger)' : 'var(--text-muted)') + ';">' + escapeProviderDetailHtml(testResult.message) + '</div>' : '';
+          const testLabel = testResult?.state === 'testing' ? 'Testing…' : 'Test';
+          return '<div class="provider-model-row"><div class="provider-model-meta"><code>' + modelSafe + '</code><div style="margin-top:5px;"><span class="badge ' + (usable ? 'badge-green' : 'badge-gray') + '">' + (usable ? 'Usable' : enabled ? 'Unavailable' : 'Disabled') + '</span></div>' + resultHtml + '</div><div class="provider-row-actions"><button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-model="' + routedModelSafe + '" onclick="testProviderDetailModel(this)" ' + (!enabled || testResult?.state === 'testing' ? 'disabled' : '') + '>' + testLabel + '</button><button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-model="' + modelSafe + '" data-enabled="' + enabled + '" onclick="toggleProviderDetailModel(this)">' + (enabled ? 'Disable' : 'Enable') + '</button></div></div>';
+        }).join('') : '<div class="provider-empty">' + (hasCredential ? 'No models discovered yet. Refresh models after the key has been tested.' : 'Add a key first. Model discovery will become available afterwards.') + '</div>';
+        body.innerHTML = setupBanner +
+          '<div class="provider-stats"><div class="provider-stat"><small>Connections</small><strong>' + providerCredentials.length + '</strong></div><div class="provider-stat"><small>Usable models</small><strong>' + providerModels.filter(m => m.freeroute?.usable).length + '</strong></div><div class="provider-stat"><small>Success rate</small><strong>' + (health ? Math.round((health.successRate || 0) * 100) + '%' : '—') + '</strong></div></div>' +
+          '<section class="provider-section"><div class="provider-section-head"><div class="provider-section-title">Connections</div><div style="font-size:11px;color:var(--text-muted);">' + providerCredentials.filter(c => c.enabled !== false).length + ' enabled</div></div>' + credentialSummary + '</section>' +
+          '<section class="provider-section"><div class="provider-section-head"><div class="provider-section-title">Available models</div><div class="provider-row-actions">' + (providerModels.length && hasCredential ? '<button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" onclick="testAllProviderModels(this)">Test all</button>' : '') + refreshButton + '</div></div>' + modelRows + '</section>';
       } catch (error) { body.innerHTML = '<div style="color:var(--danger);padding:12px;">Unable to load provider details.</div>'; }
     }
 
-    function closeProviderDetails() { document.getElementById('modal-provider-details').classList.remove('active'); }
+    function closeProviderDetails() {
+      document.getElementById('modal-provider-details').classList.remove('active');
+      openProviderDetailsId = null;
+    }
 
     async function refreshProviderModels(providerId) {
       const credential = credentials.find(c => c.providerId === providerId && c.enabled !== false);
@@ -2742,6 +2817,9 @@ print(response.choices[0].message.content)</div>
       });
 
       filtered.sort((a, b) => {
+        const aEnabled = credentials.some(c => c.providerId === a.id && c.enabled !== false);
+        const bEnabled = credentials.some(c => c.providerId === b.id && c.enabled !== false);
+        if (aEnabled !== bEnabled) return aEnabled ? -1 : 1;
         const aIsFree = a.category !== 'commercial';
         const bIsFree = b.category !== 'commercial';
         if (aIsFree && !bIsFree) return -1;
@@ -2753,6 +2831,8 @@ print(response.choices[0].message.content)</div>
       for (const p of filtered) {
         const keyCount = providerKeyCounts[p.id] || (configuredMap.has(p.id) ? 1 : 0);
         const isConfigured = keyCount > 0;
+        const providerCredentials = credentials.filter(c => c.providerId === p.id);
+        const isProviderEnabled = providerCredentials.some(c => c.enabled !== false);
         const desc = currentLang === 'vi' ? p.descriptionVi : p.descriptionEn;
         const isComm = p.category === 'commercial';
         const catBadge = isComm 
@@ -2774,6 +2854,7 @@ print(response.choices[0].message.content)</div>
                 <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
                   \${catBadge}
                   \${keyBadge}
+                  <button class="btn btn-sm \${isProviderEnabled ? 'btn-success' : 'btn-outline'} provider-power" onclick="event.stopPropagation();toggleProviderEnabled(this)" data-provider="\${p.id}" data-enabled="\${isProviderEnabled}" \${!isConfigured ? 'disabled title=&quot;Add a key before enabling this provider&quot;' : ''}>\${isProviderEnabled ? '● Enabled' : '○ Disabled'}</button>
                 </div>
               </div>
               <div class="preset-desc">\${desc}</div>
@@ -2793,6 +2874,29 @@ print(response.choices[0].message.content)</div>
         \`;
       }
       container.innerHTML = html;
+    }
+
+    async function toggleProviderEnabled(button) {
+      const providerId = button.dataset.provider;
+      const shouldEnable = button.dataset.enabled !== 'true';
+      const providerCredentials = credentials.filter(c => c.providerId === providerId);
+      if (shouldEnable && providerCredentials.length === 0) {
+        showToast('Add a key or connect an account before enabling this provider.', true);
+        return;
+      }
+      button.disabled = true;
+      try {
+        const outcomes = await Promise.all(providerCredentials.map(c => fetch('/v1/credentials', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId, credentialId: c.credentialId, enabled: shouldEnable })
+        })));
+        if (outcomes.some(r => !r.ok)) throw new Error('Could not update every connection');
+        showToast(shouldEnable ? 'Provider enabled.' : 'Provider disabled.');
+        await refreshAllData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not update provider', true);
+        button.disabled = false;
+      }
     }
 
     // TAB 3: MODEL CATALOG (TRUE FREE VS PAID + SORT)
@@ -2841,8 +2945,11 @@ print(response.choices[0].message.content)</div>
         return true;
       });
 
-      // Sorting
+      // Disabled models remain visible, but are always kept below active models.
       filtered.sort((a, b) => {
+        const aEnabled = a.enabled !== false;
+        const bEnabled = b.enabled !== false;
+        if (aEnabled !== bEnabled) return aEnabled ? -1 : 1;
         let valA = a[modelSortField];
         let valB = b[modelSortField];
         if (typeof valA === 'boolean') {
@@ -2889,6 +2996,88 @@ print(response.choices[0].message.content)</div>
       if (!res.ok) { showToast('Unable to update model state', true); return; }
       showToast(!enabled ? 'Model enabled' : 'Model disabled');
       await refreshAllData();
+    }
+
+    async function toggleProviderDetailModel(button) {
+      const providerId = button.dataset.provider;
+      await toggleModelEnabled(providerId, button.dataset.model, button.dataset.enabled === 'true');
+      await openProviderDetails(providerId);
+    }
+
+    async function runProviderModelTest(modelId) {
+      const started = performance.now();
+      const response = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelId, stream: false, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
+      });
+      const elapsed = Math.round(performance.now() - started);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const detail = body.error?.message || body.error?.code || response.statusText || 'Request failed';
+        throw new Error('HTTP ' + response.status + ': ' + detail);
+      }
+      return elapsed;
+    }
+
+    async function disableFailedProviderModel(providerId, routedModelId) {
+      const prefix = providerId + '/';
+      const modelId = routedModelId.startsWith(prefix) ? routedModelId.slice(prefix.length) : routedModelId;
+      const response = await fetch('/v1/models/' + encodeURIComponent(providerId) + '/' + encodeURIComponent(modelId), {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: false })
+      });
+      if (!response.ok) throw new Error('Could not disable failed model');
+    }
+
+    async function testProviderDetailModel(button) {
+      const modelId = button.dataset.model;
+      const providerId = button.dataset.provider;
+      providerModelTestResults[modelId] = { state: 'testing', message: 'Testing…' };
+      await openProviderDetails(openProviderDetailsId);
+      try {
+        const elapsed = await runProviderModelTest(modelId);
+        providerModelTestResults[modelId] = { state: 'success', message: 'Passed in ' + elapsed + ' ms' };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Test failed';
+        try {
+          await disableFailedProviderModel(providerId, modelId);
+          providerModelTestResults[modelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
+          await refreshAllData();
+        } catch (disableError) {
+          providerModelTestResults[modelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+        }
+      }
+      if (openProviderDetailsId) await openProviderDetails(openProviderDetailsId);
+    }
+
+    async function testAllProviderModels(button) {
+      const providerId = button.dataset.provider;
+      const targets = models.filter(m => m.providerId === providerId && m.enabled !== false && m.usable).map(m => ({ routeModelId: m.id || (m.providerId + '/' + m.modelId), modelId: m.modelId }));
+      if (!targets.length) { showToast('No usable enabled models to test.', true); return; }
+      button.disabled = true;
+      for (const target of targets) {
+        providerModelTestResults[target.routeModelId] = { state: 'testing', message: 'Testing…' };
+      }
+      await openProviderDetails(providerId);
+      let failures = 0;
+      for (const target of targets) {
+        try {
+          const elapsed = await runProviderModelTest(target.routeModelId);
+          providerModelTestResults[target.routeModelId] = { state: 'success', message: 'Passed in ' + elapsed + ' ms' };
+        } catch (error) {
+          failures += 1;
+          const reason = error instanceof Error ? error.message : 'Test failed';
+          try {
+            await disableFailedProviderModel(providerId, target.routeModelId);
+            providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
+          } catch (disableError) {
+            providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+          }
+        }
+      }
+      await refreshAllData();
+      if (openProviderDetailsId === providerId) await openProviderDetails(providerId);
+      showToast('Model tests completed: ' + (targets.length - failures) + ' passed, ' + failures + ' failed' + (failures ? ' and disabled.' : '.'));
     }
 
     // UTILS: CLIPBOARD & PLAYGROUND SELECTION
@@ -3192,7 +3381,9 @@ print(response.choices[0].message.content)</div>
     function populateComboPickerProviders() {
       const sel = document.getElementById('combo-picker-prov-select');
       if (!sel) return;
-      const provSet = new Set(models.map(m => m.providerId));
+      const provSet = new Set(models
+        .filter(m => m.enabled !== false && credentials.some(c => c.providerId === m.providerId && c.enabled !== false))
+        .map(m => m.providerId));
       let html = '<option value="">-- ' + (currentLang === 'vi' ? 'Tất cả Nhà Cung Cấp' : 'All Providers') + ' --</option>';
       html += '<option value="__combos__">🔀 ' + (currentLang === 'vi' ? 'Custom Combos (Ưu tiên)' : 'Custom Combos (Priority)') + '</option>';
       for (const p of Array.from(provSet).sort()) {
@@ -3242,7 +3433,8 @@ print(response.choices[0].message.content)</div>
       let filteredModels = [];
       if (prov !== '__combos__' && comboPickerActiveFilter !== 'combos') {
         filteredModels = models.filter(m => {
-          if (!m.usable) return false;
+          const providerEnabled = credentials.some(c => c.providerId === m.providerId && c.enabled !== false);
+          if (!providerEnabled || m.enabled === false || !m.usable) return false;
           if (prov && m.providerId !== prov) return false;
           if (comboPickerActiveFilter === 'free' && !m.isTrueFree) return false;
           if (comboPickerActiveFilter === 'tools' && !(m.capabilities || []).includes('tools')) return false;
@@ -3649,6 +3841,7 @@ print(response.choices[0].message.content)</div>
         if (res.ok) showToast('Credential verified successfully.');
         else showToast(data.error?.message || data.validation?.error || 'Credential test failed', true);
         await refreshAllData();
+        if (openProviderDetailsId === providerId) await openProviderDetails(providerId);
       } catch (err) { showToast(err.message || 'Credential test failed', true); }
     }
 
@@ -3785,6 +3978,7 @@ print(response.choices[0].message.content)</div>
           closeAddKeyModal();
           showToast(currentLang === 'vi' ? 'Đã lưu key & nạp model thành công!' : 'Key saved & models loaded!');
           await refreshAllData();
+          await openProviderDetails(providerId);
         } else {
           const err = await res.json();
           showToast(err.error?.message || 'Error saving key', true);
