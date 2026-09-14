@@ -2745,7 +2745,7 @@ print(response.choices[0].message.content)</div>
           ? '<button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" onclick="refreshProviderModels(this.dataset.provider)">Refresh models</button>'
           : '';
         const setupBanner = hasCredential
-          ? '<div class="provider-setup-banner"><div><strong>Provider connected</strong><span>Test a connection, then refresh the available models.</span></div>' + refreshButton + '</div>'
+          ? '<div class="provider-setup-banner"><div><strong>Provider connected</strong><span>Test a connection, then refresh the available models below.</span></div></div>'
           : '<div class="provider-setup-banner"><div><strong>Start by adding an API key</strong><span>A saved key is required before FreeRoute can discover or use this provider’s models.</span></div><button class="btn btn-primary btn-sm" data-provider="' + providerSafe + '" onclick="closeProviderDetails();openAddKeyModal(this.dataset.provider)">Add key</button></div>';
         const credentialSummary = hasCredential ? providerCredentials.map(c => {
           const credentialSafe = escapeProviderDetailHtml(c.credentialId);
@@ -2781,11 +2781,28 @@ print(response.choices[0].message.content)</div>
     async function refreshProviderModels(providerId) {
       const credential = credentials.find(c => c.providerId === providerId && c.enabled !== false);
       if (!credential) { showToast('Add an enabled credential first.', true); return; }
-      const res = await fetch('/v1/providers/' + encodeURIComponent(providerId) + '/fetch-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credentialId: credential.credentialId }) });
-      if (!res.ok) { showToast('Model discovery failed.', true); return; }
-      showToast('Models refreshed.');
-      await refreshAllData();
-      await openProviderDetails(providerId);
+      try {
+        const modelRes = await fetch('/v1/models');
+        const modelJson = modelRes.ok ? await modelRes.json() : { data: [] };
+        const disabledModels = (modelJson.data || []).filter(m => m.owned_by === providerId && m.freeroute?.enabled === false);
+        const enableResults = await Promise.all(disabledModels.map(m => {
+          const modelId = String(m.id).startsWith(providerId + '/') ? String(m.id).slice(providerId.length + 1) : String(m.id);
+          return fetch('/v1/models/' + encodeURIComponent(providerId) + '/' + encodeURIComponent(modelId), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: true })
+          });
+        }));
+        if (enableResults.some(r => !r.ok)) throw new Error('Could not enable every disabled model');
+
+        const res = await fetch('/v1/providers/' + encodeURIComponent(providerId) + '/fetch-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credentialId: credential.credentialId }) });
+        if (!res.ok) throw new Error('Model discovery failed.');
+        showToast('Models reset and refreshed.');
+        await refreshAllData();
+        await openProviderDetails(providerId);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Model reset failed.', true);
+      }
     }
 
     function renderPresets() {
