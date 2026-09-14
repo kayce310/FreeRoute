@@ -299,6 +299,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'PATCH' && path === '/v1/credentials') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        const body = await readJsonBody(request) as { providerId?: unknown; credentialId?: unknown; enabled?: unknown; priority?: unknown };
+        const providerId = typeof body.providerId === 'string' ? body.providerId.trim() : (url.searchParams.get('providerId') ?? '');
+        const credentialId = typeof body.credentialId === 'string' && body.credentialId.trim() ? body.credentialId.trim() : (url.searchParams.get('credentialId') ?? 'default');
+        if (!providerId || typeof body.enabled !== 'boolean') {
+          sendJson(response, 400, { error: { message: 'providerId and enabled are required', type: 'invalid_request_error' } }); return;
+        }
+        const updated = await options.credentials.updateStatus(providerId, credentialId, {
+          enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+        });
+        if (!updated) { sendJson(response, 404, { error: { message: 'credential not found', type: 'invalid_request_error' } }); return; }
+        sendJson(response, 200, { status: 'ok', providerId, credentialId, enabled: body.enabled });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/credentials/import') {
         if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
         const body = await readJsonBody(request) as {

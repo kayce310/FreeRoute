@@ -2688,7 +2688,11 @@ print(response.choices[0].message.content)</div>
         const healthJson = healthRes.ok ? await healthRes.json() : { data: [] };
         const providerModels = (modelJson.data || []).filter(m => m.owned_by === providerId);
         const health = (healthJson.data || []).find(h => h.providerId === providerId);
+        const providerCredentials = credentials.filter(c => c.providerId === providerId);
+        const refreshButton = '<button class="btn btn-outline btn-sm" data-provider="' + providerId + '" onclick="refreshProviderModels(this.dataset.provider)">↻ Fetch models</button>';
+        const credentialSummary = providerCredentials.length ? '<div style="font-size:12px;font-weight:700;margin:12px 0 6px;">Connections (' + providerCredentials.length + ')</div>' + providerCredentials.map(c => '<div style="display:flex;justify-content:space-between;padding:7px;border:1px solid var(--card-border);border-radius:6px;margin-bottom:5px;"><code>' + c.credentialId + '</code><span class="badge badge-gray">' + (c.testStatus || 'untested') + '</span><button class="btn btn-outline btn-sm" data-provider="' + providerId + '" data-credential="' + c.credentialId + '" onclick="testCredential(this.dataset.provider,this.dataset.credential)">Test</button></div>').join('') : '<div style="color:var(--text-muted);padding:8px;">No credentials configured.</div>';
         body.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' + refreshButton + '</div>' + credentialSummary +
           '<div class="card"><small>Models</small><strong>' + providerModels.length + '</strong></div>' +
           '<div class="card"><small>Usable</small><strong>' + providerModels.filter(m => m.freeroute?.usable).length + '</strong></div>' +
           '<div class="card"><small>Success</small><strong>' + (health ? Math.round((health.successRate || 0) * 100) + '%' : '—') + '</strong></div></div>' +
@@ -2698,6 +2702,16 @@ print(response.choices[0].message.content)</div>
     }
 
     function closeProviderDetails() { document.getElementById('modal-provider-details').classList.remove('active'); }
+
+    async function refreshProviderModels(providerId) {
+      const credential = credentials.find(c => c.providerId === providerId && c.enabled !== false);
+      if (!credential) { showToast('Add an enabled credential first.', true); return; }
+      const res = await fetch('/v1/providers/' + encodeURIComponent(providerId) + '/fetch-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credentialId: credential.credentialId }) });
+      if (!res.ok) { showToast('Model discovery failed.', true); return; }
+      showToast('Models refreshed.');
+      await refreshAllData();
+      await openProviderDetails(providerId);
+    }
 
     function renderPresets() {
       const container = document.getElementById('presets-container');
