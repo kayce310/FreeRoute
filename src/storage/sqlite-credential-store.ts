@@ -4,6 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 export interface CredentialMetadata {
   providerId: string;
   credentialId: string;
+  name?: string;
+  enabled: boolean;
+  priority: number;
+  testStatus: 'untested' | 'valid' | 'invalid' | 'rate_limited';
+  lastTestAt?: Date;
+  lastError?: string;
+  cooldownUntil?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -12,6 +19,13 @@ interface CredentialRow {
   provider_id: string;
   credential_id: string;
   encrypted_secret: string;
+  name: string | null;
+  enabled: number;
+  priority: number;
+  test_status: CredentialMetadata['testStatus'];
+  last_test_at: string | null;
+  last_error: string | null;
+  cooldown_until: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,23 +47,44 @@ export class SqliteCredentialStore {
         provider_id TEXT NOT NULL,
         credential_id TEXT NOT NULL,
         encrypted_secret TEXT NOT NULL,
+        name TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 0,
+        test_status TEXT NOT NULL DEFAULT 'untested',
+        last_test_at TEXT,
+        last_error TEXT,
+        cooldown_until TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (provider_id, credential_id)
       ) STRICT;
     `);
+    for (const statement of [
+      "ALTER TABLE credentials ADD COLUMN name TEXT",
+      "ALTER TABLE credentials ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE credentials ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE credentials ADD COLUMN test_status TEXT NOT NULL DEFAULT 'untested'",
+      "ALTER TABLE credentials ADD COLUMN last_test_at TEXT",
+      "ALTER TABLE credentials ADD COLUMN last_error TEXT",
+      "ALTER TABLE credentials ADD COLUMN cooldown_until TEXT",
+    ]) {
+      try { this.database.exec(statement); } catch {}
+    }
   }
 
-  async put(providerId: string, credentialId: string, secret: string, now = new Date()): Promise<void> {
+  async put(providerId: string, credentialId: string, secret: string, now = new Date(), options: { name?: string; enabled?: boolean; priority?: number } = {}): Promise<void> {
     if (!secret) throw new Error('credential secret cannot be empty');
     const timestamp = now.toISOString();
     this.database.prepare(`
-      INSERT INTO credentials (provider_id, credential_id, encrypted_secret, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO credentials (provider_id, credential_id, encrypted_secret, name, enabled, priority, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider_id, credential_id) DO UPDATE SET
         encrypted_secret = excluded.encrypted_secret,
+        name = COALESCE(excluded.name, credentials.name),
+        enabled = excluded.enabled,
+        priority = excluded.priority,
         updated_at = excluded.updated_at
-    `).run(providerId, credentialId, encrypt(secret, this.encryptionKey), timestamp, timestamp);
+    `).run(providerId, credentialId, encrypt(secret, this.encryptionKey), options.name ?? null, options.enabled === false ? 0 : 1, options.priority ?? 0, timestamp, timestamp);
   }
 
   async get(providerId: string, credentialId: string): Promise<string | undefined> {
@@ -62,15 +97,32 @@ export class SqliteCredentialStore {
 
   async list(): Promise<CredentialMetadata[]> {
     const rows = this.database.prepare(`
-      SELECT provider_id, credential_id, created_at, updated_at FROM credentials
+      SELECT provider_id, credential_id, name, enabled, priority, test_status, last_test_at, last_error, cooldown_until, created_at, updated_at FROM credentials
       ORDER BY provider_id, credential_id
     `).all() as unknown as Omit<CredentialRow, 'encrypted_secret'>[];
     return rows.map((row) => ({
       providerId: row.provider_id,
       credentialId: row.credential_id,
+      name: row.name ?? undefined,
+      enabled: Boolean(row.enabled),
+      priority: Number(row.priority),
+      testStatus: row.test_status ?? 'untested',
+      lastTestAt: row.last_test_at ? new Date(row.last_test_at) : undefined,
+      lastError: row.last_error ?? undefined,
+      cooldownUntil: row.cooldown_until ? new Date(row.cooldown_until) : undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }));
+  }
+
+  async updateStatus(providerId: string, credentialId: string, update: { testStatus?: CredentialMetadata['testStatus']; lastTestAt?: Date; lastError?: string; cooldownUntil?: Date | null; enabled?: boolean }): Promise<boolean> {
+    const result = this.database.prepare(`
+      UPDATE credentials SET
+        test_status = COALESCE(?, test_status), last_test_at = COALESCE(?, last_test_at),
+        last_error = ?, cooldown_until = ?, enabled = COALESCE(?, enabled), updated_at = ?
+      WHERE provider_id = ? AND credential_id = ?
+    `).run(update.testStatus ?? null, update.lastTestAt?.toISOString() ?? null, update.lastError ?? null, update.cooldownUntil?.toISOString() ?? null, update.enabled === undefined ? null : (update.enabled ? 1 : 0), new Date().toISOString(), providerId, credentialId);
+    return Number(result.changes) > 0;
   }
 
   async delete(providerId: string, credentialId: string): Promise<boolean> {
