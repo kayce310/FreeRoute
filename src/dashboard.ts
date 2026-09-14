@@ -2827,12 +2827,20 @@ print(response.choices[0].message.content)</div>
               \${(m.capabilities || []).map(c => \`<span class="badge badge-gray">\${c}</span>\`).join(' ')}
             </td>
             <td>
-              <span class="badge badge-blue">Auto</span>
+              <span class="badge \${m.usable ? 'badge-green' : 'badge-gray'}">\${m.usable ? 'Usable' : 'Disabled'}</span>
+              <button class="btn btn-outline btn-sm" style="margin-left:4px; font-size:10px;" onclick="toggleModelEnabled('\${m.providerId}', '\${m.modelId}', \${m.enabled !== false})">\${m.enabled === false ? 'Enable' : 'Disable'}</button>
             </td>
           </tr>
         \`;
       }
       tbody.innerHTML = html;
+    }
+
+    async function toggleModelEnabled(providerId, modelId, enabled) {
+      const res = await fetch('/v1/models/' + encodeURIComponent(providerId) + '/' + encodeURIComponent(modelId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !enabled }) });
+      if (!res.ok) { showToast('Unable to update model state', true); return; }
+      showToast(!enabled ? 'Model enabled' : 'Model disabled');
+      await refreshAllData();
     }
 
     // UTILS: CLIPBOARD & PLAYGROUND SELECTION
