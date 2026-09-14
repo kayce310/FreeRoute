@@ -2400,7 +2400,7 @@ print(response.choices[0].message.content)</div>
               catalogStatus: m.freeroute?.catalog_status || 'live',
               usable: m.freeroute?.usable === true,
               credentialCount: Number(m.freeroute?.credential_count || 0),
-              priority: m.priority || 50,
+              priority: m.freeroute?.priority ?? m.priority ?? 50,
               isTrueFree: false
             };
             item.isTrueFree = isTrueFreeModel(item);

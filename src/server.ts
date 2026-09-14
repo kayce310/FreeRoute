@@ -167,6 +167,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                 catalog_status: model.catalogStatus ?? 'live',
                 usable: model.usable,
                 credential_count: model.credentialCount,
+                priority: model.priority,
               },
             })),
         });

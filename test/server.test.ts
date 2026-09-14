@@ -434,7 +434,7 @@ test('marks only live enabled models backed by usable credentials', async () => 
   const { port } = server.address() as AddressInfo;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { authorization: 'Bearer local-token' } });
-    const body = await response.json() as { data: Array<{ id: string; freeroute: { usable: boolean } }> };
+    const body = await response.json() as { data: Array<{ id: string; freeroute: { usable: boolean; priority?: number } }> };
     assert.equal(body.data.find((model) => model.id === 'groq/ready')?.freeroute.usable, true);
     assert.equal(body.data.find((model) => model.id === 'groq/disabled')?.freeroute.usable, false);
     assert.equal(body.data.find((model) => model.id === 'other/missing-key')?.freeroute.usable, false);
