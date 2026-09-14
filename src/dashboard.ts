@@ -3577,12 +3577,23 @@ print(response.choices[0].message.content)</div>
             </td>
             <td style="color:var(--text-muted); font-size:12px;">\${updatedStr}</td>
             <td style="text-align:right;">
+              <button class="btn btn-outline btn-sm" onclick="testCredential('\${c.providerId}', '\${c.credentialId}')">Test</button>
               <button class="btn btn-danger btn-sm" onclick="deleteKey('\${c.providerId}', '\${c.credentialId}')">\${t('deleteBtn')}</button>
             </td>
           </tr>
         \`;
       }
       tbody.innerHTML = html;
+    }
+
+    async function testCredential(providerId, credentialId) {
+      try {
+        const res = await fetch('/v1/credentials/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providerId, credentialId }) });
+        const data = await res.json();
+        if (res.ok) showToast('Credential verified successfully.');
+        else showToast(data.error?.message || data.validation?.error || 'Credential test failed', true);
+        await refreshAllData();
+      } catch (err) { showToast(err.message || 'Credential test failed', true); }
     }
 
     async function deleteKey(providerId, credentialId) {
