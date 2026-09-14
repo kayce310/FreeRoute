@@ -390,6 +390,27 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/providers/register') {
+        if (!options.providerStore || !options.credentials) { sendJson(response, 503, { error: { message: 'provider and credential storage are required', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { providerId?: unknown; adapterType?: unknown; baseUrl?: unknown; credentialId?: unknown; secret?: unknown; name?: unknown; priority?: unknown };
+        const providerId = typeof body.providerId === 'string' ? body.providerId.trim() : '';
+        const adapterType = typeof body.adapterType === 'string' ? body.adapterType : '';
+        const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
+        const secret = typeof body.secret === 'string' ? body.secret.trim() : '';
+        const credentialId = typeof body.credentialId === 'string' && body.credentialId.trim() ? body.credentialId.trim() : 'default';
+        if (!providerId || !['openai-compatible', 'anthropic', 'gemini', 'ollama'].includes(adapterType) || !baseUrl || (adapterType !== 'ollama' && !secret)) {
+          sendJson(response, 400, { error: { message: 'providerId, adapterType, baseUrl and credential secret are required', type: 'invalid_request_error' } }); return;
+        }
+        const validation = await validateProviderConnection(adapterType, baseUrl, secret, undefined);
+        if (!validation.valid) { sendJson(response, 502, { status: 'rejected', validation }); return; }
+        options.providerStore.put({ providerId, adapterType: adapterType as 'openai-compatible' | 'gemini' | 'anthropic' | 'ollama', baseUrl, enabled: true });
+        await options.credentials.put(providerId, credentialId, secret, new Date(), { name: typeof body.name === 'string' ? body.name : undefined, priority: typeof body.priority === 'number' ? body.priority : 0 });
+        try { await options.onProviderChanged?.(providerId); } catch {}
+        try { await options.onCredentialChanged?.(providerId, credentialId); } catch {}
+        sendJson(response, 201, { status: 'created', providerId, credentialId, validation });
+        return;
+      }
+
       if (request.method === 'DELETE' && path === '/v1/providers/custom') {
         if (!options.providerStore) { sendJson(response, 503, { error: { message: 'provider storage is not configured', type: 'server_error' } }); return; }
         const url = new URL(request.url ?? '/', 'http://localhost');
