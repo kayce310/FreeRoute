@@ -149,6 +149,11 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     providerStore,
     combos: comboStore,
     onProviderChanged: syncProvider,
+    onProviderRefresh: async (providerId, credentialId) => {
+      const selected = credentialId ?? (await credentials.list()).find((credential) => credential.providerId === providerId)?.credentialId ?? '';
+      const [result] = await discovery.refresh({ [providerId]: selected });
+      return result;
+    },
     onCredentialChanged: async () => {
       const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
       void discovery.refresh(credentialIds);

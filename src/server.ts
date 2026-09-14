@@ -25,6 +25,7 @@ export interface FreeRouteServerOptions {
   combos?: SqliteComboStore;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
   onProviderChanged?: (providerId: string) => Promise<void> | void;
+  onProviderRefresh?: (providerId: string, credentialId?: string) => Promise<unknown>;
 }
 
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
@@ -83,6 +84,20 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const result = await validateProviderConnection(String(type), baseUrl, apiKey, typeof body.modelId === 'string' ? body.modelId : undefined);
         sendJson(response, result.valid ? 200 : 502, result);
+        return;
+      }
+      const fetchModelsMatch = request.method === 'POST' ? path.match(/^\/v1\/providers\/([^/]+)\/fetch-models$/) : null;
+      if (fetchModelsMatch) {
+        const providerId = decodeURIComponent(fetchModelsMatch[1]!);
+        const body = await readJsonBody(request).catch(() => ({})) as { credentialId?: unknown };
+        if (!options.onProviderRefresh) { sendJson(response, 503, { error: { message: 'model discovery is not configured', type: 'server_error' } }); return; }
+        try {
+          const result = await options.onProviderRefresh(providerId, typeof body.credentialId === 'string' ? body.credentialId : undefined);
+          const models = await options.catalog.list();
+          sendJson(response, 200, { providerId, status: 'updated', result, models: models.filter((model) => model.providerId === providerId) });
+        } catch (error) {
+          sendJson(response, 502, { providerId, status: 'failed', error: error instanceof Error ? error.message : 'model discovery failed' });
+        }
         return;
       }
       if (request.method === 'GET' && path === '/v1/import/sources') {

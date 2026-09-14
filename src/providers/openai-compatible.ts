@@ -117,6 +117,7 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
       modelId: model.id,
       capabilities: inferModelCapabilities(model.id),
       freeTier: this.classifyModel(model),
+      pricingStatus: model.pricing ? (isZeroPrice(model.pricing) ? 'free' : 'paid') : 'unknown',
     }));
   }
 

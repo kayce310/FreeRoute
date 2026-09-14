@@ -26,6 +26,9 @@ export interface ModelRecord {
   checkedAt: Date;
   expiresAt?: Date;
   priority: number;
+  enabled?: boolean;
+  pricingStatus?: 'free' | 'paid' | 'unknown';
+  catalogStatus?: 'live' | 'stale' | 'retired';
 }
 
 export interface RouteRequest {

@@ -7,6 +7,7 @@ export interface DiscoveredModel {
   freeTier: FreeTierClass;
   expiresAt?: Date;
   priority?: number;
+  pricingStatus?: 'free' | 'paid' | 'unknown';
 }
 
 export interface ProviderDiscoveryAdapter {
@@ -79,6 +80,7 @@ export class CatalogService {
 
       try {
         const discovered = await adapter.discoverModels(credentialId);
+        const previous = await this.store.list();
         const preset = PROVIDER_PRESETS.find((p) => p.id === adapter.providerId);
         const models = discovered.map((model): ModelRecord => {
           const presetModel = preset?.seedModels.find((sm) => sm.modelId === model.modelId);
@@ -91,13 +93,21 @@ export class CatalogService {
             checkedAt,
             expiresAt: model.expiresAt,
             priority: model.priority ?? presetModel?.priority ?? 0,
+            enabled: previous.find((item) => item.providerId === adapter.providerId && item.modelId === model.modelId)?.enabled ?? true,
+            pricingStatus: model.pricingStatus ?? (model.freeTier === 'paid' ? 'paid' : model.freeTier === 'free_verified' ? 'free' : 'unknown'),
+            catalogStatus: 'live',
           };
         });
         if (models.length === 0) {
           return { providerId: adapter.providerId, status: 'failed', error: 'provider returned no models; retained cached catalog' };
         }
+        const discoveredCount = models.length;
+        const discoveredIds = new Set(models.map((model) => model.modelId));
+        for (const old of previous.filter((item) => item.providerId === adapter.providerId && !discoveredIds.has(item.modelId))) {
+          models.push({ ...old, enabled: false, catalogStatus: 'stale', checkedAt });
+        }
         await this.store.replaceProvider(adapter.providerId, models);
-        return { providerId: adapter.providerId, status: 'updated', modelCount: models.length };
+        return { providerId: adapter.providerId, status: 'updated', modelCount: discoveredCount };
       } catch (error) {
         return {
           providerId: adapter.providerId,

@@ -436,6 +436,7 @@ export function createCatalogChatService(options: {
     candidates: async (request) => {
       const [models, credentials, quotaScores, preferences, healthScores] = await Promise.all([options.catalog.list(), options.credentials.list(), options.quotaScores?.() ?? Promise.resolve(new Map<string, number>()), options.preferences?.() ?? Promise.resolve(new Map<string, import('./contracts.js').Preference>()), options.healthScores?.() ?? Promise.resolve(new Map<string, { healthScore: number; latencyScore: number }>())]);
       return models.flatMap((model) => credentials
+        .filter(() => model.enabled !== false && model.catalogStatus !== 'stale' && model.catalogStatus !== 'retired')
         .filter((credential) => credential.providerId === model.providerId)
         .filter((credential) => credential.enabled !== false)
         .filter((credential) => credential.testStatus !== 'invalid')
