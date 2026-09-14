@@ -422,6 +422,20 @@ test('serves provider presets without requiring authentication', async () => {
   });
 });
 
+test('validates provider probe input without persisting credentials', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/providers/validate`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'openai-compatible', baseUrl: 'https://example.test/v1' }),
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json() as { valid: boolean; errorKind: string };
+    assert.equal(body.valid, false);
+    assert.equal(body.errorKind, 'invalid_request');
+  });
+});
+
 test('auto-seeds catalog models when credentials are saved for a preset provider', async () => {
   const { mkdtemp, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');

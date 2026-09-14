@@ -72,6 +72,19 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         sendJson(response, 200, { object: 'list', data: PROVIDER_PRESETS });
         return;
       }
+      if (request.method === 'POST' && path === '/v1/providers/validate') {
+        const body = await readJsonBody(request) as { type?: unknown; baseUrl?: unknown; apiKey?: unknown; modelId?: unknown };
+        const type = body.type;
+        const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
+        const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+        if (!['openai-compatible', 'anthropic', 'gemini', 'ollama'].includes(String(type)) || !baseUrl || (type !== 'ollama' && !apiKey)) {
+          sendJson(response, 400, { valid: false, errorKind: 'invalid_request', error: 'type, baseUrl and credential are required' });
+          return;
+        }
+        const result = await validateProviderConnection(String(type), baseUrl, apiKey, typeof body.modelId === 'string' ? body.modelId : undefined);
+        sendJson(response, result.valid ? 200 : 502, result);
+        return;
+      }
       if (request.method === 'GET' && path === '/v1/import/sources') {
         const { detectAllLocalCredentials } = await import('./importers/local-detect.js');
         const detected = detectAllLocalCredentials();
@@ -1401,6 +1414,43 @@ export function parseRequestedModel(model: string, comboStore?: import('./storag
     return { profile: 'named', providerId: trimmed.slice(0, separator), modelId: trimmed.slice(separator + 1) };
   }
   return { profile: 'named', modelId: trimmed };
+}
+
+async function validateProviderConnection(type: string, baseUrl: string, apiKey: string, modelId?: string): Promise<{ valid: boolean; protocol: string; method?: string; latencyMs: number; statusCode?: number; errorKind?: string; error?: string }> {
+  const started = Date.now();
+  const root = baseUrl.replace(/\/$/, '');
+  const headers: Record<string, string> = { accept: 'application/json' };
+  let target = root;
+  let init: RequestInit = { method: 'GET', headers, signal: AbortSignal.timeout(10000) };
+  if (type === 'gemini') {
+    target = `${root}/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+  } else if (type === 'ollama') {
+    target = `${root}/api/tags`;
+  } else if (type === 'anthropic') {
+    target = `${root}/models`;
+    headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  } else {
+    target = `${root}/models`;
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+  try {
+    let upstream = await fetch(target, init);
+    let method = 'models';
+    if (!upstream.ok && type === 'openai-compatible' && (upstream.status === 404 || upstream.status === 405) && modelId) {
+      method = 'chat_probe';
+      target = `${root}/chat/completions`;
+      init = { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ model: modelId, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }), signal: AbortSignal.timeout(10000) };
+      upstream = await fetch(target, init);
+    }
+    const latencyMs = Date.now() - started;
+    if (!upstream.ok) {
+      return { valid: false, protocol: type, method, latencyMs, statusCode: upstream.status, errorKind: upstream.status === 401 || upstream.status === 403 ? 'authentication' : upstream.status === 429 ? 'rate_limit' : 'upstream', error: `provider returned HTTP ${upstream.status}` };
+    }
+    return { valid: true, protocol: type, method, latencyMs, statusCode: upstream.status };
+  } catch (error) {
+    return { valid: false, protocol: type, latencyMs: Date.now() - started, errorKind: 'connection', error: error instanceof Error ? error.message : 'provider probe failed' };
+  }
 }
 
 function isAuthorized(request: IncomingMessage, expectedToken: string | undefined): boolean {
