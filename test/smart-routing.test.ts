@@ -159,6 +159,25 @@ test('Context overflow automatically fails over to another model with larger con
   assert.equal(res.fallbackCount, 1);
 });
 
+test('rate limit falls back to the next credential on the same model before changing model', async () => {
+  const attempts: string[] = [];
+  const adapter: ChatProviderAdapter = {
+    providerId: 'provider-a',
+    async chat(input) {
+      attempts.push(input.credentialId);
+      if (input.credentialId === 'key-1') throw new ProviderInvocationError('rate limited', { kind: 'rate_limit', scope: 'key', fallbackAllowed: true });
+      return { id: 'ok', model: input.modelId, content: 'key-2 response' };
+    },
+  };
+  const sameModelKey1: RouteCandidate = { providerId: 'provider-a', modelId: 'same-model', credentialId: 'key-1', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 10, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 0 };
+  const sameModelKey2: RouteCandidate = { ...sameModelKey1, credentialId: 'key-2', priority: 9 };
+  const nextModel: RouteCandidate = { ...sameModelKey1, modelId: 'next-model', credentialId: 'key-3', priority: 1 };
+  const chat = new ChatService({ candidates: async () => [sameModelKey1, sameModelKey2, nextModel], adapters: new Map([['provider-a', adapter]]) });
+  const result = await chat.complete({ profile: 'auto:free', requiredCapabilities: ['chat'], requestedModel: 'same-model', messages: [{ role: 'user', content: 'hello' }] });
+  assert.deepEqual(attempts, ['key-1', 'key-2']);
+  assert.equal(result.response.modelId, 'same-model');
+});
+
 test('When all candidates fail due to context overflow, informs user to refresh session', async () => {
   const failingAdapter: ChatProviderAdapter = {
     providerId: 'groq',
