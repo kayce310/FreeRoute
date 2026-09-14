@@ -2395,6 +2395,11 @@ print(response.choices[0].message.content)</div>
               modelId: parts.slice(1).join('/') || m.id,
               capabilities: m.freeroute?.capabilities || [],
               freeTier: m.freeroute?.free_tier || 'paid',
+              enabled: m.freeroute?.enabled !== false,
+              pricingStatus: m.freeroute?.pricing_status || 'unknown',
+              catalogStatus: m.freeroute?.catalog_status || 'live',
+              usable: m.freeroute?.usable === true,
+              credentialCount: Number(m.freeroute?.credential_count || 0),
               priority: m.priority || 50,
               isTrueFree: false
             };
@@ -3181,6 +3186,7 @@ print(response.choices[0].message.content)</div>
       let filteredModels = [];
       if (prov !== '__combos__' && comboPickerActiveFilter !== 'combos') {
         filteredModels = models.filter(m => {
+          if (!m.usable) return false;
           if (prov && m.providerId !== prov) return false;
           if (comboPickerActiveFilter === 'free' && !m.isTrueFree) return false;
           if (comboPickerActiveFilter === 'tools' && !(m.capabilities || []).includes('tools')) return false;

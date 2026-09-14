@@ -28,6 +28,25 @@ export interface FreeRouteServerOptions {
   onProviderRefresh?: (providerId: string, credentialId?: string) => Promise<unknown>;
 }
 
+async function getModelProjection(options: FreeRouteServerOptions): Promise<Array<ModelRecord & { usable: boolean; credentialCount: number }>> {
+  const models = await options.catalog.list();
+  const credentials = options.credentials ? await options.credentials.list() : [];
+  const now = Date.now();
+  const usableCounts = new Map<string, number>();
+  for (const credential of credentials) {
+    const available = credential.enabled && credential.testStatus !== 'invalid'
+      && (!credential.cooldownUntil || credential.cooldownUntil.getTime() <= now);
+    if (available) usableCounts.set(credential.providerId, (usableCounts.get(credential.providerId) ?? 0) + 1);
+  }
+  return models.map((model) => ({
+    ...model,
+    usable: model.enabled !== false && (model.catalogStatus ?? 'live') === 'live'
+      && model.freeTier !== 'retired'
+      && (!options.credentials || (usableCounts.get(model.providerId) ?? 0) > 0),
+    credentialCount: usableCounts.get(model.providerId) ?? 0,
+  }));
+}
+
 export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
   return createServer(async (request, response) => {
     try {
@@ -130,7 +149,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
       }
 
       if (request.method === 'GET' && path === '/v1/models') {
-        const models = await options.catalog.list();
+        const models = await getModelProjection(options);
         sendJson(response, 200, {
           object: 'list',
           data: models
@@ -143,6 +162,11 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               freeroute: {
                 capabilities: model.capabilities,
                 free_tier: model.freeTier,
+                enabled: model.enabled !== false,
+                pricing_status: model.pricingStatus ?? 'unknown',
+                catalog_status: model.catalogStatus ?? 'live',
+                usable: model.usable,
+                credential_count: model.credentialCount,
               },
             })),
         });
@@ -464,6 +488,15 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!Array.isArray(body.models) || body.models.length === 0) {
           sendJson(response, 400, { error: { message: 'models must be a non-empty array of model IDs', type: 'invalid_request_error' } });
           return;
+        }
+        if (options.credentials) {
+          const projection = await getModelProjection(options);
+          const usableIds = new Set(projection.filter((model) => model.usable).map((model) => `${model.providerId}/${model.modelId}`));
+          const unavailable = body.models.map((model) => String(model).trim()).filter((model) => !usableIds.has(model));
+          if (unavailable.length > 0) {
+            sendJson(response, 400, { error: { message: 'combo contains models that are not enabled, live, or backed by a usable credential', type: 'invalid_request_error', unavailableModels: [...new Set(unavailable)] } });
+            return;
+          }
         }
         const saved = options.combos.put({
           comboId: comboId.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-'),

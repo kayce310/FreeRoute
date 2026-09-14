@@ -422,6 +422,27 @@ test('serves provider presets without requiring authentication', async () => {
   });
 });
 
+test('marks only live enabled models backed by usable credentials', async () => {
+  const catalog = new InMemoryCatalogStore([
+    { providerId: 'groq', modelId: 'ready', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, enabled: true, catalogStatus: 'live' },
+    { providerId: 'groq', modelId: 'disabled', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, enabled: false, catalogStatus: 'live' },
+    { providerId: 'other', modelId: 'missing-key', capabilities: ['chat'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, enabled: true, catalogStatus: 'live' },
+  ]);
+  const credentials = { list: async () => [{ providerId: 'groq', credentialId: 'key-1', enabled: true, priority: 0, testStatus: 'untested', createdAt: new Date(), updatedAt: new Date() }] };
+  const server = createFreeRouteServer({ catalog, credentials: credentials as never, apiToken: 'local-token' });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { authorization: 'Bearer local-token' } });
+    const body = await response.json() as { data: Array<{ id: string; freeroute: { usable: boolean } }> };
+    assert.equal(body.data.find((model) => model.id === 'groq/ready')?.freeroute.usable, true);
+    assert.equal(body.data.find((model) => model.id === 'groq/disabled')?.freeroute.usable, false);
+    assert.equal(body.data.find((model) => model.id === 'other/missing-key')?.freeroute.usable, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('validates provider probe input without persisting credentials', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/providers/validate`, {
