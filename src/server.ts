@@ -783,39 +783,65 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   'x-freeroute-model': result.decision.candidate.modelId,
                   'x-freeroute-combo': input.model,
                 });
-                for await (const event of result.events) {
-                  if (event.usage) usageState.captured = event.usage;
-                  if (event.delta) usageState.accumulatedText += event.delta;
-                  const includeUsage = event.usage ?? usageState.captured;
-                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                  index: 0,
-                  delta: {
-                    ...(event.delta !== undefined ? { content: event.delta } : {}),
-                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
-                  },
-                  finish_reason: event.finishReason ?? null,
-                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                try {
+                  for await (const event of result.events) {
+                    if (event.usage) usageState.captured = event.usage;
+                    if (event.delta) usageState.accumulatedText += event.delta;
+                    const includeUsage = event.usage ?? usageState.captured;
+                    response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+                    index: 0,
+                    delta: {
+                      ...(event.delta !== undefined ? { content: event.delta } : {}),
+                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                    },
+                    finish_reason: event.finishReason ?? null,
+                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                  }
+                  response.end('data: [DONE]\n\n');
+                  if (options.events) {
+                    const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
+                    if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+                    await options.events.record({
+                      requestId,
+                      occurredAt: new Date(),
+                      profile: 'named',
+                      providerId: result.decision.candidate.providerId,
+                      modelId: result.decision.candidate.modelId,
+                      credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                      fallbackCount: result.fallbackCount ?? 0,
+                      outcome: 'success',
+                      latencyMs: Date.now() - streamStart,
+                      promptTokens: finalUsage.promptTokens,
+                      completionTokens: finalUsage.completionTokens,
+                      totalTokens: finalUsage.totalTokens,
+                    });
+                  }
+                  return;
+                } catch (streamError) {
+                  const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
+                  if (!response.writableEnded) {
+                    response.write(`data: ${JSON.stringify({ error: { message: streamErrMsg, type: 'upstream_stream_error' } })}\n\n`);
+                    response.end('data: [DONE]\n\n');
+                  }
+                  if (options.events) {
+                    await options.events.record({
+                      requestId,
+                      occurredAt: new Date(),
+                      profile: 'named',
+                      providerId: result.decision.candidate.providerId,
+                      modelId: result.decision.candidate.modelId,
+                      credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                      fallbackCount: result.fallbackCount ?? 0,
+                      outcome: 'failure',
+                      failureKind: 'temporary',
+                      latencyMs: Date.now() - streamStart,
+                      promptTokens: 0,
+                      completionTokens: 0,
+                      totalTokens: 0,
+                    });
+                  }
+                  return;
                 }
-                response.end('data: [DONE]\n\n');
-                if (options.events) {
-                  const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
-                  if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
-                  await options.events.record({
-                    requestId,
-                    occurredAt: new Date(),
-                    profile: 'named',
-                    providerId: result.decision.candidate.providerId,
-                    modelId: result.decision.candidate.modelId,
-                    credentialRef: result.decision.candidate.credentialId ? '***' : '',
-                    fallbackCount: result.fallbackCount ?? 0,
-                    outcome: 'success',
-                    latencyMs: Date.now() - streamStart,
-                    promptTokens: finalUsage.promptTokens,
-                    completionTokens: finalUsage.completionTokens,
-                    totalTokens: finalUsage.totalTokens,
-                  });
-                }
-                return;
               } else {
                 const result = await options.chat.complete({
                   profile: 'named',
@@ -983,37 +1009,62 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'x-freeroute-model': result.decision.candidate.modelId,
             'x-freeroute-fallback-count': String(result.fallbackCount ?? 0),
           });
-          for await (const event of result.events) {
-            if (event.usage) usageState.captured = event.usage;
-            if (event.delta) usageState.accumulatedText += event.delta;
-            const includeUsage = event.usage ?? usageState.captured;
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                  index: 0,
-                  delta: {
-                    ...(event.delta !== undefined ? { content: event.delta } : {}),
-                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
-                  },
-                  finish_reason: event.finishReason ?? null,
-                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
-          }
-          response.end('data: [DONE]\n\n');
-          if (options.events) {
-            const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
-            if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
-            await options.events.record({
-              requestId,
-              occurredAt: new Date(),
-              profile: target.profile,
-              providerId: result.decision.candidate.providerId,
-              modelId: result.decision.candidate.modelId,
-              credentialRef: result.decision.candidate.credentialId ? '***' : '',
-              fallbackCount: result.fallbackCount ?? 0,
-              outcome: 'success',
-              latencyMs: Date.now() - streamStart,
-              promptTokens: finalUsage.promptTokens,
-              completionTokens: finalUsage.completionTokens,
-              totalTokens: finalUsage.totalTokens,
-            });
+          try {
+            for await (const event of result.events) {
+              if (event.usage) usageState.captured = event.usage;
+              if (event.delta) usageState.accumulatedText += event.delta;
+              const includeUsage = event.usage ?? usageState.captured;
+              response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+                    index: 0,
+                    delta: {
+                      ...(event.delta !== undefined ? { content: event.delta } : {}),
+                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                    },
+                    finish_reason: event.finishReason ?? null,
+                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+            }
+            response.end('data: [DONE]\n\n');
+            if (options.events) {
+              const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
+              if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'success',
+                latencyMs: Date.now() - streamStart,
+                promptTokens: finalUsage.promptTokens,
+                completionTokens: finalUsage.completionTokens,
+                totalTokens: finalUsage.totalTokens,
+              });
+            }
+          } catch (streamError) {
+            const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
+            if (!response.writableEnded) {
+              response.write(`data: ${JSON.stringify({ error: { message: streamErrMsg, type: 'upstream_stream_error' } })}\n\n`);
+              response.end('data: [DONE]\n\n');
+            }
+            if (options.events) {
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'failure',
+                failureKind: 'temporary',
+                latencyMs: Date.now() - streamStart,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
           }
           return;
         }
@@ -1085,28 +1136,53 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           });
           writeResponseEvent(response, 'response.created', { type: 'response.created', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'in_progress', model } });
           let outputIndex = 0;
-          for await (const event of result.events) {
-            if (event.delta) writeResponseEvent(response, 'response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, item_id: `msg_${responseId}`, output_index: outputIndex, content_index: 0, delta: event.delta });
-            if (event.finishReason) outputIndex += 1;
-          }
-          writeResponseEvent(response, 'response.completed', { type: 'response.completed', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed', model } });
-          response.end('data: [DONE]\n\n');
-          // Record event for streaming /v1/responses success
-          if (options.events) {
-            await options.events.record({
-              requestId,
-              occurredAt: new Date(),
-              profile: target.profile,
-              providerId: result.decision.candidate.providerId,
-              modelId: result.decision.candidate.modelId,
-              credentialRef: result.decision.candidate.credentialId ? '***' : '',
-              fallbackCount: result.fallbackCount ?? 0,
-              outcome: 'success',
-              latencyMs: 0,
-              promptTokens: 0,
-              completionTokens: 0,
-              totalTokens: 0,
-            });
+          try {
+            for await (const event of result.events) {
+              if (event.delta) writeResponseEvent(response, 'response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, item_id: `msg_${responseId}`, output_index: outputIndex, content_index: 0, delta: event.delta });
+              if (event.finishReason) outputIndex += 1;
+            }
+            writeResponseEvent(response, 'response.completed', { type: 'response.completed', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed', model } });
+            response.end('data: [DONE]\n\n');
+            // Record event for streaming /v1/responses success
+            if (options.events) {
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'success',
+                latencyMs: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
+          } catch (streamError) {
+            const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
+            if (!response.writableEnded) {
+              writeResponseEvent(response, 'error', { type: 'error', error: { message: streamErrMsg, code: 'stream_error' } });
+              response.end('data: [DONE]\n\n');
+            }
+            if (options.events) {
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'failure',
+                failureKind: 'temporary',
+                latencyMs: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
           }
           return;
         }
@@ -1163,29 +1239,54 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           });
           writeAnthropicEvent(response, 'message_start', { type: 'message_start', message: { id: messageId, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
           writeAnthropicEvent(response, 'content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-          for await (const event of result.events) {
-            if (event.delta) writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: event.delta } });
-          }
-          writeAnthropicEvent(response, 'content_block_stop', { type: 'content_block_stop', index: 0 });
-          writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });
-          writeAnthropicEvent(response, 'message_stop', { type: 'message_stop' });
-          response.end();
-          // Record event for streaming /v1/messages success
-          if (options.events) {
-            await options.events.record({
-              requestId,
-              occurredAt: new Date(),
-              profile: target.profile,
-              providerId: result.decision.candidate.providerId,
-              modelId: result.decision.candidate.modelId,
-              credentialRef: result.decision.candidate.credentialId ? '***' : '',
-              fallbackCount: result.fallbackCount ?? 0,
-              outcome: 'success',
-              latencyMs: 0,
-              promptTokens: 0,
-              completionTokens: 0,
-              totalTokens: 0,
-            });
+          try {
+            for await (const event of result.events) {
+              if (event.delta) writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: event.delta } });
+            }
+            writeAnthropicEvent(response, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+            writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });
+            writeAnthropicEvent(response, 'message_stop', { type: 'message_stop' });
+            response.end();
+            // Record event for streaming /v1/messages success
+            if (options.events) {
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'success',
+                latencyMs: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
+          } catch (streamError) {
+            const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
+            if (!response.writableEnded) {
+              writeAnthropicEvent(response, 'error', { type: 'error', error: { type: 'api_error', message: streamErrMsg } });
+              response.end();
+            }
+            if (options.events) {
+              await options.events.record({
+                requestId,
+                occurredAt: new Date(),
+                profile: target.profile,
+                providerId: result.decision.candidate.providerId,
+                modelId: result.decision.candidate.modelId,
+                credentialRef: result.decision.candidate.credentialId ? '***' : '',
+                fallbackCount: result.fallbackCount ?? 0,
+                outcome: 'failure',
+                failureKind: 'temporary',
+                latencyMs: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              });
+            }
           }
           return;
         }

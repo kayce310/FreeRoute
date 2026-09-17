@@ -301,30 +301,42 @@ export class ChatService {
         const self = this;
         let finalUsage: TokenUsage | undefined;
         let accumulatedDelta = '';
+        let accumulatedThought = '';
+        const accumulatedToolCalls: ToolCall[] = [];
+
+        function processChunk(chunk: NormalizedChatStreamEvent) {
+          if (chunk.usage) finalUsage = chunk.usage;
+          if (chunk.delta) accumulatedDelta += chunk.delta;
+          if (chunk.thought) accumulatedThought += chunk.thought;
+          if (chunk.toolCalls?.length) {
+            for (const tc of chunk.toolCalls) {
+              if (tc) accumulatedToolCalls.push(tc);
+            }
+          }
+        }
 
         async function* eventsGenerator() {
           if (!first.done) {
-            if (first.value.usage) finalUsage = first.value.usage;
-            if (first.value.delta) accumulatedDelta += first.value.delta;
+            processChunk(first.value);
             yield first.value;
           }
           while (true) {
             const next = await iterator.next();
             if (next.done) break;
-            if (next.value.usage) finalUsage = next.value.usage;
-            if (next.value.delta) accumulatedDelta += next.value.delta;
+            processChunk(next.value);
             yield next.value;
           }
 
           const latencyMs = Math.max(0, self.now().getTime() - startedAt.getTime());
           const promptEstimate = estimatePromptTokens(request.messages);
-          const completionEstimate = estimateTokensFromText(accumulatedDelta);
+          const toolCallText = accumulatedToolCalls.map(tc => `${tc.function?.name ?? ''}:${tc.function?.arguments ?? ''}`).join(' ');
+          const completionEstimate = estimateTokensFromText(accumulatedDelta + (toolCallText ? ` ${toolCallText}` : ''));
           const promptTokens = finalUsage?.promptTokens ?? promptEstimate;
           const completionTokens = finalUsage?.completionTokens ?? completionEstimate;
           const totalTokens = finalUsage?.totalTokens ?? (promptTokens + completionTokens);
           const candidate = decision!.candidate;
 
-          if (!isMeaningful({ content: accumulatedDelta, thought: finalUsage ? 'usage' : undefined })) {
+          if (!isMeaningful({ content: accumulatedDelta, thought: accumulatedThought || (finalUsage ? 'usage' : undefined), toolCalls: accumulatedToolCalls })) {
               await self.emitEvent(request, candidate, fallbackCount, 'failure', 'invalid_stream');
               throw new InvalidResponseError('Empty or meaningless stream received');
           }

@@ -617,5 +617,73 @@ test('presets catalog contains both free and commercial categories with 30+ prov
   });
 });
 
+test('handles mid-stream generator errors gracefully in /v1/chat/completions', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'groq', async chat() { return { id: 'unused', model: 'llama-free', content: 'unused' }; },
+    async *streamChat() {
+      yield { id: 'chunk-1', model: 'llama-free', delta: 'first part' };
+      throw new Error('mid-stream network error');
+    },
+  };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', stream: true, messages: [{ role: 'user', content: 'hi' }] }) });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /"content":"first part"/);
+    assert.match(body, /upstream_stream_error/);
+    assert.match(body, /mid-stream network error/);
+    assert.match(body, /data: \[DONE\]/);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+test('handles mid-stream generator errors gracefully in /v1/responses', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'groq', async chat() { return { id: 'unused', model: 'llama-free', content: 'unused' }; },
+    async *streamChat() {
+      yield { id: 'chunk-1', model: 'llama-free', delta: 'resp part' };
+      throw new Error('responses stream failed');
+    },
+  };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', stream: true, input: 'hi' }) });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /response\.output_text\.delta/);
+    assert.match(body, /responses stream failed/);
+    assert.match(body, /data: \[DONE\]/);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+test('handles mid-stream generator errors gracefully in /v1/messages', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'groq', async chat() { return { id: 'unused', model: 'llama-free', content: 'unused' }; },
+    async *streamChat() {
+      yield { id: 'chunk-1', model: 'llama-free', delta: 'anthropic part' };
+      throw new Error('messages stream failed');
+    },
+  };
+  const chat = new ChatService({ candidates: async () => [{ providerId: 'groq', modelId: 'llama-free', credentialId: 'local', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 }], adapters: new Map([['groq', adapter]]) });
+  const server = createFreeRouteServer({ catalog: new InMemoryCatalogStore(), apiToken: 'local-token', chat });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer local-token', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'groq/llama-free', stream: true, messages: [{ role: 'user', content: 'hi' }] }) });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /content_block_delta/);
+    assert.match(body, /event: error/);
+    assert.match(body, /messages stream failed/);
+  } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+
 
 

@@ -142,3 +142,94 @@ test('keeps a transient cooldown scoped to the failed route across requests', as
   assert.equal(firstCalls, 1);
   assert.equal(next.response.providerId, 'second');
 });
+
+test('accepts tool-call-only streaming response without throwing InvalidResponseError', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'tool-prov',
+    async chat() { return { id: 'unused', model: 'tool-model', content: 'unused' }; },
+    async *streamChat() {
+      yield {
+        id: 'chunk-1',
+        model: 'tool-model',
+        toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{"path":"test.txt"}' } }],
+      };
+    },
+  };
+  let emittedOutcome: string | undefined;
+  const service = new ChatService({
+    candidates: async () => [candidate('tool-prov', 'tool-model', 10)],
+    adapters: new Map([['tool-prov', adapter]]),
+    now: () => now,
+    onEvent: (event) => {
+      emittedOutcome = event.outcome;
+    },
+  });
+
+  const result = await service.stream({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'read file' }] });
+  const events = [];
+  for await (const e of result.events) {
+    events.push(e);
+  }
+  assert.equal(events.length, 1);
+  assert.equal(events[0].toolCalls?.[0]?.function?.name, 'read_file');
+  assert.equal(emittedOutcome, 'success');
+});
+
+test('accepts mixed text and tool-call streaming response', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'mixed-prov',
+    async chat() { return { id: 'unused', model: 'mixed-model', content: 'unused' }; },
+    async *streamChat() {
+      yield { id: 'chunk-1', model: 'mixed-model', delta: 'Calling tool: ' };
+      yield {
+        id: 'chunk-2',
+        model: 'mixed-model',
+        toolCalls: [{ id: 'call_2', type: 'function', function: { name: 'search', arguments: '{"q":"foo"}' } }],
+      };
+    },
+  };
+  let emittedOutcome: string | undefined;
+  const service = new ChatService({
+    candidates: async () => [candidate('mixed-prov', 'mixed-model', 10)],
+    adapters: new Map([['mixed-prov', adapter]]),
+    now: () => now,
+    onEvent: (event) => {
+      emittedOutcome = event.outcome;
+    },
+  });
+
+  const result = await service.stream({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'search' }] });
+  const events = [];
+  for await (const e of result.events) {
+    events.push(e);
+  }
+  assert.equal(events.length, 2);
+  assert.equal(emittedOutcome, 'success');
+});
+
+test('rejects empty streaming response with InvalidResponseError', async () => {
+  const adapter: ChatProviderAdapter = {
+    providerId: 'empty-prov',
+    async chat() { return { id: 'unused', model: 'empty-model', content: 'unused' }; },
+    async *streamChat() {
+      yield { id: 'chunk-1', model: 'empty-model', delta: '' };
+    },
+  };
+  let emittedOutcome: string | undefined;
+  const service = new ChatService({
+    candidates: async () => [candidate('empty-prov', 'empty-model', 10)],
+    adapters: new Map([['empty-prov', adapter]]),
+    now: () => now,
+    onEvent: (event) => {
+      emittedOutcome = event.outcome;
+    },
+  });
+
+  const result = await service.stream({ profile: 'auto:free', requiredCapabilities: ['chat'], messages: [{ role: 'user', content: 'test' }] });
+  await assert.rejects(async () => {
+    for await (const _ of result.events) {
+      // consume
+    }
+  }, (err: any) => err.name === 'InvalidResponseError' || err.message.includes('Empty or meaningless stream'));
+  assert.equal(emittedOutcome, 'failure');
+});

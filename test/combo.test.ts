@@ -186,3 +186,126 @@ test('HTTP /v1/combos endpoints and chat routing with fallback', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('handles mid-stream generator errors gracefully in combo streaming', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-combo-stream-err-'));
+  const dbPath = join(dir, 'freeroute.sqlite');
+  const comboStore = createSqliteComboStore(dbPath);
+  comboStore.put({
+    comboId: 'stream-combo',
+    name: 'Stream Combo',
+    models: ['groq/llama-error', 'cerebras/llama-ok'],
+  });
+
+  const groqAdapter: ChatProviderAdapter = {
+    providerId: 'groq',
+    async chat() { return { id: 'x', model: 'llama-error', content: 'x' }; },
+    async *streamChat() {
+      yield { id: 'c1', model: 'llama-error', delta: 'chunk from groq' };
+      throw new Error('groq mid-stream crash');
+    },
+  };
+  const chat = new ChatService({
+    candidates: async () => [
+      { providerId: 'groq', modelId: 'llama-error', credentialId: 'c1', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+      { providerId: 'cerebras', modelId: 'llama-ok', credentialId: 'c2', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+    ],
+    adapters: new Map([['groq', groqAdapter]]),
+  });
+
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'test-token',
+    chat,
+    combos: comboStore,
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'combo:stream-combo',
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.match(body, /chunk from groq/);
+    assert.match(body, /upstream_stream_error/);
+    assert.match(body, /groq mid-stream crash/);
+    assert.match(body, /data: \[DONE\]/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    comboStore.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('supports tool-call-only streaming in combo model', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-combo-tool-'));
+  const dbPath = join(dir, 'freeroute.sqlite');
+  const comboStore = createSqliteComboStore(dbPath);
+  comboStore.put({
+    comboId: 'tool-combo',
+    name: 'Tool Combo',
+    models: ['cerebras/llama-tool'],
+  });
+
+  const cerebrasAdapter: ChatProviderAdapter = {
+    providerId: 'cerebras',
+    async chat() { return { id: 'x', model: 'llama-tool', content: 'x' }; },
+    async *streamChat() {
+      yield {
+        id: 'c1',
+        model: 'llama-tool',
+        toolCalls: [{ id: 'call_abc', type: 'function', function: { name: 'get_weather', arguments: '{"city":"Tokyo"}' } }],
+      };
+      yield { id: 'c2', model: 'llama-tool', finishReason: 'tool_calls' };
+    },
+  };
+  const chat = new ChatService({
+    candidates: async () => [
+      { providerId: 'cerebras', modelId: 'llama-tool', credentialId: 'c2', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+    ],
+    adapters: new Map([['cerebras', cerebrasAdapter]]),
+  });
+
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'test-token',
+    chat,
+    combos: comboStore,
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'combo:tool-combo',
+        stream: true,
+        messages: [{ role: 'user', content: 'weather' }],
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.match(body, /get_weather/);
+    assert.match(body, /Tokyo/);
+    assert.match(body, /data: \[DONE\]/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    comboStore.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
