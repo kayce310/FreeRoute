@@ -792,7 +792,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                     index: 0,
                     delta: {
                       ...(event.delta !== undefined ? { content: event.delta } : {}),
-                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls.map((tc: any, idx: number) => ({ index: tc.index ?? idx, ...tc })) } : {})
                     },
                     finish_reason: event.finishReason ?? null,
                   }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
@@ -1018,7 +1018,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                     index: 0,
                     delta: {
                       ...(event.delta !== undefined ? { content: event.delta } : {}),
-                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls.map((tc: any, idx: number) => ({ index: tc.index ?? idx, ...tc })) } : {})
                     },
                     finish_reason: event.finishReason ?? null,
                   }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);

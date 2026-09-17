@@ -10,6 +10,9 @@ interface GeminiResponse {
   modelVersion?: string;
   candidates?: Array<{
     content?: { parts?: Array<{ text?: string; thought?: string; functionCall?: { name: string; args?: Record<string, unknown> } }>; };
+    finishReason?: string;
+    finishMessage?: string;
+    index?: number;
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -144,17 +147,29 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
             .find(part => 'thought' in part && typeof part.thought === 'string') as any;
           const toolCalls = (chunk.candidates?.[0]?.content?.parts ?? [])
             .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
-            .map((part) => ({
+            .map((part, idx) => ({
+            index: idx,
             id: crypto.randomUUID(),
             type: 'function' as const,
             function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
           }));
+          const upstreamFinish = chunk.candidates?.[0]?.finishReason;
+          const finishReason: string | undefined = toolCalls.length > 0
+            ? 'tool_calls'
+            : upstreamFinish === 'STOP' || upstreamFinish === 'STOP_REASON_UNSPECIFIED'
+              ? 'stop'
+              : upstreamFinish === 'MAX_TOKENS'
+                ? 'length'
+                : upstreamFinish
+                  ? 'stop'
+                  : undefined;
           yield { 
             id: chunk.responseId ?? crypto.randomUUID(), 
             model: chunk.modelVersion ?? input.modelId, 
             delta: text, 
             thought: thought?.thought,
-            toolCalls: toolCalls.length ? toolCalls : undefined, 
+            toolCalls: toolCalls.length ? toolCalls : undefined,
+            finishReason,
             usage: usageFrom(chunk.usageMetadata) 
           };
         } catch { /* Ignore non-data SSE lines. */ }
@@ -166,12 +181,24 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       try {
         const chunk = JSON.parse(pending.trim().slice(5).trim()) as GeminiResponse;
         const text = textFrom(chunk);
+        const flushToolCalls = toolCallsFrom(chunk);
+        const upstreamFinish = chunk.candidates?.[0]?.finishReason;
+        const finishReason: string | undefined = flushToolCalls.length > 0
+          ? 'tool_calls'
+          : upstreamFinish === 'STOP' || upstreamFinish === 'STOP_REASON_UNSPECIFIED'
+            ? 'stop'
+            : upstreamFinish === 'MAX_TOKENS'
+              ? 'length'
+              : upstreamFinish
+                ? 'stop'
+                : undefined;
         yield {
           id: chunk.responseId ?? crypto.randomUUID(),
           model: chunk.modelVersion ?? input.modelId,
           delta: text || "",
           thought: (chunk.candidates?.[0]?.content?.parts ?? []).find(p => "thought" in p && typeof p.thought === "string")?.thought,
-          toolCalls: toolCallsFrom(chunk),
+          toolCalls: flushToolCalls.length ? flushToolCalls : undefined,
+          finishReason,
           usage: usageFrom(chunk.usageMetadata)
         };
       } catch { /* ignore malformed final chunk */ }
@@ -198,7 +225,8 @@ function textFrom(response: GeminiResponse): string | undefined {
 function toolCallsFrom(response: GeminiResponse): ToolCall[] {
   return (response.candidates?.[0]?.content?.parts ?? [])
     .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
-    .map((part) => ({
+    .map((part, idx) => ({
+      index: idx,
       id: crypto.randomUUID(),
       type: 'function',
       function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
