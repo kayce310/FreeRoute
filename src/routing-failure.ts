@@ -119,7 +119,19 @@ export function classifyFailure(
     };
   }
 
-  if (status === 400 || status === 404) {
+  if (status === 404) {
+    return {
+      kind: 'unsupported',
+      scope: 'model',
+      retryable: false,
+      fallbackAllowed: true,
+      sourceStatus,
+      source: 'upstream',
+      message: text ?? 'Model or endpoint not found (404)',
+    };
+  }
+
+  if (status === 400) {
     return {
       kind: 'unsupported',
       scope: 'request',

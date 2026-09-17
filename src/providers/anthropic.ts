@@ -1,6 +1,7 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent } from '../inference.js';
 import { translateRequest } from '../translators/index.js';
+import { iterateStreamWithWatchdog } from '../utils/stream-watchdog.js';
 
 interface AnthropicAdapterOptions {
   baseUrl?: string;
@@ -65,77 +66,143 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
   }
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest }): AsyncIterable<NormalizedChatStreamEvent> {
-    const response = await this.fetcher(`${this.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: { ...(await this.headers(input.credentialId, input.modelId)), 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        ...translateRequest('openai', 'anthropic', input.modelId, input.request),
-        model: input.modelId,
-        max_tokens: 4096,
-        stream: true,
-      }),
-    });
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(new Error('connect timeout')), 10000);
+    let response: Response;
+    try {
+      response = await this.fetcher(`${this.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { ...(await this.headers(input.credentialId, input.modelId)), 'anthropic-version': '2023-06-01' },
+        signal: connectController.signal,
+        body: JSON.stringify({
+          ...translateRequest('openai', 'anthropic', input.modelId, input.request),
+          model: input.modelId,
+          max_tokens: 4096,
+          stream: true,
+        }),
+      });
+      clearTimeout(connectTimer);
+    } catch (err: unknown) {
+      clearTimeout(connectTimer);
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`upstream streaming connection error to anthropic: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
+    }
     if (!response.ok) throw await providerError(response);
     if (!response.body) throw new ProviderInvocationError('no stream body', { kind: 'temporary' });
 
-    const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let pending = '';
-    const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+    const toolCalls = new Map<number, { id: string; name: string; args: string; index: number }>();
+    let toolCallSeq = 0;
+    let finishReasonEmitted = false;
+    let hadToolCalls = false;
+    let lastUsage: import('../contracts.js').TokenUsage | undefined;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for await (const value of iterateStreamWithWatchdog(response.body, {
+      firstChunkTimeoutMs: 30_000,
+      stallTimeoutMs: 30_000,
+      parentSignal: input.request.signal,
+      providerId: 'anthropic',
+      onAbort: () => { try { connectController.abort(); } catch {} },
+    })) {
       pending += decoder.decode(value, { stream: true });
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
 
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
-        const data = JSON.parse(line.slice(5));
+        const raw = line.slice(5).trim();
+        if (!raw || raw === '[DONE]') continue;
+        let data: any;
+        try { data = JSON.parse(raw); } catch { continue; }
 
-        if (data.type === 'content_block_start' && data.content_block?.type === 'tool_use') {
-          toolCalls.set(data.index, { id: data.content_block.id, name: data.content_block.name, args: '' });
-          yield {
-            id: `tc-${data.index}`,
-            model: input.modelId,
-            toolCalls: [{ id: data.content_block.id, type: 'function', function: { name: data.content_block.name, arguments: '' } }],
-          };
+        if (data.type === 'content_block_start') {
+          if (data.content_block?.type === 'tool_use') {
+            hadToolCalls = true;
+            const tcIndex = toolCallSeq++;
+            toolCalls.set(data.index, { id: data.content_block.id, name: data.content_block.name, args: '', index: tcIndex });
+            yield {
+              id: `tc-${data.index}`,
+              model: input.modelId,
+              toolCalls: [{
+                index: tcIndex,
+                id: data.content_block.id,
+                type: 'function',
+                function: { name: data.content_block.name, arguments: '' },
+              } as any],
+            };
+          }
         } else if (data.type === 'content_block_delta') {
-          if (data.delta.type === 'text_delta') {
+          if (data.delta?.type === 'text_delta' && data.delta.text) {
             yield { id: String(data.index), model: input.modelId, delta: data.delta.text };
-          } else if (data.delta.type === 'input_json_delta') {
+          } else if (data.delta?.type === 'thinking_delta' && data.delta.thinking) {
+            yield { id: String(data.index), model: input.modelId, thought: data.delta.thinking };
+          } else if (data.delta?.type === 'input_json_delta' && data.delta.partial_json) {
             const tc = toolCalls.get(data.index);
             if (tc) {
               tc.args += data.delta.partial_json;
               yield {
                 id: `tc-${data.index}`,
                 model: input.modelId,
-                toolCalls: [{ id: tc.id, type: 'function', function: { name: tc.name, arguments: data.delta.partial_json } } as any],
+                toolCalls: [{
+                  index: tc.index,
+                  id: tc.id,
+                  type: 'function',
+                  function: { name: tc.name, arguments: data.delta.partial_json },
+                } as any],
               };
             }
           }
         } else if (data.type === 'message_delta') {
+          if (data.usage) {
+            const promptTokens = (data.usage.input_tokens ?? 0) + (data.usage.cache_read_input_tokens ?? 0) + (data.usage.cache_creation_input_tokens ?? 0);
+            const completionTokens = data.usage.output_tokens ?? 0;
+            lastUsage = {
+              promptTokens,
+              completionTokens,
+              totalTokens: promptTokens + completionTokens,
+            };
+          }
           if (data.delta?.stop_reason) {
+            let finishReason = 'stop';
+            if (data.delta.stop_reason === 'tool_use') finishReason = 'tool_calls';
+            else if (data.delta.stop_reason === 'max_tokens') finishReason = 'length';
+            else if (hadToolCalls) finishReason = 'tool_calls';
+
+            finishReasonEmitted = true;
             yield {
               id: 'finish',
               model: input.modelId,
-              finishReason: data.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
+              finishReason,
+              usage: lastUsage,
             };
           }
-          if (data.usage) {
+        } else if (data.type === 'message_stop') {
+          if (!finishReasonEmitted) {
+            finishReasonEmitted = true;
             yield {
-              id: 'usage',
+              id: 'finish',
               model: input.modelId,
-              usage: {
-                promptTokens: data.usage.input_tokens,
-                completionTokens: data.usage.output_tokens,
-                totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-              },
+              finishReason: hadToolCalls ? 'tool_calls' : 'stop',
+              usage: lastUsage,
             };
           }
         }
       }
+    }
+
+    if (!finishReasonEmitted) {
+      yield {
+        id: 'finish',
+        model: input.modelId,
+        finishReason: hadToolCalls ? 'tool_calls' : 'stop',
+        usage: lastUsage,
+      };
     }
   }
 

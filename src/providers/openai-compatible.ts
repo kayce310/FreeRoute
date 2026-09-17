@@ -2,6 +2,7 @@ import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import type { Capability, FreeTierClass, TokenUsage, RouteFailureKind, RouteFailureScope } from '../contracts.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
 import { estimatePromptTokens, estimateTokensFromText } from '../utils/token-estimator.js';
+import { iterateStreamWithWatchdog } from '../utils/stream-watchdog.js';
 
 export function inferModelCapabilities(modelId: string, baseCaps: Capability[] = ['chat', 'streaming']): Capability[] {
   const caps = new Set<Capability>(baseCaps);
@@ -26,8 +27,17 @@ export function inferModelCapabilities(modelId: string, baseCaps: Capability[] =
     lower.includes('codestral') ||
     lower.includes('devstral') ||
     lower.includes('command-r') ||
-    lower.includes('deepseek-chat') ||
-    lower.includes('deepseek-v3');
+    lower.includes('deepseek') ||
+    lower.includes('moonshot') ||
+    lower.includes('kimi') ||
+    lower.includes('glm') ||
+    lower.includes('minimax') ||
+    lower.includes('yi') ||
+    lower.includes('baichuan') ||
+    lower.includes('gemma') ||
+    lower.includes('nemotron') ||
+    lower.includes('phi') ||
+    lower.includes('doubao');
 
   if (hasTools) {
     caps.add('tools');
@@ -90,6 +100,22 @@ export interface OpenAICompatibleAdapterOptions {
   classifyModel?: (model: OpenAIModel) => FreeTierClass;
 }
 
+function sanitizeOpenAIMessages(messages: import('../inference.js').ChatMessage[]): any[] {
+  return messages.map((msg) => {
+    if (msg.role === 'assistant') {
+      const hasContent = msg.content !== null && msg.content !== undefined && (typeof msg.content === 'string' ? msg.content.trim() !== '' : (Array.isArray(msg.content) && msg.content.length > 0));
+      if (!hasContent) {
+        // Prevent HTTP 400 from strict providers (e.g. Nvidia NIM: "Empty content is not allowed for assistant messages")
+        return {
+          ...msg,
+          content: (msg as any).tool_calls?.length ? 'Calling tools...' : ' ',
+        };
+      }
+    }
+    return msg;
+  });
+}
+
 /**
  * Generic adapter for official OpenAI-compatible APIs. For OpenRouter, pricing
  * metadata is used to classify zero-cost models as verified free candidates.
@@ -121,17 +147,19 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     }));
   }
 
+
   async chat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest; isRawKey?: boolean }) {
     let response: Response;
     try {
       const headers = await this.headers(input.credentialId, input.isRawKey);
+      // 15s to establish connection; body reading gets the full 60s
       response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         signal: AbortSignal.timeout(15000),
         body: JSON.stringify({
           model: input.modelId,
-          messages: input.request.messages,
+          messages: sanitizeOpenAIMessages(input.request.messages),
           temperature: input.request.temperature,
           ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
           stream: false,
@@ -168,15 +196,30 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
 
   async *streamChat(input: { credentialId: string; modelId: string; request: NormalizedChatRequest; isRawKey?: boolean }) {
     let response: Response;
+    // Use a two-phase timeout: 10s to get the first HTTP response byte,
+    // then cancel the abort controller so the body stream is never cut off.
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(new Error('connect timeout')), 10000);
     try {
       const headers = await this.headers(input.credentialId, input.isRawKey);
       response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({ model: input.modelId, messages: input.request.messages, temperature: input.request.temperature, stream: true, stream_options: { include_usage: true }, tools: input.request.tools, ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}) }),
+        signal: connectController.signal,
+        body: JSON.stringify({
+          model: input.modelId,
+          messages: sanitizeOpenAIMessages(input.request.messages),
+          temperature: input.request.temperature,
+          stream: true,
+          stream_options: { include_usage: true },
+          ...(input.request.tools?.length ? { tools: input.request.tools } : {}),
+          ...(input.request.responseFormat ? { response_format: input.request.responseFormat } : {}),
+        }),
       });
+      // Connection established — disarm the connect timeout so streaming body is not cut off
+      clearTimeout(connectTimer);
     } catch (err: unknown) {
+      clearTimeout(connectTimer);
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
       throw new ProviderInvocationError(`upstream streaming connection error to ${this.providerId}: ${msg}`, {
@@ -198,7 +241,14 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     let pending = '';
     let streamUsage: TokenUsage | undefined;
     let lastChunkId: string | undefined;
-    for await (const bytes of response.body) {
+    let hasSeenToolCalls = false;
+    for await (const bytes of iterateStreamWithWatchdog(response.body, {
+      firstChunkTimeoutMs: 30_000,
+      stallTimeoutMs: 30_000,
+      parentSignal: input.request.signal,
+      providerId: this.providerId,
+      onAbort: () => { try { connectController.abort(); } catch {} },
+    })) {
       pending += decoder.decode(bytes, { stream: true });
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
@@ -208,6 +258,23 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
       let chunk: any;
       try { chunk = JSON.parse(data); } catch { continue; }
       if (chunk.id) lastChunkId = chunk.id;
+
+      // Detect upstream error injected into SSE body (e.g. 503 capacity errors from proxy providers)
+      if (chunk.error && !chunk.choices && !chunk.usage) {
+        const errMsg = (typeof chunk.error === 'object' ? chunk.error?.message : String(chunk.error)) ?? 'upstream stream error';
+        const errCode = typeof chunk.error === 'object' ? (chunk.error?.code ?? chunk.error?.status) : undefined;
+        let kind: RouteFailureKind = 'temporary';
+        if (errCode === 401 || errCode === 403) kind = 'authentication';
+        else if (errCode === 429) kind = 'rate_limit';
+        else if (errCode === 402) kind = 'quota_exhausted';
+        throw new ProviderInvocationError(`upstream stream error from ${this.providerId}: ${errMsg}`, {
+          kind,
+          scope: 'provider',
+          retryable: kind === 'temporary' || kind === 'rate_limit',
+          fallbackAllowed: true,
+          sourceStatus: typeof errCode === 'number' ? errCode : undefined,
+        });
+      }
 
       // Extract reasoning/thought
       const choice = chunk.choices?.[0];
@@ -223,12 +290,16 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
       }
       
       if (!choice && !chunk.usage) continue;
+      if (choice?.delta?.tool_calls?.length) hasSeenToolCalls = true;
+      let finishReason = choice?.finish_reason;
+      if (finishReason === 'stop' && hasSeenToolCalls) finishReason = 'tool_calls';
+
       yield {
         id: chunk.id ?? crypto.randomUUID(),
         model: chunk.model ?? input.modelId,
         delta: choice?.delta?.content,
         thought: thought,
-        finishReason: choice?.finish_reason,
+        finishReason,
         toolCalls: choice?.delta?.tool_calls,
       };
     }
@@ -238,26 +309,33 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
     if (finalLine.startsWith('data:')) {
       const data = finalLine.slice(5).trim();
       if (data && data !== '[DONE]') {
-          const chunk = JSON.parse(data) as any;
-          if (chunk.id) lastChunkId = chunk.id;
-          if (chunk.usage) {
-            streamUsage = {
-              promptTokens: chunk.usage.prompt_tokens ?? 0,
-              completionTokens: chunk.usage.completion_tokens ?? 0,
-              totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
-            };
-          }
-          const choice = chunk.choices?.[0];
-          if (choice || chunk.usage) {
-            yield {
-              id: chunk.id ?? crypto.randomUUID(),
-              model: chunk.model ?? input.modelId,
-              delta: choice?.delta?.content,
-              thought: choice?.delta?.reasoning_content || choice?.delta?.thought,
-              finishReason: choice?.finish_reason,
-              toolCalls: choice?.delta?.tool_calls,
-              usage: streamUsage,
-            };
+          let chunk: any;
+          try { chunk = JSON.parse(data); } catch { chunk = null; }
+          if (chunk) {
+            if (chunk.id) lastChunkId = chunk.id;
+            if (chunk.usage) {
+              streamUsage = {
+                promptTokens: chunk.usage.prompt_tokens ?? 0,
+                completionTokens: chunk.usage.completion_tokens ?? 0,
+                totalTokens: chunk.usage.total_tokens ?? ((chunk.usage.prompt_tokens ?? 0) + (chunk.usage.completion_tokens ?? 0)),
+              };
+            }
+            const choice = chunk.choices?.[0];
+            if (choice?.delta?.tool_calls?.length) hasSeenToolCalls = true;
+            let finishReason = choice?.finish_reason;
+            if (finishReason === 'stop' && hasSeenToolCalls) finishReason = 'tool_calls';
+
+            if (choice || chunk.usage) {
+              yield {
+                id: chunk.id ?? crypto.randomUUID(),
+                model: chunk.model ?? input.modelId,
+                delta: choice?.delta?.content,
+                thought: choice?.delta?.reasoning_content || choice?.delta?.thought,
+                finishReason,
+                toolCalls: choice?.delta?.tool_calls,
+                usage: streamUsage,
+              };
+            }
           }
       }
     }
@@ -373,7 +451,12 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
     scope = 'provider';
     retryable = true;
     fallbackAllowed = true;
-  } else if (response.status === 404 || response.status === 400) {
+  } else if (response.status === 404) {
+    kind = 'unsupported';
+    scope = 'model';
+    retryable = false;
+    fallbackAllowed = true;
+  } else if (response.status === 400) {
     kind = 'unsupported';
     scope = 'request';
     retryable = false;

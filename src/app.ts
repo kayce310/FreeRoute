@@ -170,7 +170,14 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       return result!;
     },
     async refreshProviders() {
-      const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
+      const allCreds = await credentials.list();
+      const enabledCreds = allCreds.filter((credential) => credential.enabled);
+      const credentialIds: Record<string, string> = {};
+      for (const cred of enabledCreds) {
+        if (!credentialIds[cred.providerId] || (cred.priority ?? 0) > 0) {
+          credentialIds[cred.providerId] = cred.credentialId;
+        }
+      }
       return discovery.refresh(credentialIds);
     },
     close(): void {

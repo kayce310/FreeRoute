@@ -2,6 +2,7 @@ import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatStreamEvent, type ToolCall } from '../inference.js';
 import type { TokenUsage } from '../contracts.js';
 import { translateRequest } from '../translators/index.js';
+import { iterateStreamWithWatchdog } from '../utils/stream-watchdog.js';
 
 interface GeminiModel { name?: string; supportedGenerationMethods?: string[]; }
 interface GeminiList { models?: GeminiModel[]; nextPageToken?: string; }
@@ -76,7 +77,7 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       response = await this.fetcher(this.url(input.modelId, 'generateContent'), {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(60000),
         body: JSON.stringify(translateRequest('openai', 'gemini', input.modelId, input.request)),
       });
     } catch (err: unknown) {
@@ -106,15 +107,19 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
     const url = new URL(this.url(input.modelId, 'streamGenerateContent'));
     url.searchParams.set('alt', 'sse');
     let response: Response;
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(new Error('connect timeout')), 10000);
     try {
       const headers = await this.headers(input.credentialId);
       response = await this.fetcher(url, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(15000),
+        signal: connectController.signal,
         body: JSON.stringify(translateRequest('openai', 'gemini', input.modelId, input.request)),
       });
+      clearTimeout(connectTimer);
     } catch (err: unknown) {
+      clearTimeout(connectTimer);
       if (err instanceof ProviderInvocationError) throw err;
       const msg = err instanceof Error ? err.message : 'network fetch failed';
       throw new ProviderInvocationError(`Gemini streaming connection error: ${msg}`, { kind: 'temporary', scope: 'provider', retryable: true, fallbackAllowed: true });
@@ -131,77 +136,87 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       throw await providerError(response);
     }
     if (!response.body) throw new ProviderInvocationError('Gemini returned no streaming response body', { kind: 'temporary' });
+
+    // --- 9router pattern (gemini-to-openai.js) ---
+    // Each content/tool part emits its own chunk with finishReason=undefined (null on wire).
+    // finishReason is emitted ONCE on a dedicated finish chunk when upstream signals it.
+    // If upstream says STOP but we already saw tool calls → override to 'tool_calls'.
+    let streamId: string | undefined;
+    let streamModel: string | undefined;
+    let seenToolCallCount = 0;
+    let lastUsage: TokenUsage | undefined;
+
+    const processChunk = (chunk: GeminiResponse): NormalizedChatStreamEvent[] => {
+      const id = chunk.responseId ?? streamId ?? crypto.randomUUID();
+      const model = chunk.modelVersion ?? streamModel ?? input.modelId;
+      streamId = id;
+      streamModel = model;
+
+      const usage = usageFrom(chunk.usageMetadata);
+      if (usage) lastUsage = usage;
+
+      const results: NormalizedChatStreamEvent[] = [];
+      const candidate = chunk.candidates?.[0];
+      const parts = candidate?.content?.parts ?? [];
+
+      for (const part of parts) {
+        if ('thought' in part && typeof part.thought === 'string') {
+          results.push({ id, model, thought: part.thought });
+          continue;
+        }
+        if (part.text) {
+          results.push({ id, model, delta: part.text });
+          continue;
+        }
+        if (part.functionCall) {
+          const tc = {
+            index: seenToolCallCount,
+            id: crypto.randomUUID(),
+            type: 'function' as const,
+            function: {
+              name: part.functionCall.name,
+              arguments: JSON.stringify(part.functionCall.args ?? {}),
+            },
+          };
+          seenToolCallCount++;
+          results.push({ id, model, toolCalls: [tc] });
+        }
+      }
+
+      // Emit ONE finish chunk when upstream signals finishReason
+      if (candidate?.finishReason) {
+        let finishReason = mapGeminiFinish(candidate.finishReason);
+        // Mirror 9router: STOP + had tool calls → tool_calls
+        if (finishReason === 'stop' && seenToolCallCount > 0) finishReason = 'tool_calls';
+        results.push({ id, model, finishReason, usage: lastUsage });
+      }
+
+      return results;
+    };
+
     const decoder = new TextDecoder();
     let pending = '';
-    for await (const bytes of response.body) {
+    for await (const bytes of iterateStreamWithWatchdog(response.body, {
+      firstChunkTimeoutMs: 30_000,
+      stallTimeoutMs: 30_000,
+      parentSignal: input.request.signal,
+      providerId: this.providerId,
+      onAbort: () => { try { connectController.abort(); } catch {} },
+    })) {
       pending += decoder.decode(bytes, { stream: true });
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
       for (const line of lines) {
         const data = line.startsWith('data:') ? line.slice(5).trim() : '';
         if (!data) continue;
-        try {
-          const chunk = JSON.parse(data) as GeminiResponse;
-          const text = textFrom(chunk);
-          const thought = (chunk.candidates?.[0]?.content?.parts ?? [])
-            .find(part => 'thought' in part && typeof part.thought === 'string') as any;
-          const toolCalls = (chunk.candidates?.[0]?.content?.parts ?? [])
-            .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
-            .map((part, idx) => ({
-            index: idx,
-            id: crypto.randomUUID(),
-            type: 'function' as const,
-            function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
-          }));
-          const upstreamFinish = chunk.candidates?.[0]?.finishReason;
-          const finishReason: string | undefined = toolCalls.length > 0
-            ? 'tool_calls'
-            : upstreamFinish === 'STOP' || upstreamFinish === 'STOP_REASON_UNSPECIFIED'
-              ? 'stop'
-              : upstreamFinish === 'MAX_TOKENS'
-                ? 'length'
-                : upstreamFinish
-                  ? 'stop'
-                  : undefined;
-          yield { 
-            id: chunk.responseId ?? crypto.randomUUID(), 
-            model: chunk.modelVersion ?? input.modelId, 
-            delta: text, 
-            thought: thought?.thought,
-            toolCalls: toolCalls.length ? toolCalls : undefined,
-            finishReason,
-            usage: usageFrom(chunk.usageMetadata) 
-          };
-        } catch { /* Ignore non-data SSE lines. */ }
+        try { for (const ev of processChunk(JSON.parse(data) as GeminiResponse)) yield ev; }
+        catch { /* ignore non-JSON SSE lines */ }
       }
     }
-
-    // Flush remaining buffered SSE data on stream end
-    if (pending.trim().startsWith("data:")) {
-      try {
-        const chunk = JSON.parse(pending.trim().slice(5).trim()) as GeminiResponse;
-        const text = textFrom(chunk);
-        const flushToolCalls = toolCallsFrom(chunk);
-        const upstreamFinish = chunk.candidates?.[0]?.finishReason;
-        const finishReason: string | undefined = flushToolCalls.length > 0
-          ? 'tool_calls'
-          : upstreamFinish === 'STOP' || upstreamFinish === 'STOP_REASON_UNSPECIFIED'
-            ? 'stop'
-            : upstreamFinish === 'MAX_TOKENS'
-              ? 'length'
-              : upstreamFinish
-                ? 'stop'
-                : undefined;
-        yield {
-          id: chunk.responseId ?? crypto.randomUUID(),
-          model: chunk.modelVersion ?? input.modelId,
-          delta: text || "",
-          thought: (chunk.candidates?.[0]?.content?.parts ?? []).find(p => "thought" in p && typeof p.thought === "string")?.thought,
-          toolCalls: flushToolCalls.length ? flushToolCalls : undefined,
-          finishReason,
-          usage: usageFrom(chunk.usageMetadata)
-        };
-      } catch { /* ignore malformed final chunk */ }
+    // Flush any buffered tail
+    if (pending.trim().startsWith('data:')) {
+      try { for (const ev of processChunk(JSON.parse(pending.trim().slice(5).trim()) as GeminiResponse)) yield ev; }
+      catch { /* ignore malformed final chunk */ }
     }
   }
 
@@ -240,6 +255,18 @@ function usageFrom(metadata: GeminiResponse['usageMetadata']): TokenUsage | unde
   return { promptTokens, completionTokens, totalTokens: metadata.totalTokenCount ?? (promptTokens + completionTokens) };
 }
 
+/** Map Gemini finishReason → OpenAI finish_reason (mirrors 9router toOpenAIFinish for gemini). */
+function mapGeminiFinish(reason: string | undefined): string {
+  switch (String(reason ?? '').toUpperCase()) {
+    case 'MAX_TOKENS': return 'length';
+    case 'SAFETY':
+    case 'RECITATION':
+    case 'BLOCKLIST':
+    case 'PROHIBITED_CONTENT': return 'content_filter';
+    default: return 'stop';
+  }
+}
+
 function isContextOverflowError(status: number, text: string): boolean {
   if (status !== 400 && status !== 413) return false;
   const lower = text.toLowerCase();
@@ -256,11 +283,18 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
 
   const isOverflow = isContextOverflowError(response.status, rawBody);
   let kind: import('../contracts.js').RouteFailureKind = 'permanent';
-  if (isOverflow) kind = 'context_overflow';
+  let scope: import('../contracts.js').RouteFailureScope = 'key';
+  if (isOverflow) { kind = 'context_overflow'; scope = 'model'; }
   else if (response.status === 401 || response.status === 403) kind = 'authentication';
   else if (response.status === 429) kind = 'rate_limit';
-  else if (response.status === 408 || response.status >= 500) kind = 'temporary';
-  else if (response.status === 404 || response.status === 400) kind = 'unsupported';
+  else if (response.status === 408 || response.status >= 500) { kind = 'temporary'; scope = 'provider'; }
+  else if (response.status === 404) { kind = 'unsupported'; scope = 'model'; }
+  else if (response.status === 400) { kind = 'unsupported'; scope = 'request'; }
   
-  return new ProviderInvocationError(`Gemini request failed: ${extractedMessage}`, { kind, scope: 'key', fallbackAllowed: kind !== 'unsupported', retryable: kind === 'temporary' || kind === 'rate_limit' });
+  return new ProviderInvocationError(`Gemini request failed: ${extractedMessage}`, {
+    kind,
+    scope,
+    fallbackAllowed: scope !== 'request',
+    retryable: kind === 'temporary' || kind === 'rate_limit',
+  });
 }

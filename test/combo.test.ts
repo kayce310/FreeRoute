@@ -309,3 +309,138 @@ test('supports tool-call-only streaming in combo model', async () => {
   }
 });
 
+test('combo stream falls back from failing model to working model and emits Copilot-compatible SSE chunks', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-combo-fb-stream-'));
+  const dbPath = join(dir, 'freeroute.sqlite');
+  const comboStore = createSqliteComboStore(dbPath);
+  comboStore.put({
+    comboId: 'fb-stream-combo',
+    name: 'Fallback Stream Combo',
+    models: ['groq/broken-model', 'cerebras/good-model'],
+  });
+
+  const groqAdapter: ChatProviderAdapter = {
+    providerId: 'groq',
+    async chat() { throw new Error('groq down'); },
+    async *streamChat() {
+      throw new Error('groq upstream connection failed');
+    },
+  };
+
+  const cerebrasAdapter: ChatProviderAdapter = {
+    providerId: 'cerebras',
+    async chat() { return { id: 'x', model: 'good-model', content: 'x' }; },
+    async *streamChat() {
+      yield {
+        id: 'c1',
+        model: 'good-model',
+        toolCalls: [{ id: 'call_123', type: 'function', function: { name: 'calculator', arguments: '{"expr":"2+2"}' } }],
+      };
+      yield { id: 'c2', model: 'good-model', finishReason: 'tool_calls' };
+    },
+  };
+
+  const chat = new ChatService({
+    candidates: async () => [
+      { providerId: 'groq', modelId: 'broken-model', credentialId: 'c1', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+      { providerId: 'cerebras', modelId: 'good-model', credentialId: 'c2', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+    ],
+    adapters: new Map([['groq', groqAdapter], ['cerebras', cerebrasAdapter]]),
+  });
+
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'test-token',
+    chat,
+    combos: comboStore,
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'combo:fb-stream-combo',
+        stream: true,
+        tools: [{ type: 'function', function: { name: 'calculator', parameters: {} } }],
+        messages: [{ role: 'user', content: 'calc' }],
+      }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-freeroute-provider'), 'cerebras');
+    assert.equal(res.headers.get('x-freeroute-model'), 'good-model');
+    const body = await res.text();
+    // 1. Initial assistant role chunk
+    assert.match(body, /"delta":\{"role":"assistant"\}/);
+    // 2. Tool calls chunk with index and function arguments
+    assert.match(body, /calculator/);
+    assert.match(body, /2\+2/);
+    // 3. Dedicated terminal chunk with finish_reason: tool_calls
+    assert.match(body, /"finish_reason":"tool_calls"/);
+    // 4. Proper DONE
+    assert.match(body, /data: \[DONE\]/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    comboStore.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('combo returns HTTP 503 JSON when all combo models fail', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freeroute-combo-exhaust-'));
+  const dbPath = join(dir, 'freeroute.sqlite');
+  const comboStore = createSqliteComboStore(dbPath);
+  comboStore.put({
+    comboId: 'failing-combo',
+    name: 'Failing Combo',
+    models: ['groq/broken-1', 'cerebras/broken-2'],
+  });
+
+  const chat = new ChatService({
+    candidates: async () => [
+      { providerId: 'groq', modelId: 'broken-1', credentialId: 'c1', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+      { providerId: 'cerebras', modelId: 'broken-2', credentialId: 'c2', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', checkedAt: new Date(), priority: 0, preference: 'neutral', healthScore: 1, latencyScore: 1, quotaScore: 1 },
+    ],
+    adapters: new Map([
+      ['groq', { providerId: 'groq', async chat() { throw new Error('groq 500'); }, async *streamChat() { throw new Error('groq 500'); } }],
+      ['cerebras', { providerId: 'cerebras', async chat() { throw new Error('cerebras 500'); }, async *streamChat() { throw new Error('cerebras 500'); } }],
+    ]),
+  });
+
+  const server = createFreeRouteServer({
+    catalog: new InMemoryCatalogStore(),
+    apiToken: 'test-token',
+    chat,
+    combos: comboStore,
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'combo:failing-combo',
+        stream: true,
+        messages: [{ role: 'user', content: 'test' }],
+      }),
+    });
+    assert.equal(res.status, 503);
+    const body = await res.json() as { error: { message: string; type: string } };
+    assert.equal(body.error.type, 'combo_exhausted');
+    assert.match(body.error.message, /Không có model nào trong combo/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    comboStore.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+

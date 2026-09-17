@@ -12,6 +12,7 @@ import type { SqliteComboStore } from './storage/sqlite-combo-store.js';
 import type { Preference, ModelRecord } from './contracts.js';
 import { dashboardHtml } from './dashboard.js';
 import { PROVIDER_PRESETS } from './presets.js';
+import { ensureToolCallIds, fixMissingToolResponses } from './translators/concerns/toolCall.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -738,35 +739,48 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const requestId = crypto.randomUUID();
         response.setHeader('x-freeroute-request-id', requestId);
 
+        // Track client disconnection so upstream fetches can be aborted immediately
+        const clientController = new AbortController();
+        request.on('close', () => {
+          if (!response.writableEnded) {
+            clientController.abort();
+          }
+        });
+
         if (target.profile === 'combo' && target.comboModels && target.comboModels.length > 0) {
           let lastError: unknown = null;
           let contextOverflowCount = 0;
           const reqCaps = capabilitiesForProfile('named', !!(input.tools?.length), !!input.stream, input.responseFormat, input.hasVision);
           const catalogModels = options.catalog ? await options.catalog.list() : [];
           const attemptedSteps: Array<{ model: string; error: string }> = [];
+          // Skip subsequent models of a provider that failed with provider-wide errors (down, 401, 429, timeout)
+          const failedProviders = new Set<string>();
 
-          for (const cm of target.comboModels) {
+          // Reorder combo models so capable models run first, but never drop any model (fallback intact)
+          const modelsToTry = reorderComboModelsByCapabilities(target.comboModels, reqCaps, catalogModels);
+
+          for (const cm of modelsToTry) {
+            if (clientController.signal.aborted) break;
+
             const parsedCm = parseRequestedModel(cm, options.combos);
             const cProv = parsedCm.providerId;
             const cMod = parsedCm.modelId ?? cm;
 
-            // If the request requires tools or vision, check if this combo model supports it
-            if (reqCaps.includes('tools') || reqCaps.includes('vision')) {
-              const matchedCatalog = catalogModels.filter(m => (!cProv || m.providerId === cProv) && m.modelId === cMod);
-              if (matchedCatalog.length > 0) {
-                const hasRequired = matchedCatalog.some(m => reqCaps.every(c => m.capabilities.includes(c)));
-                if (!hasRequired) {
-                  attemptedSteps.push({ model: cm, error: `missing required capability (${reqCaps.filter(c => c === 'tools' || c === 'vision').join(', ')})` });
-                  continue;
-                }
-              }
+            // Fast fallback: if this provider already failed at provider-level, skip its remaining models immediately
+            if (cProv && failedProviders.has(cProv)) {
+              continue;
             }
+
+            // Base required capabilities for candidate selection in named combo model
+            const candidateCaps: import('./contracts.js').Capability[] = input.stream ? ['chat', 'streaming'] : ['chat'];
+            if (input.hasVision) candidateCaps.push('vision');
+            if (input.responseFormat) candidateCaps.push('structured-output');
 
             try {
               if (input.stream) {
                 const result = await options.chat.stream({
                   profile: 'named',
-                  requiredCapabilities: reqCaps,
+                  requiredCapabilities: candidateCaps,
                   requestedProviderId: cProv,
                   requestedModel: cMod,
                   messages: input.messages,
@@ -774,6 +788,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   tools: input.tools,
                   responseFormat: input.responseFormat,
                   traceId: requestId,
+                  signal: clientController.signal,
                 });
                 const streamStart = Date.now();
                 const usageState = { captured: undefined as import('./contracts.js').TokenUsage | undefined, accumulatedText: '' };
@@ -783,24 +798,90 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   'x-freeroute-model': result.decision.candidate.modelId,
                   'x-freeroute-combo': input.model,
                 });
+
+                // 1. Initial chunk with role: assistant (essential for Copilot/Cursor/AI SDK)
+                response.write(`data: ${JSON.stringify({
+                  id: `chatcmpl-${requestId}`,
+                  object: 'chat.completion.chunk',
+                  created: Math.floor(Date.now() / 1_000),
+                  model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                  choices: [{
+                    index: 0,
+                    delta: { role: 'assistant' },
+                    finish_reason: null,
+                  }],
+                })}\n\n`);
+
+                let hasToolCalls = false;
+                let capturedFinishReason: string | null = null;
+
                 try {
                   for await (const event of result.events) {
                     if (event.usage) usageState.captured = event.usage;
                     if (event.delta) usageState.accumulatedText += event.delta;
-                    const includeUsage = event.usage ?? usageState.captured;
-                    response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                    index: 0,
-                    delta: {
-                      ...(event.delta !== undefined ? { content: event.delta } : {}),
-                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls.map((tc: any, idx: number) => ({ index: tc.index ?? idx, ...tc })) } : {})
-                    },
-                    finish_reason: event.finishReason ?? null,
-                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                    if (event.finishReason) capturedFinishReason = event.finishReason;
+
+                    const delta: Record<string, unknown> = {};
+                    if (event.delta !== undefined && event.delta !== '') delta.content = event.delta;
+                    if (event.thought !== undefined && event.thought !== '') delta.reasoning_content = event.thought;
+                    if (event.toolCalls?.length) {
+                      hasToolCalls = true;
+                      delta.tool_calls = event.toolCalls.map((tc: any, idx: number) => ({
+                        index: tc.index ?? idx,
+                        id: tc.id,
+                        type: tc.type ?? 'function',
+                        function: {
+                          name: tc.function?.name,
+                          arguments: tc.function?.arguments ?? '',
+                        },
+                      }));
+                    }
+
+                    // Emit content/tool_call chunk (always with finish_reason: null)
+                    if (Object.keys(delta).length > 0) {
+                      response.write(`data: ${JSON.stringify({
+                        id: event.id || `chatcmpl-${requestId}`,
+                        object: 'chat.completion.chunk',
+                        created: Math.floor(Date.now() / 1_000),
+                        model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                        choices: [{
+                          index: 0,
+                          delta,
+                          finish_reason: null,
+                        }],
+                        ...(event.usage ? { usage: { prompt_tokens: event.usage.promptTokens, completion_tokens: event.usage.completionTokens, total_tokens: event.usage.totalTokens } } : {}),
+                      })}\n\n`);
+                    }
                   }
+
+                  // 2. Dedicated terminal chunk with proper finish_reason
+                  const finishReason = hasToolCalls ? 'tool_calls' : (capturedFinishReason || 'stop');
+                  const finalUsage = usageState.captured ?? {
+                    promptTokens: 0,
+                    completionTokens: estimateTokensFromText(usageState.accumulatedText),
+                    totalTokens: 0,
+                  };
+                  if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+
+                  response.write(`data: ${JSON.stringify({
+                    id: `chatcmpl-${requestId}`,
+                    object: 'chat.completion.chunk',
+                    created: Math.floor(Date.now() / 1_000),
+                    model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                    choices: [{
+                      index: 0,
+                      delta: {},
+                      finish_reason: finishReason,
+                    }],
+                    usage: {
+                      prompt_tokens: finalUsage.promptTokens,
+                      completion_tokens: finalUsage.completionTokens,
+                      total_tokens: finalUsage.totalTokens,
+                    },
+                  })}\n\n`);
+
                   response.end('data: [DONE]\n\n');
                   if (options.events) {
-                    const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
-                    if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
                     await options.events.record({
                       requestId,
                       occurredAt: new Date(),
@@ -820,7 +901,18 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                 } catch (streamError) {
                   const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
                   if (!response.writableEnded) {
-                    response.write(`data: ${JSON.stringify({ error: { message: streamErrMsg, type: 'upstream_stream_error' } })}\n\n`);
+                    response.write(`data: ${JSON.stringify({
+                      id: `chatcmpl-${requestId}`,
+                      object: 'chat.completion.chunk',
+                      created: Math.floor(Date.now() / 1_000),
+                      model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                      choices: [{
+                        index: 0,
+                        delta: { content: `\n\n[FreeRoute: stream interrupted - ${streamErrMsg}]` },
+                        finish_reason: 'stop',
+                      }],
+                      error: { message: streamErrMsg, type: 'upstream_stream_error' },
+                    })}\n\n`);
                     response.end('data: [DONE]\n\n');
                   }
                   if (options.events) {
@@ -845,7 +937,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               } else {
                 const result = await options.chat.complete({
                   profile: 'named',
-                  requiredCapabilities: reqCaps,
+                  requiredCapabilities: candidateCaps,
                   requestedProviderId: cProv,
                   requestedModel: cMod,
                   messages: input.messages,
@@ -854,6 +946,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   responseFormat: input.responseFormat,
                   traceId: requestId,
                   isRawKey: input.isRawKey,
+                  signal: clientController.signal,
                 });
                 const usage = result.response.usage;
                 response.setHeader('x-freeroute-provider', result.decision.candidate.providerId);
@@ -897,6 +990,24 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               if (err instanceof ProviderInvocationError && err.failure.kind === 'context_overflow') {
                 contextOverflowCount += 1;
               }
+
+              // Fast fallback: mark provider as failed so remaining models of this dead provider are skipped
+              if (cProv) {
+                let isProviderLevel = false;
+                if (err instanceof ProviderInvocationError) {
+                  const k = err.failure.kind;
+                  const s = err.failure.scope;
+                  if (s === 'provider' || k === 'authentication' || k === 'rate_limit' || k === 'quota_exhausted') {
+                    isProviderLevel = true;
+                  }
+                } else if (errMsg.includes('connect timeout') || errMsg.includes('fetch failed') || errMsg.includes('ECONNREFUSED') || errMsg.includes('ETIMEDOUT') || errMsg.includes('ENOTFOUND')) {
+                  isProviderLevel = true;
+                }
+                if (isProviderLevel) {
+                  failedProviders.add(cProv);
+                }
+              }
+
               // Record failure event for this combo model attempt (use unique requestId to avoid overwrite by success)
               if (options.events) {
                 const failureKind = err instanceof ProviderInvocationError ? err.failure.kind : 'temporary';
@@ -941,17 +1052,12 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                 totalTokens: 0,
               });
             }
-            sendJson(response, 200, {
-              id: `chatcmpl-${requestId}`,
-              object: 'chat.completion',
-              created: Math.floor(Date.now() / 1_000),
-              model: input.model,
-              choices: [{
-                index: 0,
-                message: { role: 'assistant', content: `[FreeRoute] ${errMsg}` },
-                finish_reason: 'stop',
-              }],
-              usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            sendJson(response, 503, {
+              error: {
+                message: `[FreeRoute] ${errMsg}`,
+                type: 'context_overflow',
+                code: 'context_length_exceeded',
+              },
             });
             return;
           }
@@ -981,17 +1087,12 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             });
           }
           const errMsg = `Không có model nào trong combo "${input.model}" hoàn thành được yêu cầu (hoặc tất cả upstream đều lỗi/thiếu capability). Chi tiết: [${stepsSummary}]. Vui lòng kiểm tra API key hoặc cấu hình lại combo tại http://127.0.0.1:8787!`;
-          sendJson(response, 200, {
-            id: `chatcmpl-${requestId}`,
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1_000),
-            model: input.model,
-            choices: [{
-              index: 0,
-              message: { role: 'assistant', content: `[FreeRoute] ${errMsg}` },
-              finish_reason: 'stop',
-            }],
-            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          sendJson(response, 503, {
+            error: {
+              message: `[FreeRoute] ${errMsg}`,
+              type: 'combo_exhausted',
+              code: 'service_unavailable',
+            },
           });
           return;
         }
@@ -1000,6 +1101,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           const result = await options.chat.stream({
             profile: target.profile, requiredCapabilities: capabilitiesForProfile(target.profile, !!(input.tools?.length), true, input.responseFormat, input.hasVision), requestedProviderId: target.providerId,
             requestedModel: target.modelId, messages: input.messages, temperature: input.temperature, tools: input.tools, responseFormat: input.responseFormat, traceId: requestId,
+            signal: clientController.signal,
           });
           const streamStart = Date.now();
           const usageState = { captured: undefined as import('./contracts.js').TokenUsage | undefined, accumulatedText: '' };
@@ -1009,20 +1111,90 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'x-freeroute-model': result.decision.candidate.modelId,
             'x-freeroute-fallback-count': String(result.fallbackCount ?? 0),
           });
+
+          // 1. Initial chunk with role: assistant (essential for Copilot/Cursor/AI SDK)
+          response.write(`data: ${JSON.stringify({
+            id: `chatcmpl-${requestId}`,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1_000),
+            model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+            choices: [{
+              index: 0,
+              delta: { role: 'assistant' },
+              finish_reason: null,
+            }],
+          })}\n\n`);
+
+          let hasToolCalls = false;
+          let capturedFinishReason: string | null = null;
+
           try {
             for await (const event of result.events) {
               if (event.usage) usageState.captured = event.usage;
               if (event.delta) usageState.accumulatedText += event.delta;
-              const includeUsage = event.usage ?? usageState.captured;
-              response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+              if (event.finishReason) capturedFinishReason = event.finishReason;
+
+              const delta: Record<string, unknown> = {};
+              if (event.delta !== undefined && event.delta !== '') delta.content = event.delta;
+              if (event.thought !== undefined && event.thought !== '') delta.reasoning_content = event.thought;
+              if (event.toolCalls?.length) {
+                hasToolCalls = true;
+                delta.tool_calls = event.toolCalls.map((tc: any, idx: number) => ({
+                  index: tc.index ?? idx,
+                  id: tc.id,
+                  type: tc.type ?? 'function',
+                  function: {
+                    name: tc.function?.name,
+                    arguments: tc.function?.arguments ?? '',
+                  },
+                }));
+              }
+
+              // Emit content/tool_call chunk (always with finish_reason: null)
+              if (Object.keys(delta).length > 0) {
+                response.write(`data: ${JSON.stringify({
+                  id: event.id || `chatcmpl-${requestId}`,
+                  object: 'chat.completion.chunk',
+                  created: Math.floor(Date.now() / 1_000),
+                  model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                  choices: [{
                     index: 0,
-                    delta: {
-                      ...(event.delta !== undefined ? { content: event.delta } : {}),
-                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls.map((tc: any, idx: number) => ({ index: tc.index ?? idx, ...tc })) } : {})
-                    },
-                    finish_reason: event.finishReason ?? null,
-                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                    delta,
+                    finish_reason: null,
+                  }],
+                })}\n\n`);
+              }
             }
+
+            // 2. Dedicated terminal finish chunk (9router pattern: delta: {}, finish_reason)
+            let finalFinishReason = capturedFinishReason || (hasToolCalls ? 'tool_calls' : 'stop');
+            // Overriding rule: if tool calls were seen, finish_reason must be tool_calls
+            if (finalFinishReason === 'stop' && hasToolCalls) {
+              finalFinishReason = 'tool_calls';
+            }
+
+            const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
+            if (finalUsage.totalTokens === 0) finalUsage.totalTokens = finalUsage.promptTokens + finalUsage.completionTokens;
+
+            response.write(`data: ${JSON.stringify({
+              id: `chatcmpl-${requestId}`,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1_000),
+              model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: finalFinishReason,
+              }],
+              ...(usageState.captured ? {
+                usage: {
+                  prompt_tokens: finalUsage.promptTokens,
+                  completion_tokens: finalUsage.completionTokens,
+                  total_tokens: finalUsage.totalTokens,
+                },
+              } : {}),
+            })}\n\n`);
+
             response.end('data: [DONE]\n\n');
             if (options.events) {
               const finalUsage = usageState.captured ?? { promptTokens: 0, completionTokens: estimateTokensFromText(usageState.accumulatedText), totalTokens: 0 };
@@ -1045,7 +1217,19 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           } catch (streamError) {
             const streamErrMsg = streamError instanceof Error ? streamError.message : String(streamError);
             if (!response.writableEnded) {
-              response.write(`data: ${JSON.stringify({ error: { message: streamErrMsg, type: 'upstream_stream_error' } })}\n\n`);
+              // Emit a terminal chunk with finish_reason so clients (Copilot/Cursor) see at least one choice
+              response.write(`data: ${JSON.stringify({
+                id: `chatcmpl-${requestId}`,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1_000),
+                model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                choices: [{
+                  index: 0,
+                  delta: { content: `\n\n[FreeRoute: stream error - ${streamErrMsg}]` },
+                  finish_reason: 'stop',
+                }],
+                error: { message: streamErrMsg, type: 'upstream_stream_error' },
+              })}\n\n`);
               response.end('data: [DONE]\n\n');
             }
             if (options.events) {
@@ -1079,6 +1263,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           responseFormat: input.responseFormat,
           traceId: requestId,
           isRawKey: input.isRawKey,
+          signal: clientController.signal,
         });
         const usage = result.response.usage;
         response.setHeader('x-freeroute-provider', result.response.providerId);
@@ -1418,6 +1603,31 @@ function capabilitiesForProfile(profile: string, hasTools: boolean, streaming = 
   return caps;
 }
 
+function reorderComboModelsByCapabilities(
+  models: string[],
+  reqCaps: import('./contracts.js').Capability[],
+  catalogModels: import('./contracts.js').ModelRecord[],
+): string[] {
+  if (!models || models.length <= 1 || reqCaps.length === 0) return models;
+  const hardCaps = reqCaps.filter(c => c === 'tools' || c === 'vision');
+  if (hardCaps.length === 0) return models;
+
+  const tierOf = (cm: string): number => {
+    const slash = cm.indexOf('/');
+    const cProv = slash > 0 ? cm.slice(0, slash) : undefined;
+    const cMod = slash > 0 ? cm.slice(slash + 1) : cm;
+    const matched = catalogModels.filter(m => (!cProv || m.providerId === cProv) && m.modelId === cMod);
+    if (matched.length === 0) return 1; // uncataloged/custom model: neutral tier
+    const hasAll = matched.some(m => hardCaps.every(c => m.capabilities.includes(c)));
+    return hasAll ? 0 : 2; // tier 0 if capable, tier 2 if known missing
+  };
+
+  return [...models]
+    .map((m, i) => ({ m, i, t: tierOf(m) }))
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map(x => x.m);
+}
+
 async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequest> {
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object') throw new InvalidChatRequestError('request body must be an object');
@@ -1434,7 +1644,10 @@ async function readChatRequest(request: IncomingMessage): Promise<OpenAIChatRequ
     const m = msg as { content?: unknown };
     return Array.isArray(m.content);
   });
-  return { model: value.model, messages: value.messages, temperature: value.temperature, stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, hasVision, isRawKey: value.isRawKey as boolean | undefined };
+  const messages = value.messages as ChatMessage[];
+  ensureToolCallIds({ messages, tools: value.tools });
+  fixMissingToolResponses({ messages });
+  return { model: value.model, messages, temperature: value.temperature, stream: value.stream, tools: value.tools as any, responseFormat: value.response_format as { type: 'json_object' } | undefined, hasVision, isRawKey: value.isRawKey as boolean | undefined };
 }
 
 async function readResponsesRequest(request: IncomingMessage): Promise<{ model: string; messages: ChatMessage[]; stream?: boolean; tools?: import('./inference.js').ToolDefinition[]; responseFormat?: { type: 'json_object' }; isRawKey?: boolean }> {
@@ -1448,13 +1661,16 @@ async function readResponsesRequest(request: IncomingMessage): Promise<{ model: 
   if (value.isRawKey !== undefined && typeof value.isRawKey !== 'boolean') throw new InvalidChatRequestError('isRawKey must be a boolean');
   if (typeof value.input === 'string') return { model: value.model, messages: [{ role: 'user', content: value.input }], stream: value.stream, tools: value.tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, isRawKey: value.isRawKey as boolean | undefined };
   if (Array.isArray(value.input) && value.input.every(isResponsesMessage)) {
+    const messages: ChatMessage[] = value.input.map((message) => {
+      if (isChatMessage(message)) return message;
+      const m = message as { role: ChatMessage['role']; content: unknown };
+      return { role: m.role, content: extractResponsesText(m.content) };
+    });
+    ensureToolCallIds({ messages, tools: value.tools });
+    fixMissingToolResponses({ messages });
     return {
       model: value.model,
-      messages: value.input.map((message) => {
-        if (isChatMessage(message)) return message;
-        const m = message as { role: ChatMessage['role']; content: unknown };
-        return { role: m.role, content: extractResponsesText(m.content) };
-      }),
+      messages,
       stream: value.stream,
       tools: value.tools,
       responseFormat: value.response_format as { type: 'json_object' } | undefined,
@@ -1477,7 +1693,10 @@ async function readAnthropicMessagesRequest(request: IncomingMessage): Promise<{
   if (value.isRawKey !== undefined && typeof value.isRawKey !== 'boolean') throw new InvalidChatRequestError('isRawKey must be a boolean');
   const messages: ChatMessage[] = value.system ? [{ role: 'system', content: value.system }] : [];
   messages.push(...value.messages.map((message) => ({ role: message.role, content: message.content })));
-  return { model: value.model, messages, stream: value.stream, tools: value.tools ? value.tools.map(toOpenAITool) : undefined, responseFormat: value.response_format as { type: 'json_object' } | undefined, isRawKey: value.isRawKey as boolean | undefined };
+  const tools = value.tools ? (value.tools as unknown[]).map(toOpenAITool) : undefined;
+  ensureToolCallIds({ messages, tools });
+  fixMissingToolResponses({ messages });
+  return { model: value.model, messages, stream: value.stream, tools, responseFormat: value.response_format as { type: 'json_object' } | undefined, isRawKey: value.isRawKey as boolean | undefined };
 }
 
 function isAnthropicToolDefinition(value: unknown): boolean {

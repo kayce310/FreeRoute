@@ -1,5 +1,6 @@
-import type { ChatProviderAdapter, NormalizedChatRequest, NormalizedChatResponse, NormalizedChatStreamEvent, ToolCall } from '../inference.js';
+import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type NormalizedChatResponse, type NormalizedChatStreamEvent, type ToolCall } from '../inference.js';
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
+import { iterateStreamWithWatchdog } from '../utils/stream-watchdog.js';
 
 export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapter {
   readonly providerId: string;
@@ -65,24 +66,61 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
     const payload = this.buildPayload(model, input.request);
 
-    const res = await this.fetch(`${this.baseUrl}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(`Kiro ${res.status}: ${await res.text()}`);
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(new Error('connect timeout')), 10000);
+    let res: Response;
+    try {
+      res = await this.fetch(`${this.baseUrl}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+        signal: connectController.signal,
+      });
+      clearTimeout(connectTimer);
+    } catch (err: unknown) {
+      clearTimeout(connectTimer);
+      const msg = err instanceof Error ? err.message : 'network fetch failed';
+      throw new ProviderInvocationError(`upstream streaming connection error to ${this.providerId}: ${msg}`, {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
+    }
 
-    const reader = res.body!.getReader();
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new ProviderInvocationError(`Kiro ${res.status}: ${errText}`, {
+        kind: res.status === 401 || res.status === 403 ? 'authentication' : (res.status === 429 ? 'rate_limit' : 'temporary'),
+        scope: 'provider',
+        retryable: res.status >= 500 || res.status === 429,
+        fallbackAllowed: true,
+      });
+    }
+
+    if (!res.body) {
+      throw new ProviderInvocationError('Kiro returned no streaming body', {
+        kind: 'temporary',
+        scope: 'provider',
+        retryable: true,
+        fallbackAllowed: true,
+      });
+    }
+
     const decoder = new TextDecoder();
     let buffer = '';
     let hadToolUse = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for await (const value of iterateStreamWithWatchdog(res.body, {
+      firstChunkTimeoutMs: 30_000,
+      stallTimeoutMs: 30_000,
+      parentSignal: input.request.signal,
+      providerId: this.providerId,
+      onAbort: () => { try { connectController.abort(); } catch {} },
+    })) {
       buffer += decoder.decode(value, { stream: true });
       const blocks = buffer.split('\n\n');
       buffer = blocks.pop() ?? '';

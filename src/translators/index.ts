@@ -1,11 +1,12 @@
 import type { NormalizedChatRequest } from '../inference.js';
 import { requestRegistry, responseRegistry, type TranslatorFormat } from './registry.js';
-import { ensureToolCallIds } from './concerns/toolCall.js';
+import { ensureToolCallIds, fixMissingToolResponses } from './concerns/toolCall.js';
 
 export * from './registry.js';
 
 export function translateRequest(sourceFormat: TranslatorFormat, targetFormat: TranslatorFormat, modelId: string | undefined, request: NormalizedChatRequest): object {
   ensureToolCallIds(request);
+  fixMissingToolResponses(request);
   if (sourceFormat === targetFormat) return request;
   const id = modelId ?? 'unknown';
 

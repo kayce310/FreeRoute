@@ -35,6 +35,8 @@ function safeParseJSON(str: unknown): any {
   }
 }
 
+import { DEFAULT_THINKING_AG_SIGNATURE } from '../../config/thinking-signatures.js';
+
 export function openaiToGeminiRequest(modelId: string, request: NormalizedChatRequest): object {
   const system = request.messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n');
   const nonSystemMessages = request.messages.filter((message) => message.role !== 'system');
@@ -76,7 +78,9 @@ export function openaiToGeminiRequest(modelId: string, request: NormalizedChatRe
         for (const tc of msg.tool_calls) {
           if (tc.function?.name) {
             parts.push({
+              thoughtSignature: DEFAULT_THINKING_AG_SIGNATURE,
               functionCall: {
+                id: tc.id,
                 name: sanitizeGeminiFunctionName(tc.function.name),
                 args: safeParseJSON(tc.function.arguments),
               },

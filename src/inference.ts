@@ -21,6 +21,7 @@ export interface NormalizedChatRequest extends RouteRequest {
   responseFormat?: { type: 'json_object' };
   traceId?: string;
   isRawKey?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface NormalizedChatResponse {
@@ -227,9 +228,12 @@ export class ChatService {
         if (result.quota) await this.options.onQuota?.({ ...result.quota, providerId: decision.candidate.providerId, modelId: decision.candidate.modelId, credentialRef: redactCredential(decision.candidate.credentialId), observedAt: this.now() });
         return completed;
       } catch (error) {
-        if (!(error instanceof ProviderInvocationError)) throw error;
-        lastError = error;
-        const { kind, fallbackAllowed, scope } = error.failure;
+        if (error instanceof InvalidResponseError) throw error;
+        const invocationError = error instanceof ProviderInvocationError
+          ? error
+          : new ProviderInvocationError(error instanceof Error ? error.message : 'upstream invocation failed', { kind: 'temporary', scope: 'model' });
+        lastError = invocationError;
+        const { kind, fallbackAllowed, scope } = invocationError.failure;
         totalAttempts += 1;
         if (kind === 'context_overflow') {
           contextOverflowCount += 1;
@@ -256,9 +260,9 @@ export class ChatService {
 
           return isBlock
             ? { ...candidate, preference: 'block' as const }
-            : applyFailureCooldown(candidate, error.failure, this.now(), failureCount);
+            : applyFailureCooldown(candidate, invocationError.failure, this.now(), failureCount);
         });
-        this.options.routeState?.recordFailure(decision.candidate, error.failure, this.now());
+        this.options.routeState?.recordFailure(decision.candidate, invocationError.failure, this.now());
         fallbackCount += 1;
       }
     }
@@ -297,6 +301,9 @@ export class ChatService {
         });
         const iterator = streamIterable[Symbol.asyncIterator]();
         const first = await iterator.next();
+        if (first.done) {
+          throw new ProviderInvocationError('upstream streaming returned no events', { kind: 'temporary', scope: 'model' });
+        }
 
         const self = this;
         let finalUsage: TokenUsage | undefined;
