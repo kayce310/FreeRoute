@@ -13,6 +13,7 @@ import { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-
 import { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import { createSqliteProviderStore, type ProviderDefinition } from './storage/sqlite-provider-store.js';
 import { createSqliteComboStore } from './storage/sqlite-combo-store.js';
+import { CredentialManager } from './auth/credential-manager.js';
 
 export interface OpenRouterRuntimeOptions {
   databasePath: string;
@@ -71,46 +72,57 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     });
   }
 
+  const credentialManager = new CredentialManager(credentials, options.fetch);
+
+  const resolveCredential = async (providerId: string, credentialId: string): Promise<string | undefined> => {
+    const resolved = await credentialManager.getValidCredential(providerId, credentialId);
+    if (!resolved) return undefined;
+    if (resolved.isOAuth && resolved.oauth) {
+      return JSON.stringify(resolved.oauth);
+    }
+    return resolved.token;
+  };
+
   const builtIn: import('./inference.js').ChatProviderAdapter[] = [
     new OpenAICompatibleAdapter({
       providerId: 'openrouter',
       baseUrl: options.baseUrl ?? 'https://openrouter.ai/api/v1',
-      getCredential: (credentialId) => credentials.get('openrouter', credentialId),
+      getCredential: (credentialId) => resolveCredential('openrouter', credentialId),
       fetch: options.fetch,
     }),
     new OpenAICompatibleAdapter({
       providerId: 'groq', baseUrl: options.groqBaseUrl ?? 'https://api.groq.com/openai/v1',
-      getCredential: (credentialId) => credentials.get('groq', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => resolveCredential('groq', credentialId), fetch: options.fetch,
       classifyModel: () => 'free_unverified',
     }),
     new GeminiAdapter({
       baseUrl: options.geminiBaseUrl,
-      getCredential: (credentialId) => credentials.get('gemini', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => resolveCredential('gemini', credentialId), fetch: options.fetch,
     }),
     new AnthropicAdapter({
       baseUrl: options.anthropicBaseUrl,
-      getCredential: (credentialId) => credentials.get('anthropic', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => resolveCredential('anthropic', credentialId), fetch: options.fetch,
     }),
   ];
 
   // Load custom providers from DB
     const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {
       if (def.adapterType === 'gemini') {
-        return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => resolveCredential(def.providerId, id), fetch: options.fetch });
       }
       if (def.adapterType === 'anthropic') {
-        return new AnthropicAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new AnthropicAdapter({ baseUrl: def.baseUrl, getCredential: (id) => resolveCredential(def.providerId, id), fetch: options.fetch });
       }
       if (def.adapterType === 'ollama') {
-        return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => resolveCredential(def.providerId, id), fetch: options.fetch });
       }
       if (def.adapterType === 'kiro') {
-        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => resolveCredential(def.providerId, id), fetch: options.fetch });
       }
       return new OpenAICompatibleAdapter({
         providerId: def.providerId,
         baseUrl: def.baseUrl,
-        getCredential: (id) => credentials.get(def.providerId, id),
+        getCredential: (id) => resolveCredential(def.providerId, id),
         fetch: options.fetch,
         classifyModel: def.classifyAsFree ? () => def.classifyAsFree as import('./contracts.js').FreeTierClass : undefined,
       });
@@ -146,8 +158,10 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     quotas,
     preferences,
     credentials,
+    credentialManager,
     providerStore,
     combos: comboStore,
+    fetch: options.fetch,
     onProviderChanged: syncProvider,
     onProviderRefresh: async (providerId, credentialId) => {
       const selected = credentialId ?? (await credentials.list()).find((credential) => credential.providerId === providerId)?.credentialId ?? '';

@@ -13,6 +13,7 @@ import type { Preference, ModelRecord } from './contracts.js';
 import { dashboardHtml } from './dashboard.js';
 import { PROVIDER_PRESETS } from './presets.js';
 import { ensureToolCallIds, fixMissingToolResponses } from './translators/concerns/toolCall.js';
+import { CredentialManager } from './auth/credential-manager.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -22,8 +23,10 @@ export interface FreeRouteServerOptions {
   quotas?: SqliteQuotaObservationStore;
   preferences?: SqlitePreferenceStore;
   credentials?: SqliteCredentialStore;
+  credentialManager?: CredentialManager;
   providerStore?: SqliteProviderStore;
   combos?: SqliteComboStore;
+  fetch?: typeof globalThis.fetch;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
   onProviderChanged?: (providerId: string) => Promise<void> | void;
   onProviderRefresh?: (providerId: string, credentialId?: string) => Promise<unknown>;
@@ -254,10 +257,30 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             lastTestAt: c.lastTestAt?.toISOString(),
             lastError: c.lastError,
             cooldownUntil: c.cooldownUntil?.toISOString(),
+            authType: c.authType ?? 'api_key',
+            expiresAt: c.expiresAt?.toISOString(),
+            authMethod: c.authMethod,
             createdAt: c.createdAt.toISOString(),
             updatedAt: c.updatedAt.toISOString(),
           })),
         });
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/v1/credentials/refresh') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { providerId?: unknown; credentialId?: unknown };
+        const providerId = typeof body.providerId === 'string' ? body.providerId.trim() : '';
+        const credentialId = typeof body.credentialId === 'string' && body.credentialId.trim() ? body.credentialId.trim() : 'default';
+        if (!providerId) { sendJson(response, 400, { error: { message: 'providerId is required', type: 'invalid_request_error' } }); return; }
+
+        const mgr = options.credentialManager || new CredentialManager(options.credentials, options.fetch);
+        const result = await mgr.forceRefresh(providerId, credentialId);
+        if (!result.success) {
+          sendJson(response, 400, { error: { message: result.error || 'Token refresh failed', type: 'invalid_request_error' } });
+          return;
+        }
+        sendJson(response, 200, { status: 'success', providerId, credentialId, expiresAt: result.expiresAt });
         return;
       }
 

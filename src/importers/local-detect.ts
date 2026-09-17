@@ -5,13 +5,15 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 export interface DetectedCredential {
-  source: 'omniroute' | '9router';
+  source: 'omniroute' | '9router' | 'aws-sso';
   sourceLocation: string;
   providerId: string;
   name: string;
   apiKey: string;
   maskedKey: string;
   isActive: boolean;
+  authType?: 'api_key' | 'oauth';
+  expiresAt?: string;
 }
 
 function maskKey(key: string): string {
@@ -165,17 +167,22 @@ export function detect9RouterCredentials(): DetectedCredential[] {
       for (const row of rows) {
         if (!row.data) continue;
         try {
-          const parsed = JSON.parse(row.data) as { apiKey?: string; token?: string; accessToken?: string };
-          const key = parsed.apiKey || parsed.token || parsed.accessToken;
-          if (key && typeof key === 'string' && key.trim().length > 0) {
+          const parsed = JSON.parse(row.data) as Record<string, any>;
+          const isOAuth = row.authType === 'oauth' || Boolean(parsed.accessToken || parsed.refreshToken);
+          const rawKey = isOAuth ? row.data : (parsed.apiKey || parsed.token || parsed.accessToken);
+          if (rawKey && typeof rawKey === 'string' && rawKey.trim().length > 0) {
+            const displayToken = parsed.accessToken || parsed.apiKey || parsed.token || rawKey;
+            const authMethod = parsed.providerSpecificData?.authMethod || (isOAuth ? 'oauth' : 'api_key');
             detected.push({
               source: '9router',
               sourceLocation: dbPath,
               providerId: row.provider.toLowerCase(),
               name: row.name || `${row.provider} (9router)`,
-              apiKey: key.trim(),
-              maskedKey: maskKey(key.trim()),
+              apiKey: isOAuth ? row.data : rawKey.trim(),
+              maskedKey: isOAuth ? `OAuth (${authMethod}) ${maskKey(displayToken)}` : maskKey(rawKey.trim()),
               isActive: Boolean(row.isActive),
+              authType: isOAuth ? 'oauth' : 'api_key',
+              expiresAt: parsed.expiresAt,
             });
           }
         } catch {
@@ -190,11 +197,61 @@ export function detect9RouterCredentials(): DetectedCredential[] {
 }
 
 /**
- * Detects all available credentials across local OmniRoute and 9router instances,
+ * Detects Kiro tokens stored in AWS SSO cache (~/.aws/sso/cache)
+ */
+export function detectKiroLocalCredentials(): DetectedCredential[] {
+  const detected: DetectedCredential[] = [];
+  const cachePath = path.join(os.homedir(), '.aws', 'sso', 'cache');
+  if (!fs.existsSync(cachePath)) return detected;
+
+  try {
+    const files = fs.readdirSync(cachePath);
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const fullPath = path.join(cachePath, file);
+      try {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const parsed = JSON.parse(content) as Record<string, any>;
+        if (parsed.refreshToken && typeof parsed.refreshToken === 'string' && parsed.refreshToken.startsWith('aorAAAAAG')) {
+          const oauthCred = {
+            type: 'oauth',
+            accessToken: parsed.accessToken,
+            refreshToken: parsed.refreshToken,
+            expiresAt: parsed.expiresAt,
+            providerSpecificData: {
+              authMethod: 'builder-id',
+              clientId: parsed.clientId,
+              clientSecret: parsed.clientSecret,
+              region: parsed.region || 'us-east-1',
+              startUrl: parsed.startUrl,
+            },
+          };
+          detected.push({
+            source: 'aws-sso',
+            sourceLocation: fullPath,
+            providerId: 'kiro',
+            name: 'Kiro (AWS SSO Cache)',
+            apiKey: JSON.stringify(oauthCred),
+            maskedKey: `OAuth (builder-id) ${maskKey(parsed.refreshToken)}`,
+            isActive: true,
+            authType: 'oauth',
+            expiresAt: parsed.expiresAt,
+          });
+          break; // Found primary token
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return detected;
+}
+
+/**
+ * Detects all available credentials across local OmniRoute, 9router, and AWS SSO instances,
  * deduplicating by providerId + apiKey.
  */
 export function detectAllLocalCredentials(): DetectedCredential[] {
-  const all = [...detectOmniRouteCredentials(), ...detect9RouterCredentials()];
+  const all = [...detectOmniRouteCredentials(), ...detect9RouterCredentials(), ...detectKiroLocalCredentials()];
   const seen = new Set<string>();
   const unique: DetectedCredential[] = [];
 

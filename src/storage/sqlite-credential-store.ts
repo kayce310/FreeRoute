@@ -1,5 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  formatCredentialForStorage,
+  parseStoredCredential,
+  type OAuthCredential,
+  type ParsedCredential,
+} from './credential-types.js';
 
 export interface CredentialMetadata {
   providerId: string;
@@ -11,6 +17,9 @@ export interface CredentialMetadata {
   lastTestAt?: Date;
   lastError?: string;
   cooldownUntil?: Date;
+  authType?: 'api_key' | 'oauth';
+  expiresAt?: Date;
+  authMethod?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -72,8 +81,15 @@ export class SqliteCredentialStore {
     }
   }
 
-  async put(providerId: string, credentialId: string, secret: string, now = new Date(), options: { name?: string; enabled?: boolean; priority?: number } = {}): Promise<void> {
-    if (!secret) throw new Error('credential secret cannot be empty');
+  async put(
+    providerId: string,
+    credentialId: string,
+    secret: string | OAuthCredential,
+    now = new Date(),
+    options: { name?: string; enabled?: boolean; priority?: number } = {}
+  ): Promise<void> {
+    const rawSecret = formatCredentialForStorage(secret);
+    if (!rawSecret) throw new Error('credential secret cannot be empty');
     const timestamp = now.toISOString();
     this.database.prepare(`
       INSERT INTO credentials (provider_id, credential_id, encrypted_secret, name, enabled, priority, created_at, updated_at)
@@ -84,7 +100,7 @@ export class SqliteCredentialStore {
         enabled = excluded.enabled,
         priority = excluded.priority,
         updated_at = excluded.updated_at
-    `).run(providerId, credentialId, encrypt(secret, this.encryptionKey), options.name ?? null, options.enabled === false ? 0 : 1, options.priority ?? 0, timestamp, timestamp);
+    `).run(providerId, credentialId, encrypt(rawSecret, this.encryptionKey), options.name ?? null, options.enabled === false ? 0 : 1, options.priority ?? 0, timestamp, timestamp);
   }
 
   async get(providerId: string, credentialId: string): Promise<string | undefined> {
@@ -95,24 +111,65 @@ export class SqliteCredentialStore {
     return row ? decrypt(row.encrypted_secret, this.encryptionKey) : undefined;
   }
 
+  async getParsed(providerId: string, credentialId: string): Promise<ParsedCredential | undefined> {
+    const secret = await this.get(providerId, credentialId);
+    if (!secret) return undefined;
+    return parseStoredCredential(secret);
+  }
+
+  async updateSecret(providerId: string, credentialId: string, updatedSecret: string | OAuthCredential, now = new Date()): Promise<boolean> {
+    const rawSecret = formatCredentialForStorage(updatedSecret);
+    if (!rawSecret) throw new Error('credential secret cannot be empty');
+    const result = this.database.prepare(`
+      UPDATE credentials SET
+        encrypted_secret = ?, updated_at = ?
+      WHERE provider_id = ? AND credential_id = ?
+    `).run(encrypt(rawSecret, this.encryptionKey), now.toISOString(), providerId, credentialId);
+    return Number(result.changes) > 0;
+  }
+
   async list(): Promise<CredentialMetadata[]> {
     const rows = this.database.prepare(`
-      SELECT provider_id, credential_id, name, enabled, priority, test_status, last_test_at, last_error, cooldown_until, created_at, updated_at FROM credentials
+      SELECT provider_id, credential_id, encrypted_secret, name, enabled, priority, test_status, last_test_at, last_error, cooldown_until, created_at, updated_at FROM credentials
       ORDER BY provider_id, credential_id
-    `).all() as unknown as Omit<CredentialRow, 'encrypted_secret'>[];
-    return rows.map((row) => ({
-      providerId: row.provider_id,
-      credentialId: row.credential_id,
-      name: row.name ?? undefined,
-      enabled: Boolean(row.enabled),
-      priority: Number(row.priority),
-      testStatus: row.test_status ?? 'untested',
-      lastTestAt: row.last_test_at ? new Date(row.last_test_at) : undefined,
-      lastError: row.last_error ?? undefined,
-      cooldownUntil: row.cooldown_until ? new Date(row.cooldown_until) : undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    }));
+    `).all() as unknown as CredentialRow[];
+    return rows.map((row) => {
+      let authType: 'api_key' | 'oauth' = 'api_key';
+      let expiresAt: Date | undefined;
+      let authMethod: string | undefined;
+
+      try {
+        const plain = decrypt(row.encrypted_secret, this.encryptionKey);
+        if (plain) {
+          const parsed = parseStoredCredential(plain);
+          if (parsed.isOAuth) {
+            authType = 'oauth';
+            authMethod = parsed.authMethod;
+            if (parsed.expiresAt) {
+              const exp = new Date(parsed.expiresAt);
+              if (!Number.isNaN(exp.getTime())) expiresAt = exp;
+            }
+          }
+        }
+      } catch {}
+
+      return {
+        providerId: row.provider_id,
+        credentialId: row.credential_id,
+        name: row.name ?? undefined,
+        enabled: Boolean(row.enabled),
+        priority: Number(row.priority),
+        testStatus: row.test_status ?? 'untested',
+        lastTestAt: row.last_test_at ? new Date(row.last_test_at) : undefined,
+        lastError: row.last_error ?? undefined,
+        cooldownUntil: row.cooldown_until ? new Date(row.cooldown_until) : undefined,
+        authType,
+        expiresAt,
+        authMethod,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+      };
+    });
   }
 
   async updateStatus(providerId: string, credentialId: string, update: { testStatus?: CredentialMetadata['testStatus']; lastTestAt?: Date; lastError?: string; cooldownUntil?: Date | null; enabled?: boolean }): Promise<boolean> {

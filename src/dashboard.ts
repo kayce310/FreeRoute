@@ -2752,7 +2752,20 @@ print(response.choices[0].message.content)</div>
           const status = escapeProviderDetailHtml(c.testStatus || 'untested');
           const enabled = c.enabled !== false;
           const statusClass = status === 'valid' ? 'badge-green' : status === 'invalid' ? 'badge-red' : 'badge-gray';
-          return '<div class="provider-connection"><div class="provider-connection-meta"><code>' + credentialSafe + '</code><div style="margin-top:5px;"><span class="badge ' + statusClass + '">' + status + '</span>' + (enabled ? '' : ' <span class="badge badge-gray">disabled</span>') + '</div></div><div class="provider-row-actions"><button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-credential="' + credentialSafe + '" onclick="testCredential(this.dataset.provider,this.dataset.credential)">Test key</button></div></div>';
+          let authBadge = '';
+          if (c.authType === 'oauth') {
+            const method = escapeProviderDetailHtml(c.authMethod || 'OAuth');
+            let expHtml = '';
+            if (c.expiresAt) {
+              const diffMin = Math.round((new Date(c.expiresAt).getTime() - Date.now()) / 60000);
+              expHtml = diffMin > 0 ? ' <span class="badge badge-green" style="font-size:10px;">⏱ ' + diffMin + 'm</span>' : ' <span class="badge badge-yellow" style="font-size:10px;">⏱ Expired</span>';
+            }
+            authBadge = ' <span class="badge badge-blue" style="font-size:10px;">OAuth (' + method + ')</span>' + expHtml;
+          }
+          const refreshBtn = c.authType === 'oauth'
+            ? '<button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-credential="' + credentialSafe + '" onclick="refreshCredentialToken(this.dataset.provider,this.dataset.credential)">🔄 Refresh</button>'
+            : '';
+          return '<div class="provider-connection"><div class="provider-connection-meta"><code>' + credentialSafe + '</code><div style="margin-top:5px;"><span class="badge ' + statusClass + '">' + status + '</span>' + authBadge + (enabled ? '' : ' <span class="badge badge-gray">disabled</span>') + '</div></div><div class="provider-row-actions">' + refreshBtn + '<button class="btn btn-outline btn-sm" data-provider="' + providerSafe + '" data-credential="' + credentialSafe + '" onclick="testCredential(this.dataset.provider,this.dataset.credential)">Test key</button></div></div>';
         }).join('') : '<div class="provider-empty">No API key is configured for this provider.</div>';
         const modelRows = providerModels.length ? providerModels.map(m => {
           const routedModelId = String(m.id || m.modelId);
@@ -3828,6 +3841,25 @@ print(response.choices[0].message.content)</div>
         const updatedStr = c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—';
         const pKeys = providerKeyCounts[c.providerId] || 1;
 
+        let authBadge = '<span class="badge badge-gray" style="font-size:10px;">API Key</span>';
+        if (c.authType === 'oauth') {
+          const method = c.authMethod || 'OAuth';
+          let expHtml = '';
+          if (c.expiresAt) {
+            const diffMin = Math.round((new Date(c.expiresAt).getTime() - Date.now()) / 60000);
+            if (diffMin > 0) {
+              expHtml = ' <span class="badge badge-green" style="font-size:9px;" title="Expires in ' + diffMin + 'm">⏱ ' + diffMin + 'm</span>';
+            } else {
+              expHtml = ' <span class="badge badge-yellow" style="font-size:9px;" title="Expired, will auto-refresh">⏱ Hết hạn</span>';
+            }
+          }
+          authBadge = '<span class="badge badge-blue" style="font-size:10px;">OAuth (' + method + ')</span>' + expHtml;
+        }
+
+        const refreshBtn = c.authType === 'oauth'
+          ? '<button class="btn btn-outline btn-sm" onclick="refreshCredentialToken(\'' + c.providerId + '\', \'' + c.credentialId + '\')" title="Refresh OAuth Token">🔄 ' + (currentLang === 'vi' ? 'Làm mới' : 'Refresh') + '</button>'
+          : '';
+
         html += \`
           <tr>
             <td>
@@ -3835,13 +3867,16 @@ print(response.choices[0].message.content)</div>
                 \${name}
                 <span class=\"badge badge-green\" style=\"font-size:10px;\">\${pKeys} \${currentLang === 'vi' ? 'Khóa' : 'Keys'}</span>
               </div>
-              <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">\${c.providerId}</div>
+              <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">
+                \${c.providerId} &nbsp;•&nbsp; \${authBadge}
+              </div>
             </td>
             <td style="font-family:var(--font-mono); color:var(--text-muted);">
               <code>\${c.credentialId || 'default'}</code>
             </td>
             <td style="color:var(--text-muted); font-size:12px;">\${updatedStr}</td>
             <td style="text-align:right;">
+              \${refreshBtn}
               <button class="btn btn-outline btn-sm" onclick="testCredential('\${c.providerId}', '\${c.credentialId}')">Test</button>
               <button class="btn btn-danger btn-sm" onclick="deleteKey('\${c.providerId}', '\${c.credentialId}')">\${t('deleteBtn')}</button>
             </td>
@@ -3849,6 +3884,27 @@ print(response.choices[0].message.content)</div>
         \`;
       }
       tbody.innerHTML = html;
+    }
+
+    async function refreshCredentialToken(providerId, credentialId) {
+      try {
+        showToast(currentLang === 'vi' ? 'Đang làm mới token...' : 'Refreshing token...');
+        const res = await fetch('/v1/credentials/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId, credentialId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(currentLang === 'vi' ? 'Làm mới token thành công!' : 'Token refreshed successfully!');
+          await refreshAllData();
+          if (openProviderDetailsId === providerId) await openProviderDetails(providerId);
+        } else {
+          showToast(data.error?.message || 'Token refresh failed', true);
+        }
+      } catch (err) {
+        showToast(err.message || 'Token refresh failed', true);
+      }
     }
 
     async function testCredential(providerId, credentialId) {

@@ -224,9 +224,15 @@ async function providerError(response: Response): Promise<ProviderInvocationErro
   try { msg = JSON.parse(rawBody).error.message; } catch {}
   
   let kind: import('../contracts.js').RouteFailureKind = 'permanent';
-  if (response.status === 401 || response.status === 403) kind = 'authentication';
-  else if (response.status === 429) kind = 'rate_limit';
-  else if (response.status >= 500) kind = 'temporary';
+  let scope: import('../contracts.js').RouteFailureScope = 'key';
+  if (response.status === 401 || response.status === 403) {
+    kind = 'authentication';
+  } else if (response.status === 429) {
+    kind = 'rate_limit';
+  } else if (response.status >= 500) {
+    kind = 'temporary';
+    scope = 'provider';
+  }
   
-  return new ProviderInvocationError(`Anthropic error ${response.status}: ${msg}`, { kind, scope: 'provider' });
+  return new ProviderInvocationError(`Anthropic error ${response.status}: ${msg}`, { kind, scope, fallbackAllowed: true });
 }
