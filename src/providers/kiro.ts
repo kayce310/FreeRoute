@@ -59,13 +59,16 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     modelId: string;
     request: NormalizedChatRequest;
   }): AsyncIterable<NormalizedChatStreamEvent> {
-    const accessToken = this.getCredential(input.credentialId);
+    const accessToken = await this.getCredential(input.credentialId);
     if (!accessToken) throw new Error('Kiro: no access token for credentialId ' + input.credentialId);
     const id = `kiro-${Date.now()}`;
     const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
     const payload = this.buildPayload(model, input.request);
 
-    const res = await this.fetch(`${this.baseUrl}/chat`, {
+    const endpoint = this.baseUrl.includes('codewhisperer')
+      ? `${this.baseUrl}/generateAssistantResponse`
+      : `${this.baseUrl}/chat`;
+    const res = await this.fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

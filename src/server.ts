@@ -97,7 +97,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const type = body.type;
         const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
         const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
-        if (!['openai-compatible', 'anthropic', 'gemini', 'ollama'].includes(String(type)) || !baseUrl || (type !== 'ollama' && !apiKey)) {
+        if (!['openai-compatible', 'anthropic', 'gemini', 'ollama', 'kiro'].includes(String(type)) || !baseUrl || (type !== 'ollama' && !apiKey)) {
           sendJson(response, 400, { valid: false, errorKind: 'invalid_request', error: 'type, baseUrl and credential are required' });
           return;
         }
@@ -1586,6 +1586,28 @@ async function validateProviderConnection(type: string, baseUrl: string, apiKey:
     target = `${root}/models`;
     headers['x-api-key'] = apiKey;
     headers['anthropic-version'] = '2023-06-01';
+  } else if (type === 'kiro') {
+    // Kiro / AWS CodeWhisperer: validate by probing the /identity endpoint
+    // with a minimal conversationState payload (returns 400 if token valid, 401/403 if not)
+    const kiroEndpoint = root.includes('codewhisperer')
+      ? `${root}/generateAssistantResponse`
+      : `${root}/chat`;
+    try {
+      const kiroRes = await fetch(kiroEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'authorization': `Bearer ${apiKey}`, 'accept': 'application/json' },
+        body: JSON.stringify({ conversationState: { currentMessage: { userInputMessage: { content: 'ping', modelId: 'CLAUDE_3_5_HAIKU_20241022' } }, history: [], chatTriggerType: 'MANUAL', conversationId: 'probe' } }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const latencyMs = Date.now() - started;
+      if (kiroRes.status === 401 || kiroRes.status === 403) {
+        return { valid: false, protocol: type, latencyMs, statusCode: kiroRes.status, errorKind: 'authentication', error: 'Kiro bearer token is invalid or expired' };
+      }
+      // 200, 400 (bad body but auth passed), 422 all indicate token is valid
+      return { valid: true, protocol: type, method: 'bearer_probe', latencyMs, statusCode: kiroRes.status };
+    } catch (error) {
+      return { valid: false, protocol: type, latencyMs: Date.now() - started, errorKind: 'connection', error: error instanceof Error ? error.message : 'Kiro connection failed' };
+    }
   } else {
     target = `${root}/models`;
     headers.authorization = `Bearer ${apiKey}`;

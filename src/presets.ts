@@ -566,6 +566,25 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       { modelId: 'vllm-default', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 85 },
     ],
   },
+  {
+    id: 'zenmux',
+    name: 'ZenMux',
+    adapterType: 'openai-compatible',
+    baseUrl: 'https://api.zenmux.ai/v1',
+    apiKeyUrl: 'https://zenmux.ai/dashboard/api-keys',
+    website: 'https://zenmux.ai',
+    category: 'freemium',
+    descriptionEn: 'Enterprise AI gateway with 100+ models (OpenAI, Anthropic, Google, DeepSeek). Supports OpenAI-compatible API. Free Studio Chat tier; Starter plan for API access.',
+    descriptionVi: 'Cổng AI doanh nghiệp với 100+ mô hình (OpenAI, Anthropic, Google, DeepSeek). API tương thích OpenAI. Miễn phí Studio Chat; cần gói Starter để truy cập API.',
+    keyInstructionsEn: 'Subscribe to a paid plan on zenmux.ai, then generate an API key in the Dashboard.',
+    keyInstructionsVi: 'Đăng ký gói trả phí tại zenmux.ai, sau đó tạo API key trong Dashboard.',
+    seedModels: [
+      { modelId: 'gpt-4o', capabilities: ['chat', 'streaming', 'tools', 'vision'], freeTier: 'paid', priority: 88 },
+      { modelId: 'claude-3-5-sonnet-latest', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'paid', priority: 90 },
+      { modelId: 'gemini-2.0-flash', capabilities: ['chat', 'streaming', 'tools', 'vision'], freeTier: 'paid', priority: 85 },
+      { modelId: 'deepseek-chat', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'paid', priority: 87 },
+    ],
+  },
 
   // ==========================================
   // 2. COMMERCIAL / PAY-AS-YOU-GO PROVIDERS
