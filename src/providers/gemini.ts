@@ -9,6 +9,7 @@ interface GeminiResponse {
   responseId?: string;
   modelVersion?: string;
   candidates?: Array<{
+    finishReason?: string;
     content?: { parts?: Array<{ text?: string; thought?: string; functionCall?: { name: string; args?: Record<string, unknown> } }>; };
   }>;
   usageMetadata?: {
@@ -140,20 +141,26 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
         try {
           const chunk = JSON.parse(data) as GeminiResponse;
           const text = textFrom(chunk);
-          const thought = (chunk.candidates?.[0]?.content?.parts ?? [])
+          const candidate = chunk.candidates?.[0];
+          const thought = (candidate?.content?.parts ?? [])
             .find(part => 'thought' in part && typeof part.thought === 'string') as any;
-          const toolCalls = (chunk.candidates?.[0]?.content?.parts ?? [])
+          const toolCalls = (candidate?.content?.parts ?? [])
             .filter((part): part is { functionCall: { name: string; args?: Record<string, unknown> } } => !!part.functionCall)
             .map((part) => ({
             id: crypto.randomUUID(),
             type: 'function' as const,
             function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) },
           }));
+          const geminiFinish = candidate?.finishReason;
+          const finishReason = geminiFinish === 'STOP'
+            ? (toolCalls.length ? 'tool_calls' : 'stop')
+            : (geminiFinish === 'MAX_TOKENS' ? 'length' : (toolCalls.length ? 'tool_calls' : undefined));
           yield { 
             id: chunk.responseId ?? crypto.randomUUID(), 
             model: chunk.modelVersion ?? input.modelId, 
             delta: text, 
             thought: thought?.thought,
+            finishReason,
             toolCalls: toolCalls.length ? toolCalls : undefined, 
             usage: usageFrom(chunk.usageMetadata) 
           };
@@ -166,12 +173,19 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       try {
         const chunk = JSON.parse(pending.trim().slice(5).trim()) as GeminiResponse;
         const text = textFrom(chunk);
+        const candidate = chunk.candidates?.[0];
+        const toolCalls = toolCallsFrom(chunk);
+        const geminiFinish = candidate?.finishReason;
+        const finishReason = geminiFinish === 'STOP'
+          ? (toolCalls.length ? 'tool_calls' : 'stop')
+          : (geminiFinish === 'MAX_TOKENS' ? 'length' : (toolCalls.length ? 'tool_calls' : undefined));
         yield {
           id: chunk.responseId ?? crypto.randomUUID(),
           model: chunk.modelVersion ?? input.modelId,
           delta: text || "",
-          thought: (chunk.candidates?.[0]?.content?.parts ?? []).find(p => "thought" in p && typeof p.thought === "string")?.thought,
-          toolCalls: toolCallsFrom(chunk),
+          thought: (candidate?.content?.parts ?? []).find(p => "thought" in p && typeof p.thought === "string")?.thought,
+          finishReason,
+          toolCalls: toolCalls.length ? toolCalls : undefined,
           usage: usageFrom(chunk.usageMetadata)
         };
       } catch { /* ignore malformed final chunk */ }

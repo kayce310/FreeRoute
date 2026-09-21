@@ -783,18 +783,22 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
                   'x-freeroute-model': result.decision.candidate.modelId,
                   'x-freeroute-combo': input.model,
                 });
-                for await (const event of result.events) {
-                  if (event.usage) usageState.captured = event.usage;
-                  if (event.delta) usageState.accumulatedText += event.delta;
-                  const includeUsage = event.usage ?? usageState.captured;
-                  response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                  index: 0,
-                  delta: {
-                    ...(event.delta !== undefined ? { content: event.delta } : {}),
-                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
-                  },
-                  finish_reason: event.finishReason ?? null,
-                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+                try {
+                  for await (const event of result.events) {
+                    if (event.usage) usageState.captured = event.usage;
+                    if (event.delta) usageState.accumulatedText += event.delta;
+                    const includeUsage = event.usage ?? usageState.captured;
+                    writeChatCompletionChunk(
+                      response,
+                      event,
+                      `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                      includeUsage
+                    );
+                  }
+                } catch (err) {
+                  const errMsg = err instanceof Error ? err.message : 'stream error';
+                  console.error(`[STREAM ERROR] /v1/chat/completions (combo): ${errMsg}`);
+                  response.write(`data: ${JSON.stringify({ id: 'error', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: { content: `[FreeRoute] stream error: ${errMsg}` }, finish_reason: 'error' }] })}\n\n`);
                 }
                 response.end('data: [DONE]\n\n');
                 if (options.events) {
@@ -988,14 +992,12 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               if (event.usage) usageState.captured = event.usage;
               if (event.delta) usageState.accumulatedText += event.delta;
               const includeUsage = event.usage ?? usageState.captured;
-              response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                    index: 0,
-                    delta: {
-                      ...(event.delta !== undefined ? { content: event.delta } : {}),
-                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
-                    },
-                    finish_reason: event.finishReason ?? null,
-                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+              writeChatCompletionChunk(
+                response,
+                event,
+                `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`,
+                includeUsage
+              );
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'stream error';
@@ -1632,6 +1634,51 @@ function writeResponseEvent(response: ServerResponse, event: string, body: unkno
 
 function writeAnthropicEvent(response: ServerResponse, event: string, body: unknown): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
+}
+
+function writeChatCompletionChunk(
+  response: ServerResponse,
+  event: import('./inference.js').NormalizedChatStreamEvent,
+  model: string,
+  includeUsage?: import('./contracts.js').TokenUsage
+): void {
+  const deltaObj: Record<string, unknown> = {};
+  if (event.delta !== undefined) deltaObj.content = event.delta;
+  if (event.toolCalls && event.toolCalls.length > 0) {
+    deltaObj.tool_calls = event.toolCalls.map((tc, idx) => ({
+      index: idx,
+      id: tc.id,
+      type: tc.type || 'function',
+      function: tc.function,
+    }));
+  }
+
+  // Ensure delta is not completely empty if finishReason is null, or set content to empty string if no other fields
+  if (Object.keys(deltaObj).length === 0 && !event.finishReason && !includeUsage) {
+    deltaObj.content = '';
+  }
+
+  const chunk: Record<string, unknown> = {
+    id: event.id,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1_000),
+    model,
+    choices: [{
+      index: 0,
+      delta: deltaObj,
+      finish_reason: event.finishReason ?? null,
+    }],
+  };
+
+  if (includeUsage) {
+    chunk.usage = {
+      prompt_tokens: includeUsage.promptTokens,
+      completion_tokens: includeUsage.completionTokens,
+      total_tokens: includeUsage.totalTokens,
+    };
+  }
+
+  response.write(`data: ${JSON.stringify(chunk)}\n\n`);
 }
 
 
