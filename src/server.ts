@@ -143,6 +143,18 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         });
         return;
       }
+      // ─── Kiro-specific endpoints (pre-auth: auto-detect is read-only) ──────────
+      if (request.method === 'GET' && path === '/v1/kiro/auto-detect') {
+        const { detectKiroTokenFromAwsCache } = await import('./importers/kiro-import.js');
+        const detected = await detectKiroTokenFromAwsCache().catch(() => null);
+        if (!detected) {
+          sendJson(response, 200, { found: false, message: 'Kiro token not found in ~/.aws/sso/cache. Login to Kiro IDE first.' });
+        } else {
+          sendJson(response, 200, { found: true, source: detected.source, hasClientCredentials: Boolean(detected.clientId) });
+        }
+        return;
+      }
+
       if (!isAuthorized(request, options.apiToken)) {
         sendJson(response, 401, { error: { message: 'invalid API key', type: 'authentication_error' } });
         return;
@@ -371,6 +383,71 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           count: imported.length,
           imported,
         });
+        return;
+      }
+
+      // ─── Kiro import endpoint ──────────────────────────────────────────────────
+      if (request.method === 'POST' && path === '/v1/kiro/import') {
+        if (!options.credentials) { sendJson(response, 503, { error: { message: 'credential storage is not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { type?: unknown; token?: unknown; apiKey?: unknown; region?: unknown; credentialId?: unknown; name?: unknown; autoDetect?: unknown };
+        const importType = String(body.type ?? 'refresh_token');
+        const region = typeof body.region === 'string' ? body.region.trim() : 'us-east-1';
+        const credentialId = typeof body.credentialId === 'string' && body.credentialId.trim() ? body.credentialId.trim() : 'default';
+
+        try {
+          let result: import('./importers/kiro-import.js').KiroImportResult;
+
+          if (importType === 'auto_detect' || body.autoDetect) {
+            const { autoImportFromAwsCache } = await import('./importers/kiro-import.js');
+            const detected = await autoImportFromAwsCache();
+            if (!detected) {
+              sendJson(response, 404, { error: { message: 'Kiro token not found in ~/.aws/sso/cache. Please login to Kiro IDE first.', type: 'not_found' } });
+              return;
+            }
+            result = detected;
+          } else if (importType === 'api_key') {
+            const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+            if (!apiKey) { sendJson(response, 400, { error: { message: 'apiKey is required', type: 'invalid_request_error' } }); return; }
+            const { importFromApiKey } = await import('./importers/kiro-import.js');
+            result = await importFromApiKey(apiKey, { region });
+          } else {
+            // refresh_token (default)
+            const token = typeof body.token === 'string' ? body.token.trim() : '';
+            if (!token) { sendJson(response, 400, { error: { message: 'token (refreshToken) is required', type: 'invalid_request_error' } }); return; }
+            const { importFromRefreshToken } = await import('./importers/kiro-import.js');
+            result = await importFromRefreshToken(token, { region });
+          }
+
+          await options.credentials!.put('kiro', credentialId, result.secret, new Date(), {
+            name: typeof body.name === 'string' ? body.name.trim() : `Kiro (${result.authMethod ?? 'imported'})`,
+            enabled: true,
+          });
+
+          // Auto-seed preset models
+          const preset = PROVIDER_PRESETS.find((p) => p.id === 'kiro');
+          if (preset) {
+            const existing = await options.catalog.list();
+            if (!existing.some((m) => m.providerId === 'kiro')) {
+              await options.catalog.replaceProvider('kiro', preset.seedModels.map((m) => ({
+                providerId: 'kiro', modelId: m.modelId, capabilities: m.capabilities,
+                freeTier: m.freeTier, checkedAt: new Date(), priority: m.priority ?? 0,
+              })));
+            }
+          }
+
+          if (options.onCredentialChanged) { try { await options.onCredentialChanged('kiro', credentialId); } catch {} }
+
+          sendJson(response, 200, {
+            status: 'ok',
+            providerId: 'kiro',
+            credentialId,
+            profileArn: result.profileArn,
+            authMethod: result.authMethod,
+            hasRefreshToken: Boolean(result.refreshToken),
+          });
+        } catch (error) {
+          sendJson(response, 502, { error: { message: error instanceof Error ? error.message : 'Kiro import failed', type: 'import_error' } });
+        }
         return;
       }
 
@@ -1587,24 +1664,31 @@ async function validateProviderConnection(type: string, baseUrl: string, apiKey:
     headers['x-api-key'] = apiKey;
     headers['anthropic-version'] = '2023-06-01';
   } else if (type === 'kiro') {
-    // Kiro / AWS CodeWhisperer: validate by probing the /identity endpoint
-    // with a minimal conversationState payload (returns 400 if token valid, 401/403 if not)
-    const kiroEndpoint = root.includes('codewhisperer')
-      ? `${root}/generateAssistantResponse`
-      : `${root}/chat`;
+    // Kiro / AWS CodeWhisperer: validate by calling ListAvailableProfiles
+    // Parse JSON credential if stored as JSON (secret may be refreshToken or full JSON)
+    let accessToken = apiKey;
     try {
-      const kiroRes = await fetch(kiroEndpoint, {
+      const parsed = JSON.parse(apiKey);
+      if (typeof parsed?.accessToken === 'string') accessToken = parsed.accessToken;
+    } catch { /* plain string */ }
+    const kiroRegion = 'us-east-1';
+    try {
+      const kiroRes = await fetch(`https://codewhisperer.${kiroRegion}.amazonaws.com`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'authorization': `Bearer ${apiKey}`, 'accept': 'application/json' },
-        body: JSON.stringify({ conversationState: { currentMessage: { userInputMessage: { content: 'ping', modelId: 'CLAUDE_3_5_HAIKU_20241022' } }, history: [], chatTriggerType: 'MANUAL', conversationId: 'probe' } }),
+        headers: {
+          'Content-Type': 'application/x-amz-json-1.0',
+          'x-amz-target': 'AmazonCodeWhispererService.ListAvailableProfiles',
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ maxResults: 10 }),
         signal: AbortSignal.timeout(10000),
       });
       const latencyMs = Date.now() - started;
       if (kiroRes.status === 401 || kiroRes.status === 403) {
-        return { valid: false, protocol: type, latencyMs, statusCode: kiroRes.status, errorKind: 'authentication', error: 'Kiro bearer token is invalid or expired' };
+        return { valid: false, protocol: type, latencyMs, statusCode: kiroRes.status, errorKind: 'authentication', error: 'Kiro access token is invalid or expired. Use /v1/kiro/import to refresh.' };
       }
-      // 200, 400 (bad body but auth passed), 422 all indicate token is valid
-      return { valid: true, protocol: type, method: 'bearer_probe', latencyMs, statusCode: kiroRes.status };
+      return { valid: true, protocol: type, method: 'list_profiles', latencyMs, statusCode: kiroRes.status };
     } catch (error) {
       return { valid: false, protocol: type, latencyMs: Date.now() - started, errorKind: 'connection', error: error instanceof Error ? error.message : 'Kiro connection failed' };
     }
