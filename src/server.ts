@@ -983,18 +983,24 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             'x-freeroute-model': result.decision.candidate.modelId,
             'x-freeroute-fallback-count': String(result.fallbackCount ?? 0),
           });
-          for await (const event of result.events) {
-            if (event.usage) usageState.captured = event.usage;
-            if (event.delta) usageState.accumulatedText += event.delta;
-            const includeUsage = event.usage ?? usageState.captured;
-            response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
-                  index: 0,
-                  delta: {
-                    ...(event.delta !== undefined ? { content: event.delta } : {}),
-                    ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
-                  },
-                  finish_reason: event.finishReason ?? null,
-                }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+          try {
+            for await (const event of result.events) {
+              if (event.usage) usageState.captured = event.usage;
+              if (event.delta) usageState.accumulatedText += event.delta;
+              const includeUsage = event.usage ?? usageState.captured;
+              response.write(`data: ${JSON.stringify({ id: event.id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{
+                    index: 0,
+                    delta: {
+                      ...(event.delta !== undefined ? { content: event.delta } : {}),
+                      ...(event.toolCalls?.length ? { tool_calls: event.toolCalls } : {})
+                    },
+                    finish_reason: event.finishReason ?? null,
+                  }], ...(includeUsage ? { usage: { prompt_tokens: includeUsage.promptTokens, completion_tokens: includeUsage.completionTokens, total_tokens: includeUsage.totalTokens } } : {}) })}\n\n`);
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : 'stream error';
+            console.error(`[STREAM ERROR] /v1/chat/completions: ${errMsg}`);
+            response.write(`data: ${JSON.stringify({ id: 'error', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1_000), model: `${result.decision.candidate.providerId}/${result.decision.candidate.modelId}`, choices: [{ index: 0, delta: { content: `[FreeRoute] stream error: ${errMsg}` }, finish_reason: 'error' }] })}\n\n`);
           }
           response.end('data: [DONE]\n\n');
           if (options.events) {
@@ -1085,9 +1091,14 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           });
           writeResponseEvent(response, 'response.created', { type: 'response.created', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'in_progress', model } });
           let outputIndex = 0;
-          for await (const event of result.events) {
-            if (event.delta) writeResponseEvent(response, 'response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, item_id: `msg_${responseId}`, output_index: outputIndex, content_index: 0, delta: event.delta });
-            if (event.finishReason) outputIndex += 1;
+          try {
+            for await (const event of result.events) {
+              if (event.delta) writeResponseEvent(response, 'response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, item_id: `msg_${responseId}`, output_index: outputIndex, content_index: 0, delta: event.delta });
+              if (event.finishReason) outputIndex += 1;
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : 'stream error';
+            console.error(`[STREAM ERROR] /v1/responses: ${errMsg}`);
           }
           writeResponseEvent(response, 'response.completed', { type: 'response.completed', response: { id: responseId, object: 'response', created_at: Math.floor(Date.now() / 1_000), status: 'completed', model } });
           response.end('data: [DONE]\n\n');
@@ -1163,8 +1174,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           });
           writeAnthropicEvent(response, 'message_start', { type: 'message_start', message: { id: messageId, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
           writeAnthropicEvent(response, 'content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-          for await (const event of result.events) {
-            if (event.delta) writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: event.delta } });
+          try {
+            for await (const event of result.events) {
+              if (event.delta) writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: event.delta } });
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : 'stream error';
+            console.error(`[STREAM ERROR] /v1/messages: ${errMsg}`);
           }
           writeAnthropicEvent(response, 'content_block_stop', { type: 'content_block_stop', index: 0 });
           writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });

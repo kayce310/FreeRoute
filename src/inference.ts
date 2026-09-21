@@ -301,11 +301,13 @@ export class ChatService {
         const self = this;
         let finalUsage: TokenUsage | undefined;
         let accumulatedDelta = '';
+        let accumulatedToolCalls: ToolCall[] = [];
 
         async function* eventsGenerator() {
           if (!first.done) {
             if (first.value.usage) finalUsage = first.value.usage;
             if (first.value.delta) accumulatedDelta += first.value.delta;
+            if (first.value.toolCalls) accumulatedToolCalls.push(...first.value.toolCalls);
             yield first.value;
           }
           while (true) {
@@ -313,6 +315,7 @@ export class ChatService {
             if (next.done) break;
             if (next.value.usage) finalUsage = next.value.usage;
             if (next.value.delta) accumulatedDelta += next.value.delta;
+            if (next.value.toolCalls) accumulatedToolCalls.push(...next.value.toolCalls);
             yield next.value;
           }
 
@@ -324,7 +327,7 @@ export class ChatService {
           const totalTokens = finalUsage?.totalTokens ?? (promptTokens + completionTokens);
           const candidate = decision!.candidate;
 
-          if (!isMeaningful({ content: accumulatedDelta, thought: finalUsage ? 'usage' : undefined })) {
+          if (!isMeaningful({ content: accumulatedDelta, thought: finalUsage ? 'usage' : undefined, toolCalls: accumulatedToolCalls })) {
               await self.emitEvent(request, candidate, fallbackCount, 'failure', 'invalid_stream');
               throw new InvalidResponseError('Empty or meaningless stream received');
           }

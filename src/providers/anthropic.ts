@@ -111,7 +111,7 @@ export class AnthropicAdapter implements ProviderDiscoveryAdapter, ChatProviderA
               yield {
                 id: `tc-${data.index}`,
                 model: input.modelId,
-                toolCalls: [{ id: tc.id, type: 'function', function: { name: tc.name, arguments: data.delta.partial_json } } as any],
+                toolCalls: [{ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.args } } as any],
               };
             }
           }
