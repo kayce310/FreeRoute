@@ -46,12 +46,15 @@ function parseCredential(secret: string | CredentialSecret, psd?: Record<string,
     return {
       accessToken,
       refreshToken: secret.refreshToken ?? null,
-      profileArn: mergedPsD.profileArn as string | undefined ?? null,
-      region: mergedPsD.region as string | undefined,
-      authMethod: secret.authType === 'cookie' ? 'cookie' : (mergedPsD.authMethod as KiroCredential['authMethod']),
-      clientId: mergedPsD.clientId as string | undefined,
-      clientSecret: mergedPsD.clientSecret as string | undefined,
-      expiresAt: mergedPsD.expiresAt as number | undefined,
+      // Support both top-level and providerSpecificData fields
+      profileArn: (mergedPsD.profileArn as string | undefined) ?? (secret as any).profileArn ?? null,
+      region: (mergedPsD.region as string | undefined) ?? (secret as any).region,
+      // Support both top-level authMethod (migrated creds) and providerSpecificData.authMethod
+      authMethod: secret.authType === 'cookie' ? 'cookie' :
+        ((mergedPsD.authMethod as KiroCredential['authMethod']) ?? (secret as any).authMethod),
+      clientId: (mergedPsD.clientId as string | undefined) ?? (secret as any).clientId,
+      clientSecret: (mergedPsD.clientSecret as string | undefined) ?? (secret as any).clientSecret,
+      expiresAt: (mergedPsD.expiresAt as number | undefined) ?? (secret as any).expiresAt,
     };
   }
   // Plain string (backward compat): parse JSON or treat as accessToken
@@ -146,6 +149,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
   readonly providerId: string;
   private readonly baseUrl: string;
   private readonly getCredential: (id: string) => Promise<string | CredentialSecret | undefined>;
+  private readonly setCredential?: (id: string, secret: CredentialSecret) => Promise<void>;
   private readonly fetch: typeof globalThis.fetch;
   /** In-memory cache: credentialId → refreshed credential (avoids repeated refresh per request) */
   private readonly tokenCache = new Map<string, { cred: KiroCredential; updatedAt: number }>();
@@ -154,11 +158,13 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     providerId: string;
     baseUrl?: string;
     getCredential: (id: string) => Promise<string | CredentialSecret | undefined>;
+    setCredential?: (id: string, secret: CredentialSecret) => Promise<void>;
     fetch?: typeof globalThis.fetch;
   }) {
     this.providerId = options.providerId;
     this.baseUrl = (options.baseUrl ?? KIRO_RUNTIME_BASE).replace(/\/$/, '');
     this.getCredential = options.getCredential;
+    this.setCredential = options.setCredential;
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
@@ -174,13 +180,31 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       cred = cached.cred;
     }
 
-    // Auto-refresh if token is near expiry (within 5 minutes) and refreshToken available
+    // Auto-refresh if token is near expiry (within 5 minutes) or already expired,
+    // and refreshToken available
     const expiresAt = cred.expiresAt;
-    const nearExpiry = expiresAt && expiresAt - Date.now() < 5 * 60 * 1000;
-    if (nearExpiry && cred.refreshToken) {
+    const nearExpiry = expiresAt && (expiresAt - Date.now() < 5 * 60 * 1000);
+    const expired = expiresAt && expiresAt < Date.now();
+    if ((nearExpiry || expired) && cred.refreshToken) {
       try {
         cred = await refreshKiroToken(cred, this.fetch);
         this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
+        // Persist refreshed credential back to storage
+        if (this.setCredential) {
+          const secret: CredentialSecret = {
+            accessToken: cred.accessToken,
+            refreshToken: cred.refreshToken || undefined,
+            providerSpecificData: {
+              ...(cred.profileArn ? { profileArn: cred.profileArn } : {}),
+              ...(cred.region ? { region: cred.region } : {}),
+              ...(cred.authMethod ? { authMethod: cred.authMethod } : {}),
+              ...(cred.clientId ? { clientId: cred.clientId } : {}),
+              ...(cred.clientSecret ? { clientSecret: cred.clientSecret } : {}),
+              ...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
+            },
+          };
+          await this.setCredential(credentialId, secret);
+        }
       } catch {
         // Use existing token even if refresh failed
       }
@@ -297,15 +321,29 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
 
     // Use the correct Kiro runtime endpoint (matches 9router)
     const endpoint = `${this.baseUrl}`;
-    const res = await this.fetch(endpoint, {
-      method: 'POST',
-      headers: {
+    const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${cred.accessToken}`,
         'Accept': 'application/vnd.amazon.eventstream',
         'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
         'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
-      },
+        // Parity with 9router: these AWS SDK headers are required by the Kiro gateway.
+        // Their absence causes HTTP 403 "bearer token included in the request is invalid".
+        'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+        'Amz-Sdk-Request': 'attempt=1; max=3',
+        'Amz-Sdk-Invocation-Id': crypto.randomUUID(),
+      };
+
+    // API-key auth requires a tokentype header so the gateway treats the token
+    // as a long-lived API key rather than an OIDC/social access token.
+    // Mirrors 9router open-sse/executors/kiro.js buildHeaders().
+    if (cred.authMethod === 'api_key') {
+      headers['tokentype'] = 'API_KEY';
+    }
+
+    const res = await this.fetch(endpoint, {
+      method: 'POST',
+      headers,
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
