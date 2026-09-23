@@ -136,7 +136,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           maskedKey: d.maskedKey,
           isActive: d.isActive,
           baseUrl: d.baseUrl,
-          alreadyImported: existingSecrets.has(d.apiKey),
+          alreadyImported: existingSecrets.has(d.apiKey ?? ''),
         }));
         const newKeysCount = list.filter((item) => !item.alreadyImported).length;
         sendJson(response, 200, {
@@ -303,7 +303,10 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!preset) { sendJson(response, 404, { error: { message: `provider preset not found: ${providerId}`, type: 'invalid_request_error' } }); return; }
         const secret = await options.credentials.get(providerId, credentialId);
         if (!secret) { sendJson(response, 404, { error: { message: 'credential not found', type: 'invalid_request_error' } }); return; }
-        const validation = await validateProviderConnection(preset.adapterType, preset.baseUrl, secret, typeof body.modelId === 'string' ? body.modelId : preset.seedModels[0]?.modelId);
+        // Extract token for validation
+        const tokenToValidate = typeof secret === 'string' ? secret : (secret.accessToken || secret.apiKey || secret.cookie);
+        if (!tokenToValidate) { sendJson(response, 400, { error: { message: 'credential has no usable token', type: 'invalid_request_error' } }); return; }
+        const validation = await validateProviderConnection(preset.adapterType, preset.baseUrl, tokenToValidate, typeof body.modelId === 'string' ? body.modelId : preset.seedModels[0]?.modelId);
         await options.credentials.updateStatus(providerId, credentialId, {
           testStatus: validation.valid ? 'valid' : validation.errorKind === 'rate_limit' ? 'rate_limited' : 'invalid',
           lastTestAt: new Date(),
@@ -737,13 +740,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
             return d.connectionId ? body.connectionIds.includes(d.connectionId) : false;
           }
           if (body.syncAll) {
-            if (body.onlyNew !== false && existingSecrets.has(d.apiKey)) return false;
+            if (body.onlyNew !== false && existingSecrets.has(d.apiKey ?? '')) return false;
             return true;
           }
           if (body.providerIds && Array.isArray(body.providerIds) && body.providerIds.length > 0) {
             return body.providerIds.includes(d.providerId);
           }
-          if (body.onlyNew !== false && existingSecrets.has(d.apiKey)) return false;
+          if (body.onlyNew !== false && existingSecrets.has(d.apiKey ?? '')) return false;
           return true;
         });
 
@@ -762,7 +765,16 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           }
           usedCreds.add(`${providerId}:${credId}`);
 
-          await options.credentials.put(providerId, credId, target.apiKey);
+          // For non-API-key auth types, store structured credential data
+          const secretValue = target.authType && target.authType !== 'apikey'
+            ? {
+                apiKey: target.apiKey,
+                authType: target.authType,
+                providerSpecificData: target.providerSpecificData,
+              }
+            : (target.apiKey ?? '');
+          
+          await options.credentials.put(providerId, credId, secretValue);
 
           // If unknown provider, automatically register custom provider
           const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);

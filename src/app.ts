@@ -80,36 +80,36 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     }),
     new OpenAICompatibleAdapter({
       providerId: 'groq', baseUrl: options.groqBaseUrl ?? 'https://api.groq.com/openai/v1',
-      getCredential: (credentialId) => credentials.get('groq', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => credentials.get('groq', credentialId).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch,
       classifyModel: () => 'free_unverified',
     }),
     new GeminiAdapter({
       baseUrl: options.geminiBaseUrl,
-      getCredential: (credentialId) => credentials.get('gemini', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => credentials.get('gemini', credentialId).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch,
     }),
     new AnthropicAdapter({
       baseUrl: options.anthropicBaseUrl,
-      getCredential: (credentialId) => credentials.get('anthropic', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => credentials.get('anthropic', credentialId).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch,
     }),
     new KiroAdapter({
       providerId: 'kiro',
-      getCredential: (credentialId) => credentials.get('kiro', credentialId), fetch: options.fetch,
+      getCredential: (credentialId) => credentials.get('kiro', credentialId).then(c => typeof c === 'string' ? c : c?.accessToken ?? c?.apiKey), fetch: options.fetch,
     }),
   ];
 
   // Load custom providers from DB
     const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {
       if (def.adapterType === 'gemini') {
-        return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new GeminiAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch });
       }
       if (def.adapterType === 'anthropic') {
-        return new AnthropicAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new AnthropicAdapter({ baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch });
       }
       if (def.adapterType === 'ollama') {
-        return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch });
       }
       if (def.adapterType === 'kiro') {
-        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
+        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.accessToken ?? c?.apiKey), fetch: options.fetch });
       }
       return new OpenAICompatibleAdapter({
         providerId: def.providerId,

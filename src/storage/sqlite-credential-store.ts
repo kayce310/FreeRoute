@@ -31,8 +31,33 @@ interface CredentialRow {
 }
 
 /**
+ * Structured credential that can hold multiple authentication types.
+ * Used internally - serialized to JSON and encrypted before storage.
+ */
+export interface CredentialSecret {
+  /** Simple API key for backward compatibility */
+  apiKey?: string;
+  /** OAuth/Bearer token */
+  accessToken?: string;
+  /** Refresh token for OAuth flows */
+  refreshToken?: string;
+  /** ID token (e.g., for Codex) */
+  idToken?: string;
+  /** Cookie/session data */
+  cookie?: string;
+  /** Provider-specific metadata (baseUrl, chatgptAccountId, etc) */
+  providerSpecificData?: Record<string, unknown>;
+  /** Auth type from source system */
+  authType?: 'apikey' | 'oauth' | 'cookie' | 'access_token';
+}
+
+/**
  * Stores provider credentials locally using AES-256-GCM. Callers receive only
  * metadata from list(); plaintext is returned only by an explicit get().
+ * 
+ * The secret can be either a simple string (apiKey) or a structured JSON object
+ * containing multiple credential fields. This preserves compatibility with both
+ * legacy API-key credentials and imported OAuth/cookie credentials.
  */
 export class SqliteCredentialStore {
   private readonly database: DatabaseSync;
@@ -72,9 +97,11 @@ export class SqliteCredentialStore {
     }
   }
 
-  async put(providerId: string, credentialId: string, secret: string, now = new Date(), options: { name?: string; enabled?: boolean; priority?: number } = {}): Promise<void> {
+  async put(providerId: string, credentialId: string, secret: string | CredentialSecret, now = new Date(), options: { name?: string; enabled?: boolean; priority?: number } = {}): Promise<void> {
     if (!secret) throw new Error('credential secret cannot be empty');
     const timestamp = now.toISOString();
+    // Serialize secret: if string, wrap as simple apiKey; if object, serialize directly
+    const serialized = typeof secret === 'string' ? JSON.stringify({ apiKey: secret }) : JSON.stringify(secret);
     this.database.prepare(`
       INSERT INTO credentials (provider_id, credential_id, encrypted_secret, name, enabled, priority, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -84,15 +111,27 @@ export class SqliteCredentialStore {
         enabled = excluded.enabled,
         priority = excluded.priority,
         updated_at = excluded.updated_at
-    `).run(providerId, credentialId, encrypt(secret, this.encryptionKey), options.name ?? null, options.enabled === false ? 0 : 1, options.priority ?? 0, timestamp, timestamp);
+    `).run(providerId, credentialId, encrypt(serialized, this.encryptionKey), options.name ?? null, options.enabled === false ? 0 : 1, options.priority ?? 0, timestamp, timestamp);
   }
 
-  async get(providerId: string, credentialId: string): Promise<string | undefined> {
+  async get(providerId: string, credentialId: string): Promise<string | CredentialSecret | undefined> {
     const row = this.database.prepare(`
       SELECT provider_id, credential_id, encrypted_secret, created_at, updated_at
       FROM credentials WHERE provider_id = ? AND credential_id = ?
     `).get(providerId, credentialId) as unknown as CredentialRow | undefined;
-    return row ? decrypt(row.encrypted_secret, this.encryptionKey) : undefined;
+    if (!row) return undefined;
+    const decrypted = decrypt(row.encrypted_secret, this.encryptionKey);
+    try {
+      const parsed = JSON.parse(decrypted) as CredentialSecret;
+      // If it's a simple apiKey string, return it for backward compatibility
+      if (parsed.apiKey && !parsed.accessToken && !parsed.cookie && !parsed.providerSpecificData) {
+        return parsed.apiKey;
+      }
+      return parsed;
+    } catch {
+      // Not JSON - return as simple string for backward compat
+      return decrypted;
+    }
   }
 
   async list(): Promise<CredentialMetadata[]> {
@@ -139,8 +178,19 @@ export class SqliteCredentialStore {
     const secrets = new Set<string>();
     for (const row of rows) {
       try {
-        const sec = decrypt(row.encrypted_secret, this.encryptionKey);
-        if (sec) secrets.add(sec);
+        const decrypted = decrypt(row.encrypted_secret, this.encryptionKey);
+        // Extract all credential values for deduplication
+        let parsed: CredentialSecret | undefined;
+        try { parsed = JSON.parse(decrypted) as CredentialSecret; } catch { /* plain string */ }
+        const values = [
+          parsed?.apiKey,
+          parsed?.accessToken,
+          parsed?.cookie,
+          parsed?.idToken,
+        ].filter(Boolean);
+        for (const v of values) {
+          if (typeof v === 'string' && v.trim()) secrets.add(v.trim());
+        }
       } catch {}
     }
     return secrets;
@@ -199,7 +249,7 @@ function decrypt(value: string, key: Buffer): string {
   const iv = packed.subarray(0, 12);
   const tag = packed.subarray(12, 28);
   const encrypted = packed.subarray(28);
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }

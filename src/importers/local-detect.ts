@@ -8,8 +8,9 @@ export interface DetectedCredential {
   source: 'omniroute' | '9router';
   sourceLocation: string;
   providerId: string;
+  authType: 'apikey' | 'oauth' | 'cookie' | 'access_token';
   name: string;
-  apiKey: string;
+  apiKey?: string;
   maskedKey: string;
   isActive: boolean;
   /** Unique id of the underlying connection row (used as a stable selection token). */
@@ -24,6 +25,8 @@ export interface DetectedCredential {
    * "openai-compatible-chat-<uuid>" identifier.
    */
   customProviderId?: string;
+  /** Provider-specific data preserved from the source (cookies, tokens, baseUrl, etc). */
+  providerSpecificData?: Record<string, unknown>;
 }
 
 function maskKey(key: string): string {
@@ -139,6 +142,7 @@ export function detectOmniRouteCredentials(): DetectedCredential[] {
             source: 'omniroute',
             sourceLocation: dbPath,
             providerId: row.provider.toLowerCase(),
+            authType: 'apikey',
             name: row.name || `${row.provider} (OmniRoute)`,
             apiKey: plaintextKey.trim(),
             maskedKey: maskKey(plaintextKey.trim()),
@@ -220,49 +224,41 @@ export function detect9RouterCredentials(): DetectedCredential[] {
             apiKey?: string;
             token?: string;
             accessToken?: string;
-            baseUrl?: string;
-            apiBase?: string;
-            endpoint?: string;
-            providerSpecificData?: { baseUrl?: string; apiBase?: string; endpoint?: string };
+            idToken?: string;
+            refreshToken?: string;
+            cookie?: string;
+            providerSpecificData?: Record<string, unknown>;
           };
-          const key = parsed.apiKey || parsed.token || parsed.accessToken;
+          
+          // Determine auth type from row
+          const authType: DetectedCredential['authType'] = (row.authType === 'cookie' || row.authType === 'access_token')
+            ? row.authType
+            : 'apikey';
+          
+          // Extract the appropriate credential based on auth type
+          let key: string | undefined;
+          if (authType === 'cookie') {
+            key = parsed.cookie || (parsed.providerSpecificData as any)?.cookie;
+          } else if (authType === 'access_token') {
+            key = parsed.accessToken || parsed.token;
+          } else {
+            key = parsed.apiKey || parsed.token || parsed.accessToken;
+          }
+          
           if (key && typeof key === 'string' && key.trim().length > 0) {
-            // 9Router stores the real endpoint inside providerSpecificData.baseUrl for
-            // custom providers; only fall back to top-level fields for other shapes.
             const psd = parsed.providerSpecificData;
-            const rawBaseUrl =
-              psd?.baseUrl || psd?.apiBase || psd?.endpoint ||
-              parsed.baseUrl || parsed.apiBase || parsed.endpoint;
-            const node = nodeMap.get(row.provider);
-            const baseUrl = typeof rawBaseUrl === 'string' && rawBaseUrl.trim()
-              ? rawBaseUrl.trim()
-              : node?.baseUrl;
-            const displayName = node?.name ?? undefined;
-
-            // Custom 9Router nodes use ids like "openai-compatible-chat-<uuid>". Derive a
-            // clean slug so FreeRoute registers a readable provider id.
-            const isCustomNode = /^openai-compatible/i.test(row.provider) || /^anthropic-compatible/i.test(row.provider);
-            let customProviderId: string | undefined;
-            if (isCustomNode && (node?.prefix || node?.name)) {
-              const slug = (node?.prefix || node?.name || '')
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '');
-              if (slug) customProviderId = slug;
-            }
-
+            
             detected.push({
               source: '9router',
               sourceLocation: dbPath,
               connectionId: row.id,
               providerId: row.provider.toLowerCase(),
-              name: row.name || displayName || `${row.provider} (9router)`,
+              authType,
+              name: row.name || `${row.provider} (9router)`,
               apiKey: key.trim(),
               maskedKey: maskKey(key.trim()),
               isActive: Boolean(row.isActive),
-              baseUrl,
-              displayName,
-              customProviderId,
+              providerSpecificData: psd && Object.keys(psd).length > 0 ? psd : undefined,
             });
           }
         } catch {
@@ -290,7 +286,7 @@ export function detectAllLocalCredentials(): DetectedCredential[] {
     // distinct; fall back to provider+key for sources without a row id.
     const keySig = item.connectionId
       ? `${item.source}::${item.connectionId}`
-      : `${item.providerId}::${item.apiKey}`;
+      : `${item.providerId}::${item.apiKey ?? ''}`;
     if (!seen.has(keySig)) {
       seen.add(keySig);
       unique.push(item);

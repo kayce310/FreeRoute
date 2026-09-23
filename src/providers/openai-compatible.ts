@@ -1,5 +1,6 @@
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import type { Capability, FreeTierClass, TokenUsage, RouteFailureKind, RouteFailureScope } from '../contracts.js';
+import type { CredentialSecret } from '../storage/sqlite-credential-store.js';
 import { ProviderInvocationError, type ChatProviderAdapter, type NormalizedChatRequest, type ToolCall } from '../inference.js';
 import { estimatePromptTokens, estimateTokensFromText } from '../utils/token-estimator.js';
 
@@ -84,7 +85,7 @@ interface OpenAIChatChunk {
 export interface OpenAICompatibleAdapterOptions {
   providerId: string;
   baseUrl: string;
-  getCredential: (credentialId: string) => Promise<string | undefined>;
+  getCredential: (credentialId: string) => Promise<string | CredentialSecret | undefined>;
   fetch?: typeof globalThis.fetch;
   /** Use when an official catalog has no price metadata but the tier is known separately. */
   classifyModel?: (model: OpenAIModel) => FreeTierClass;
@@ -272,14 +273,38 @@ export class OpenAICompatibleAdapter implements ProviderDiscoveryAdapter, ChatPr
   }
 
   private async headers(credentialId: string, isRawKey?: boolean): Promise<Record<string, string>> {
-    let secret: string | undefined;
+    let credential: string | CredentialSecret | undefined;
     if (isRawKey) {
-      secret = credentialId;
+      credential = credentialId;
     } else {
-      secret = await this.getCredential(credentialId);
+      credential = await this.getCredential(credentialId);
     }
-    if (!secret) throw new ProviderInvocationError('credential not found', { kind: 'authentication' });
-    return { authorization: `Bearer ${secret}` };
+    if (!credential) throw new ProviderInvocationError('credential not found', { kind: 'authentication' });
+
+    // Handle structured credential
+    if (typeof credential === 'string') {
+      return { authorization: `Bearer ${credential}` };
+    }
+
+    // Extract the appropriate token/key based on auth type
+    const token = credential.accessToken || credential.apiKey;
+    if (!token) throw new ProviderInvocationError('credential has no usable authentication token', { kind: 'authentication' });
+
+    // Build headers based on auth type
+    const headers: Record<string, string> = {};
+    if (credential.authType === 'cookie') {
+      headers['Cookie'] = token;
+    } else {
+      headers['authorization'] = `Bearer ${token}`;
+    }
+
+    // Add any provider-specific headers
+    if (credential.providerSpecificData?.headers) {
+      const extraHeaders = credential.providerSpecificData.headers as Record<string, string>;
+      Object.assign(headers, extraHeaders);
+    }
+
+    return headers;
   }
 }
 
