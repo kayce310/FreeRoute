@@ -5,6 +5,7 @@ import { GeminiAdapter } from './providers/gemini.js';
 import { AnthropicAdapter } from './providers/anthropic.js';
 import { OllamaAdapter } from './providers/ollama.js';
 import { KiroAdapter } from './providers/kiro.js';
+import { PROVIDER_PRESETS } from './presets.js';
 import { createFreeRouteServer } from './server.js';
 import { SqliteCatalogStore } from './storage/sqlite-catalog-store.js';
 import { SqliteCredentialStore } from './storage/sqlite-credential-store.js';
@@ -28,11 +29,11 @@ export interface OpenRouterRuntimeOptions {
 /** Creates the local OpenRouter runtime without exposing provider credentials. */
 export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   const catalog = new SqliteCatalogStore(options.databasePath);
+  const providerStore = createSqliteProviderStore(options.databasePath);
   const credentials = new SqliteCredentialStore(options.databasePath, options.masterSecret);
   const events = new SqliteRoutingEventStore(options.databasePath);
   const quotas = new SqliteQuotaObservationStore(options.databasePath);
   const preferences = new SqlitePreferenceStore(options.databasePath);
-  const providerStore = createSqliteProviderStore(options.databasePath);
   const comboStore = createSqliteComboStore(options.databasePath);
 
   // Seed default curated combos if none exist
@@ -96,6 +97,19 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       getCredential: (credentialId) => credentials.get('kiro', credentialId).then(c => typeof c === 'string' ? c : c?.accessToken ?? c?.apiKey), fetch: options.fetch,
     }),
   ];
+
+  // Ensure built-in provider DB records have correct baseUrl from presets
+  // This prevents stale/custom DB records from overriding built-in adapter endpoints
+  const builtInProviderIds = new Set(['openrouter', 'groq', 'gemini', 'anthropic', 'kiro']);
+  for (const providerId of builtInProviderIds) {
+    const preset = PROVIDER_PRESETS.find((p: { id: string }) => p.id === providerId);
+    if (preset && preset.baseUrl && providerStore) {
+      const existing = providerStore.list().find((p: { providerId: string }) => p.providerId === providerId);
+      if (existing && existing.baseUrl !== preset.baseUrl) {
+        providerStore.put({ ...existing, baseUrl: preset.baseUrl });
+      }
+    }
+  }
 
   // Load custom providers from DB
     const createCustomAdapter = (def: ProviderDefinition): import('./inference.js').ChatProviderAdapter & import('./catalog.js').ProviderDiscoveryAdapter => {

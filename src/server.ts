@@ -766,19 +766,30 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           usedCreds.add(`${providerId}:${credId}`);
 
           // For non-API-key auth types, store structured credential data
-          const secretValue = target.authType && target.authType !== 'apikey'
-            ? {
-                apiKey: target.apiKey,
-                authType: target.authType,
-                providerSpecificData: target.providerSpecificData,
+          // Special-case Kiro: map authType → authMethod for KiroCredential format
+          if (target.authType && target.authType !== 'apikey') {
+            const kiroPsD = target.providerSpecificData ? { ...target.providerSpecificData } : {};
+            // For Kiro specifically, if no authMethod in psd, derive from authType
+            if (providerId === 'kiro' && !kiroPsD.authMethod) {
+              if (target.authType === 'access_token') {
+                kiroPsD.authMethod = 'builder_id'; // default for imported tokens
+              } else if (target.authType === 'cookie') {
+                kiroPsD.authMethod = 'cookie';
               }
-            : (target.apiKey ?? '');
-          
-          await options.credentials.put(providerId, credId, secretValue);
+            }
+            const secretValue: import('./storage/sqlite-credential-store.js').CredentialSecret = {
+              apiKey: target.apiKey,
+              authType: target.authType,
+              providerSpecificData: kiroPsD,
+            };
+            await options.credentials.put(providerId, credId, secretValue);
+          } else {
+            await options.credentials.put(providerId, credId, (target.apiKey ?? '') as string | import('./storage/sqlite-credential-store.js').CredentialSecret);
+          }
 
           // If unknown provider, automatically register custom provider
           const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
-          const builtInProviders = ['openrouter', 'groq', 'gemini', 'anthropic'];
+          const builtInProviders = ['openrouter', 'groq', 'gemini', 'anthropic', 'kiro'];
           if (options.providerStore && !builtInProviders.includes(providerId)) {
             const existing = options.providerStore.list().find((p) => p.providerId === providerId);
             if (!existing) {

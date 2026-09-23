@@ -1,5 +1,6 @@
 import type { ChatProviderAdapter, NormalizedChatRequest, NormalizedChatResponse, NormalizedChatStreamEvent, ToolCall } from '../inference.js';
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
+import type { CredentialSecret } from '../storage/sqlite-credential-store.js';
 
 // ─── Kiro credential types ─────────────────────────────────────────────────────
 /**
@@ -11,27 +12,55 @@ interface KiroCredential {
   refreshToken?: string | null;
   profileArn?: string | null;
   region?: string;
-  authMethod?: 'social' | 'builder_id' | 'idc' | 'api_key' | 'imported';
+  authMethod?: 'social' | 'builder_id' | 'idc' | 'api_key' | 'imported' | 'cookie';
   clientId?: string;
   clientSecret?: string;
   expiresAt?: number; // Unix timestamp ms
 }
 
-// Kiro API endpoints - using Kiro's actual API (runtime.kiro.dev + CodeWhisperer/Q fallbacks)
+// Default shared profile ARNs (from 9router open-sse/config/kiroConstants.js)
+const KIRO_DEFAULT_PROFILE_ARNS = {
+  'builder-id': 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX',
+  social: 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK',
+};
+
+/** Resolve the shared default profileArn for a given auth method (9router convention). */
+function resolveDefaultProfileArn(authMethod: string | undefined): string {
+  const isSocial = authMethod === 'social' || authMethod === 'google' || authMethod === 'github';
+  return isSocial ? KIRO_DEFAULT_PROFILE_ARNS.social : KIRO_DEFAULT_PROFILE_ARNS['builder-id'];
+}
+
+// Kiro API endpoints (from 9router open-sse/providers/registry/kiro.js)
 const KIRO_SOCIAL_REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken';
 const KIRO_RUNTIME_BASE = 'https://runtime.us-east-1.kiro.dev/generateAssistantResponse';
 const KIRO_CW_BASE = 'https://codewhisperer.us-east-1.amazonaws.com';
 const KIRO_Q_BASE = 'https://q.us-east-1.amazonaws.com';
 
-/** Parse credential secret: JSON or plain accessToken string */
-function parseCredential(secret: string): KiroCredential {
+/** Parse credential secret: JSON or plain accessToken string. Also merges with CredentialSecret providerSpecificData. */
+function parseCredential(secret: string | CredentialSecret, psd?: Record<string, unknown>): KiroCredential {
+  if (typeof secret === 'object' && secret !== null) {
+    // CredentialSecret from Phase A: extract token and merge providerSpecificData
+    const accessToken = secret.accessToken ?? secret.apiKey;
+    if (!accessToken) throw new Error('Kiro: no accessToken or apiKey in credential');
+    const mergedPsD: Record<string, unknown> = { ...secret.providerSpecificData, ...psd };
+    return {
+      accessToken,
+      refreshToken: secret.refreshToken ?? null,
+      profileArn: mergedPsD.profileArn as string | undefined ?? null,
+      region: mergedPsD.region as string | undefined,
+      authMethod: secret.authType === 'cookie' ? 'cookie' : (mergedPsD.authMethod as KiroCredential['authMethod']),
+      clientId: mergedPsD.clientId as string | undefined,
+      clientSecret: mergedPsD.clientSecret as string | undefined,
+      expiresAt: mergedPsD.expiresAt as number | undefined,
+    };
+  }
+  // Plain string (backward compat): parse JSON or treat as accessToken
   try {
     const parsed = JSON.parse(secret);
     if (typeof parsed === 'object' && parsed !== null && typeof parsed.accessToken === 'string') {
       return parsed as KiroCredential;
     }
   } catch { /* not JSON */ }
-  // Fallback: treat entire secret as accessToken
   return { accessToken: secret };
 }
 
@@ -85,16 +114,14 @@ async function refreshKiroToken(
   };
 }
 
-/** Resolve profileArn via ListAvailableProfiles if not already cached */
+/** Resolve profileArn via ListAvailableProfiles if not already cached (9router pattern). */
 async function resolveProfileArn(
   accessToken: string,
   region: string,
   fetcher: typeof globalThis.fetch,
 ): Promise<string | null> {
   try {
-    // Kiro uses CodeWhisperer's ListAvailableProfiles for profile discovery
-    const endpoint = `${KIRO_CW_BASE}`;
-    const res = await fetcher(endpoint, {
+    const res = await fetcher(KIRO_CW_BASE, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-amz-json-1.0',
@@ -118,7 +145,7 @@ async function resolveProfileArn(
 export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapter {
   readonly providerId: string;
   private readonly baseUrl: string;
-  private readonly getCredential: (id: string) => Promise<string | undefined>;
+  private readonly getCredential: (id: string) => Promise<string | CredentialSecret | undefined>;
   private readonly fetch: typeof globalThis.fetch;
   /** In-memory cache: credentialId → refreshed credential (avoids repeated refresh per request) */
   private readonly tokenCache = new Map<string, { cred: KiroCredential; updatedAt: number }>();
@@ -126,12 +153,12 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
   constructor(options: {
     providerId: string;
     baseUrl?: string;
-    getCredential: (id: string) => Promise<string | undefined> | string | undefined;
+    getCredential: (id: string) => Promise<string | CredentialSecret | undefined>;
     fetch?: typeof globalThis.fetch;
   }) {
     this.providerId = options.providerId;
     this.baseUrl = (options.baseUrl ?? KIRO_RUNTIME_BASE).replace(/\/$/, '');
-    this.getCredential = (id) => Promise.resolve(options.getCredential(id));
+    this.getCredential = options.getCredential;
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
@@ -159,12 +186,21 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       }
     }
 
-    // Resolve profileArn if missing - BUT NOT for api_key auth
-    if (!cred.profileArn && cred.authMethod !== 'api_key') {
-      const region = cred.region ?? 'us-east-1';
-      const arn = await resolveProfileArn(cred.accessToken, region, this.fetch);
-      if (arn) {
-        cred = { ...cred, profileArn: arn };
+    // Resolve profileArn if missing
+    // Per 9router convention: api_key auth must NOT use default profileArn (gets 403)
+    // oauth/social auth falls back to shared default profileArn
+    if (!cred.profileArn) {
+      if (cred.authMethod === 'api_key') {
+        // API key auth: no default profileArn allowed, leave empty
+        cred = { ...cred, profileArn: '' };
+      } else {
+        // OAuth/social: try to resolve from profiles API, fall back to shared default
+        const region = cred.region ?? 'us-east-1';
+        const resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
+        cred = {
+          ...cred,
+          profileArn: resolvedArn ?? resolveDefaultProfileArn(cred.authMethod),
+        };
         this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
       }
     }
@@ -257,7 +293,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     const id = `kiro-${Date.now()}`;
     // Strip prefix like "kr/" from modelId
     const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
-    const payload = this.buildPayload(model, input.request, cred.profileArn ?? undefined);
+    const payload = this.buildPayload(model, input.request, cred);
 
     // Use the correct Kiro runtime endpoint (matches 9router)
     const endpoint = `${this.baseUrl}`;
@@ -268,7 +304,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
         'Authorization': `Bearer ${cred.accessToken}`,
         'Accept': 'application/vnd.amazon.eventstream',
         'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
-        'X-Amz-Content-Sha256': 'required',
+        'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
       },
       body: JSON.stringify(payload),
     });
@@ -338,7 +374,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     }
   }
 
-  private buildPayload(model: string, request: NormalizedChatRequest, profileArn?: string): Record<string, unknown> {
+  private buildPayload(model: string, request: NormalizedChatRequest, cred: KiroCredential): Record<string, unknown> {
     const history: unknown[] = [];
     let currentMessage: any = null;
     for (const msg of request.messages) {
@@ -372,7 +408,25 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       currentMessage,
       history,
     };
-    if (profileArn) conversationState.profileArn = profileArn;
-    return { conversationState };
+
+    const payload: Record<string, unknown> = { conversationState };
+
+    // profileArn at TOP LEVEL (per 9router openai-to-kiro.js):
+    //   if (profileArn) payload.profileArn = profileArn;
+    // NOT inside conversationState!
+    if (cred.profileArn) {
+      payload.profileArn = cred.profileArn;
+    }
+
+    // inferenceConfig if present (9router adds it when maxTokens/temperature/topP specified)
+    if (request.temperature !== undefined || (request as any).maxTokens !== undefined) {
+      const inferenceConfig: Record<string, unknown> = {};
+      const maxTokens = (request as any).maxTokens;
+      if (maxTokens) inferenceConfig.maxTokens = maxTokens;
+      if (request.temperature !== undefined) inferenceConfig.temperature = request.temperature;
+      payload.inferenceConfig = inferenceConfig;
+    }
+
+    return payload;
   }
 }
