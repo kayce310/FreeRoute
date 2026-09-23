@@ -94,7 +94,8 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     }),
     new KiroAdapter({
       providerId: 'kiro',
-      getCredential: (credentialId) => credentials.get('kiro', credentialId).then(c => typeof c === 'string' ? c : c?.accessToken ?? c?.apiKey), fetch: options.fetch,
+      getCredential: (credentialId) => credentials.get('kiro', credentialId),
+      fetch: options.fetch,
     }),
   ];
 
@@ -123,7 +124,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
         return new OllamaAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.apiKey ?? c?.accessToken), fetch: options.fetch });
       }
       if (def.adapterType === 'kiro') {
-        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id).then(c => typeof c === 'string' ? c : c?.accessToken ?? c?.apiKey), fetch: options.fetch });
+        return new KiroAdapter({ providerId: def.providerId, baseUrl: def.baseUrl, getCredential: (id) => credentials.get(def.providerId, id), fetch: options.fetch });
       }
       return new OpenAICompatibleAdapter({
         providerId: def.providerId,
