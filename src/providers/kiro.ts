@@ -17,9 +17,11 @@ interface KiroCredential {
   expiresAt?: number; // Unix timestamp ms
 }
 
-// AWS SSO OIDC endpoints
+// Kiro API endpoints - using Kiro's actual API (runtime.kiro.dev + CodeWhisperer/Q fallbacks)
 const KIRO_SOCIAL_REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken';
+const KIRO_RUNTIME_BASE = 'https://runtime.us-east-1.kiro.dev/generateAssistantResponse';
 const KIRO_CW_BASE = 'https://codewhisperer.us-east-1.amazonaws.com';
+const KIRO_Q_BASE = 'https://q.us-east-1.amazonaws.com';
 
 /** Parse credential secret: JSON or plain accessToken string */
 function parseCredential(secret: string): KiroCredential {
@@ -90,7 +92,8 @@ async function resolveProfileArn(
   fetcher: typeof globalThis.fetch,
 ): Promise<string | null> {
   try {
-    const endpoint = `https://codewhisperer.${region}.amazonaws.com`;
+    // Kiro uses CodeWhisperer's ListAvailableProfiles for profile discovery
+    const endpoint = `${KIRO_CW_BASE}`;
     const res = await fetcher(endpoint, {
       method: 'POST',
       headers: {
@@ -99,7 +102,6 @@ async function resolveProfileArn(
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
       },
-      body: JSON.stringify({ maxResults: 10 }),
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
@@ -128,7 +130,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     fetch?: typeof globalThis.fetch;
   }) {
     this.providerId = options.providerId;
-    this.baseUrl = (options.baseUrl ?? KIRO_CW_BASE).replace(/\/$/, '');
+    this.baseUrl = (options.baseUrl ?? KIRO_RUNTIME_BASE).replace(/\/$/, '');
     this.getCredential = (id) => Promise.resolve(options.getCredential(id));
     this.fetch = options.fetch ?? globalThis.fetch;
   }
@@ -157,8 +159,8 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       }
     }
 
-    // Resolve profileArn if missing
-    if (!cred.profileArn) {
+    // Resolve profileArn if missing - BUT NOT for api_key auth
+    if (!cred.profileArn && cred.authMethod !== 'api_key') {
       const region = cred.region ?? 'us-east-1';
       const arn = await resolveProfileArn(cred.accessToken, region, this.fetch);
       if (arn) {
@@ -173,27 +175,29 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
   async discoverModels(credentialId: string): Promise<DiscoveredModel[]> {
     try {
       const cred = await this.resolveCred(credentialId);
+      const profileArn = cred.profileArn ?? '';
       const region = cred.region ?? 'us-east-1';
-      const endpoint = `https://codewhisperer.${region}.amazonaws.com`;
+      const params = new URLSearchParams();
+      params.set('origin', 'AI_EDITOR');
+      if (profileArn) params.set('profileArn', profileArn);
+      // Use Q endpoint for ListAvailableModels (matches 9router implementation)
+      const endpoint = `https://q.${region}.amazonaws.com/ListAvailableModels?${params.toString()}`;
 
       const res = await this.fetch(endpoint, {
-        method: 'POST',
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/x-amz-json-1.0',
-          'x-amz-target': 'AmazonCodeWhispererService.ListAvailableModels',
           'Authorization': `Bearer ${cred.accessToken}`,
           'Accept': 'application/json',
         },
-        body: JSON.stringify({ origin: 'AI_EDITOR', profileArn: cred.profileArn }),
         signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) {
         const data = await res.json() as { models?: Array<{ modelId?: string; modelName?: string }> };
-        const models = (data.models ?? []).filter((m) => m.modelId);
+        const models = (data.models ?? []).filter((m) => m.modelId !== undefined);
         if (models.length > 0) {
           return models.map((m) => ({
-            modelId: `kr/${m.modelId!}`,
+            modelId: `kr/${m.modelId}`,
             capabilities: ['chat', 'streaming', 'tools'] as const,
             freeTier: 'free_verified' as const,
             priority: 90,
@@ -202,12 +206,14 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       }
     } catch { /* fall through to static */ }
 
-    // Static fallback
+    // Static fallback - matches 9router's static catalog
     return [
-      { modelId: 'kr/claude-sonnet-4-5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 95 },
-      { modelId: 'kr/claude-haiku-4-5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 92 },
+      { modelId: 'kr/claude-sonnet-4.5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 95 },
+      { modelId: 'kr/claude-haiku-4.5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 92 },
       { modelId: 'kr/deepseek-3.2', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 90 },
       { modelId: 'kr/qwen3-coder-next', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 88 },
+      { modelId: 'kr/glm-5', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', priority: 82 },
+      { modelId: 'kr/MiniMax-M2.5', capabilities: ['chat', 'streaming'], freeTier: 'free_verified', priority: 80 },
     ];
   }
 
@@ -248,21 +254,21 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     request: NormalizedChatRequest;
   }): AsyncIterable<NormalizedChatStreamEvent> {
     const cred = await this.resolveCred(input.credentialId);
-    const region = cred.region ?? 'us-east-1';
     const id = `kiro-${Date.now()}`;
     // Strip prefix like "kr/" from modelId
     const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
     const payload = this.buildPayload(model, input.request, cred.profileArn ?? undefined);
 
-    const endpoint = `https://codewhisperer.${region}.amazonaws.com`;
+    // Use the correct Kiro runtime endpoint (matches 9router)
+    const endpoint = `${this.baseUrl}`;
     const res = await this.fetch(endpoint, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-amz-json-1.0',
-        'x-amz-target': 'AmazonCodeWhispererService.GenerateAssistantResponse',
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${cred.accessToken}`,
         'Accept': 'application/vnd.amazon.eventstream',
-        'x-amz-content-sha256': 'required',
+        'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+        'X-Amz-Content-Sha256': 'required',
       },
       body: JSON.stringify(payload),
     });
@@ -287,52 +293,46 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() ?? '';
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-      for (const block of blocks) {
-        if (!block.trim()) continue;
-        let eventType = '';
-        let eventData = '';
-        for (const line of block.split('\n')) {
-          if (line.startsWith('event:')) eventType = line.slice(6).trim();
-          else if (line.startsWith(':event-type:')) eventType = line.slice(12).trim();
-          else if (line.startsWith('data:')) eventData = line.slice(5).trim();
-        }
-        if (!eventData) continue;
-        let data: any;
-        try { data = JSON.parse(eventData); } catch { continue; }
-
-        if (eventType === 'assistantResponseEvent' || data.assistantResponseEvent) {
-          const delta = data.assistantResponseEvent?.content ?? data.content ?? '';
-          if (delta) yield { id, model: input.modelId, delta };
-        } else if (eventType === 'reasoningContentEvent' || data.reasoningContentEvent) {
-          const rc = data.reasoningContentEvent ?? data;
-          const thought = typeof rc === 'string' ? rc : (rc.text ?? rc.content ?? '');
-          if (thought) yield { id, model: input.modelId, thought };
-        } else if (eventType === 'toolUseEvent' || data.toolUseEvent) {
-          hadToolUse = true;
-          const tu = data.toolUseEvent ?? data;
-          const toolCall: ToolCall = {
-            id: tu.toolUseId ?? `call_${Date.now()}`,
-            type: 'function',
-            function: { name: tu.name ?? '', arguments: JSON.stringify(tu.input ?? {}) },
-          };
-          yield { id, model: input.modelId, toolCalls: [toolCall] };
-        } else if (eventType === 'usageEvent' || data.usageEvent) {
-          const u = data.usageEvent ?? data;
-          yield {
-            id,
-            model: input.modelId,
-            usage: {
-              promptTokens: u.inputTokens ?? 0,
-              completionTokens: u.outputTokens ?? 0,
-              totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
-            },
-          };
-        } else if (eventType === 'messageStopEvent' || data.messageStopEvent) {
-          yield { id, model: input.modelId, finishReason: hadToolUse ? 'tool_calls' : 'stop' };
-          return;
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'content_block_start' && data.content_block?.type === 'text') {
+              // Start of content
+            } else if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
+              const delta = data.delta.text;
+              if (delta) yield { id, model: input.modelId, delta };
+            } else if (data.type === 'content_block_delta' && data.delta?.type === 'thinking_delta') {
+              const thought = data.delta.thinking;
+              if (thought) yield { id, model: input.modelId, thought };
+            } else if (data.type === 'tool_use') {
+              hadToolUse = true;
+              const toolCall: ToolCall = {
+                id: data.id ?? `call_${Date.now()}`,
+                type: 'function',
+                function: { name: data.name ?? '', arguments: JSON.stringify(data.input ?? {}) },
+              };
+              yield { id, model: input.modelId, toolCalls: [toolCall] };
+            } else if (data.type === 'message_stop') {
+              yield { id, model: input.modelId, finishReason: hadToolUse ? 'tool_calls' : 'stop' };
+              return;
+            } else if (data.type === 'usage') {
+              yield {
+                id,
+                model: input.modelId,
+                usage: {
+                  promptTokens: data.usage?.input_tokens ?? 0,
+                  completionTokens: data.usage?.output_tokens ?? 0,
+                  totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
+                },
+              };
+            }
+          } catch {
+            // Skip malformed JSON
+          }
         }
       }
     }
@@ -358,6 +358,7 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       if (item.userInputMessage) { currentMessage = history.splice(i, 1)[0]; break; }
     }
     if (!currentMessage) currentMessage = { userInputMessage: { content: '', modelId: model, origin: 'AI_EDITOR' } };
+
     if (request.tools?.length) {
       currentMessage.userInputMessage.userInputMessageContext = {
         tools: request.tools.map((t: any) => ({

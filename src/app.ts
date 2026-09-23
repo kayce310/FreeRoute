@@ -91,6 +91,10 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       baseUrl: options.anthropicBaseUrl,
       getCredential: (credentialId) => credentials.get('anthropic', credentialId), fetch: options.fetch,
     }),
+    new KiroAdapter({
+      providerId: 'kiro',
+      getCredential: (credentialId) => credentials.get('kiro', credentialId), fetch: options.fetch,
+    }),
   ];
 
   // Load custom providers from DB
@@ -151,8 +155,9 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     onProviderChanged: syncProvider,
     onProviderRefresh: async (providerId, credentialId) => {
       const selected = credentialId ?? (await credentials.list()).find((credential) => credential.providerId === providerId)?.credentialId ?? '';
-      const [result] = await discovery.refresh({ [providerId]: selected });
-      return result;
+      const results = await discovery.refresh({ [providerId]: selected });
+      const result = results.find((r) => r.providerId === providerId);
+      return result ?? { providerId, status: 'failed', error: 'provider not found' };
     },
     onCredentialChanged: async () => {
       const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));

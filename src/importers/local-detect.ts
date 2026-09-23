@@ -12,6 +12,18 @@ export interface DetectedCredential {
   apiKey: string;
   maskedKey: string;
   isActive: boolean;
+  /** Unique id of the underlying connection row (used as a stable selection token). */
+  connectionId?: string;
+  /** Base URL of the provider's API endpoint, if available (e.g. for custom/self-hosted providers). */
+  baseUrl?: string;
+  /** Friendly display name for custom provider nodes (e.g. "AIHubMix" instead of a UUID-suffixed id). */
+  displayName?: string;
+  /**
+   * Clean provider id to register inside FreeRoute. For 9Router custom nodes this is a
+   * slug derived from the node prefix/name (e.g. "aihubmix"), instead of the raw
+   * "openai-compatible-chat-<uuid>" identifier.
+   */
+  customProviderId?: string;
 }
 
 function maskKey(key: string): string {
@@ -131,6 +143,7 @@ export function detectOmniRouteCredentials(): DetectedCredential[] {
             apiKey: plaintextKey.trim(),
             maskedKey: maskKey(plaintextKey.trim()),
             isActive: Boolean(row.is_active),
+            connectionId: row.id,
           });
         }
       }
@@ -157,6 +170,44 @@ export function detect9RouterCredentials(): DetectedCredential[] {
     if (!fs.existsSync(dbPath)) continue;
     try {
       const db = new DatabaseSync(dbPath, { open: true, readOnly: true });
+
+      // providerNodes holds the human-readable name + canonical baseUrl for custom
+      // ("openai-compatible") provider nodes. The connection row's `provider` value is
+      // the node id (e.g. "openai-compatible-chat-<uuid>"), so we look up the node to
+      // recover the friendly label shown in the 9Router dashboard.
+      const nodeMap = new Map<string, { name: string | null; baseUrl?: string; prefix?: string }>();
+      try {
+        const nodes = db.prepare('SELECT id, name, data FROM providerNodes').all() as Array<{
+          id: string;
+          name: string | null;
+          data: string | null;
+        }>;
+        for (const node of nodes) {
+          let nodeBaseUrl: string | undefined;
+          let nodePrefix: string | undefined;
+          if (node.data) {
+            try {
+              const nodeData = JSON.parse(node.data) as {
+                baseUrl?: string;
+                apiBase?: string;
+                endpoint?: string;
+                prefix?: string;
+              };
+              const raw = nodeData.baseUrl || nodeData.apiBase || nodeData.endpoint;
+              if (typeof raw === 'string' && raw.trim()) nodeBaseUrl = raw.trim();
+              if (typeof nodeData.prefix === 'string' && nodeData.prefix.trim()) {
+                nodePrefix = nodeData.prefix.trim().toLowerCase();
+              }
+            } catch {
+              // Ignore node data parse failure
+            }
+          }
+          nodeMap.set(node.id, { name: node.name, baseUrl: nodeBaseUrl, prefix: nodePrefix });
+        }
+      } catch {
+        // providerNodes table may not exist on older 9router versions
+      }
+
       const rows = db.prepare(`
         SELECT id, provider, authType, name, isActive, data 
         FROM providerConnections
@@ -165,17 +216,53 @@ export function detect9RouterCredentials(): DetectedCredential[] {
       for (const row of rows) {
         if (!row.data) continue;
         try {
-          const parsed = JSON.parse(row.data) as { apiKey?: string; token?: string; accessToken?: string };
+          const parsed = JSON.parse(row.data) as {
+            apiKey?: string;
+            token?: string;
+            accessToken?: string;
+            baseUrl?: string;
+            apiBase?: string;
+            endpoint?: string;
+            providerSpecificData?: { baseUrl?: string; apiBase?: string; endpoint?: string };
+          };
           const key = parsed.apiKey || parsed.token || parsed.accessToken;
           if (key && typeof key === 'string' && key.trim().length > 0) {
+            // 9Router stores the real endpoint inside providerSpecificData.baseUrl for
+            // custom providers; only fall back to top-level fields for other shapes.
+            const psd = parsed.providerSpecificData;
+            const rawBaseUrl =
+              psd?.baseUrl || psd?.apiBase || psd?.endpoint ||
+              parsed.baseUrl || parsed.apiBase || parsed.endpoint;
+            const node = nodeMap.get(row.provider);
+            const baseUrl = typeof rawBaseUrl === 'string' && rawBaseUrl.trim()
+              ? rawBaseUrl.trim()
+              : node?.baseUrl;
+            const displayName = node?.name ?? undefined;
+
+            // Custom 9Router nodes use ids like "openai-compatible-chat-<uuid>". Derive a
+            // clean slug so FreeRoute registers a readable provider id.
+            const isCustomNode = /^openai-compatible/i.test(row.provider) || /^anthropic-compatible/i.test(row.provider);
+            let customProviderId: string | undefined;
+            if (isCustomNode && (node?.prefix || node?.name)) {
+              const slug = (node?.prefix || node?.name || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+              if (slug) customProviderId = slug;
+            }
+
             detected.push({
               source: '9router',
               sourceLocation: dbPath,
+              connectionId: row.id,
               providerId: row.provider.toLowerCase(),
-              name: row.name || `${row.provider} (9router)`,
+              name: row.name || displayName || `${row.provider} (9router)`,
               apiKey: key.trim(),
               maskedKey: maskKey(key.trim()),
               isActive: Boolean(row.isActive),
+              baseUrl,
+              displayName,
+              customProviderId,
             });
           }
         } catch {
@@ -199,7 +286,11 @@ export function detectAllLocalCredentials(): DetectedCredential[] {
   const unique: DetectedCredential[] = [];
 
   for (const item of all) {
-    const keySig = `${item.providerId}::${item.apiKey}`;
+    // Prefer the connection row id so two accounts on the same provider id stay
+    // distinct; fall back to provider+key for sources without a row id.
+    const keySig = item.connectionId
+      ? `${item.source}::${item.connectionId}`
+      : `${item.providerId}::${item.apiKey}`;
     if (!seen.has(keySig)) {
       seen.add(keySig);
       unique.push(item);

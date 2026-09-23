@@ -51,9 +51,11 @@ export class GeminiAdapter implements ProviderDiscoveryAdapter, ChatProviderAdap
       pageToken = body.nextPageToken;
     } while (pageToken);
     return models
-      .filter((model) => model.name && model.supportedGenerationMethods?.includes('generateContent'))
+      .filter((model): model is GeminiModel & { name: string } => 
+        !!model.name && model.supportedGenerationMethods?.includes('generateContent') === true
+      )
       .map((model) => {
-        const id = model.name!.replace(/^models\//, '');
+        const id = model.name.replace(/^models\//, '');
         const isTtsOrAudio = id.includes('tts') || id.includes('audio');
         const caps: import('../contracts.js').Capability[] = ['chat', 'streaming'];
         if (!isTtsOrAudio) {

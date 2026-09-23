@@ -112,7 +112,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         if (!options.onProviderRefresh) { sendJson(response, 503, { error: { message: 'model discovery is not configured', type: 'server_error' } }); return; }
         try {
           const result = await options.onProviderRefresh(providerId, typeof body.credentialId === 'string' ? body.credentialId : undefined);
-          const models = await options.catalog.list();
+          const models = (await options.catalog.list()).filter((m) => m.catalogStatus !== 'stale');
           sendJson(response, 200, { providerId, status: 'updated', result, models: models.filter((model) => model.providerId === providerId) });
         } catch (error) {
           sendJson(response, 502, { providerId, status: 'failed', error: error instanceof Error ? error.message : 'model discovery failed' });
@@ -126,12 +126,16 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           ? await options.credentials.getAllSecrets()
           : new Set<string>();
         const list = detected.map((d) => ({
-          providerId: d.providerId,
+          providerId: d.customProviderId ?? d.providerId,
+          sourceProviderId: d.providerId,
+          connectionId: d.connectionId,
           name: d.name,
+          displayName: d.displayName,
           source: d.source,
           sourceLocation: d.sourceLocation,
           maskedKey: d.maskedKey,
           isActive: d.isActive,
+          baseUrl: d.baseUrl,
           alreadyImported: existingSecrets.has(d.apiKey),
         }));
         const newKeysCount = list.filter((item) => !item.alreadyImported).length;
@@ -716,6 +720,7 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const body = await readJsonBody(request).catch(() => ({})) as {
           providerIds?: string[];
+          connectionIds?: string[];
           syncAll?: boolean;
           onlyNew?: boolean;
         };
@@ -726,6 +731,11 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
           : new Set<string>();
 
         const targets = detected.filter((d) => {
+          // Explicit row selection wins: every detected row has a unique connectionId,
+          // so multiple accounts on the same provider id can be selected independently.
+          if (body.connectionIds && Array.isArray(body.connectionIds) && body.connectionIds.length > 0) {
+            return d.connectionId ? body.connectionIds.includes(d.connectionId) : false;
+          }
           if (body.syncAll) {
             if (body.onlyNew !== false && existingSecrets.has(d.apiKey)) return false;
             return true;
@@ -740,28 +750,40 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         const imported: Array<{ providerId: string; credentialId: string; source: string; name: string }> = [];
         const usedCreds = new Set<string>();
         for (const target of targets) {
+          // Custom 9Router nodes carry a raw id like "openai-compatible-chat-<uuid>".
+          // Prefer the cleaned slug (e.g. "aihubmix") so FreeRoute gets a readable
+          // provider id; fall back to the raw id when no slug could be derived.
+          const providerId = target.customProviderId ?? target.providerId;
           const rawCredId = (target.name || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 30) || 'default';
           let credId = rawCredId;
           let counter = 1;
-          while (usedCreds.has(`${target.providerId}:${credId}`)) {
+          while (usedCreds.has(`${providerId}:${credId}`)) {
             credId = `${rawCredId}-${counter++}`;
           }
-          usedCreds.add(`${target.providerId}:${credId}`);
+          usedCreds.add(`${providerId}:${credId}`);
 
-          await options.credentials.put(target.providerId, credId, target.apiKey);
+          await options.credentials.put(providerId, credId, target.apiKey);
 
           // If unknown provider, automatically register custom provider
-          const preset = PROVIDER_PRESETS.find((p) => p.id === target.providerId);
-          if (options.providerStore && !['openrouter', 'groq', 'gemini'].includes(target.providerId)) {
-            const existing = options.providerStore.list().find((p) => p.providerId === target.providerId);
+          const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
+          const builtInProviders = ['openrouter', 'groq', 'gemini', 'anthropic'];
+          if (options.providerStore && !builtInProviders.includes(providerId)) {
+            const existing = options.providerStore.list().find((p) => p.providerId === providerId);
             if (!existing) {
+              // Priority: 1) baseUrl from 9Router data JSON, 2) preset catalog, 3) best-guess fallback
+              const resolvedBaseUrl = target.baseUrl
+                ?? preset?.baseUrl
+                ?? `https://api.${providerId}.com/v1`;
               options.providerStore.put({
-                providerId: target.providerId,
-                adapterType: (preset?.adapterType as any) ?? 'openai-compatible',
-                baseUrl: preset?.baseUrl ?? `https://api.${target.providerId}.com/v1`,
+                providerId,
+                adapterType: (preset?.adapterType as 'openai-compatible' | 'gemini' | 'anthropic' | 'ollama' | 'kiro') ?? 'openai-compatible',
+                baseUrl: resolvedBaseUrl,
                 classifyAsFree: (preset?.category === 'free' || preset?.category === 'freemium') ? 'free_verified' : undefined,
                 enabled: true,
               });
+            } else if (!existing.baseUrl && target.baseUrl) {
+              // Provider already registered but with a missing/guessed URL — update it now that we have the real one
+              options.providerStore.put({ ...existing, baseUrl: target.baseUrl });
             }
           }
 
@@ -788,13 +810,13 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
           if (options.onCredentialChanged) {
             try {
-              await options.onCredentialChanged(target.providerId, credId);
+              await options.onCredentialChanged(providerId, credId);
             } catch {
               // Ignore refresh errors
             }
           }
 
-          imported.push({ providerId: target.providerId, credentialId: credId, source: target.source, name: target.name });
+          imported.push({ providerId, credentialId: credId, source: target.source, name: target.name });
         }
 
         sendJson(response, 200, {

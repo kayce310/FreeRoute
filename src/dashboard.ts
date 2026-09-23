@@ -2782,26 +2782,27 @@ print(response.choices[0].message.content)</div>
       const credential = credentials.find(c => c.providerId === providerId && c.enabled !== false);
       if (!credential) { showToast('Add an enabled credential first.', true); return; }
       try {
-        const modelRes = await fetch('/v1/models');
-        const modelJson = modelRes.ok ? await modelRes.json() : { data: [] };
-        const disabledModels = (modelJson.data || []).filter(m => m.owned_by === providerId && m.freeroute?.enabled === false);
-        const enableResults = await Promise.all(disabledModels.map(m => {
-          const modelId = String(m.id).startsWith(providerId + '/') ? String(m.id).slice(providerId.length + 1) : String(m.id);
+        // Step 1: discover fresh models from the provider
+        const res = await fetch('/v1/providers/' + encodeURIComponent(providerId) + '/fetch-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credentialId: credential.credentialId }) });
+        if (!res.ok) throw new Error('Model discovery failed.');
+        const data = await res.json();
+        if (data.status === 'failed') throw new Error(data.error || 'Model discovery failed.');
+
+        // Step 2: enable every model that was returned by discovery
+        const refreshedModels = (data.models || []);
+        await Promise.all(refreshedModels.map(m => {
+          const modelId = m.modelId || '';
           return fetch('/v1/models/' + encodeURIComponent(providerId) + '/' + encodeURIComponent(modelId), {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ enabled: true })
           });
         }));
-        if (enableResults.some(r => !r.ok)) throw new Error('Could not enable every disabled model');
-
-        const res = await fetch('/v1/providers/' + encodeURIComponent(providerId) + '/fetch-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credentialId: credential.credentialId }) });
-        if (!res.ok) throw new Error('Model discovery failed.');
-        showToast('Models reset and refreshed.');
+        showToast('Models refreshed — ' + refreshedModels.length + ' discovered.');
         await refreshAllData();
         await openProviderDetails(providerId);
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Model reset failed.', true);
+        showToast(error instanceof Error ? error.message : 'Model refresh failed.', true);
       }
     }
 
@@ -3026,13 +3027,15 @@ print(response.choices[0].message.content)</div>
       const response = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelId, stream: false, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
+        body: JSON.stringify({ model: modelId, stream: false, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        signal: AbortSignal.timeout(15000),
       });
       const elapsed = Math.round(performance.now() - started);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         const detail = body.error?.message || body.error?.code || response.statusText || 'Request failed';
-        throw new Error('HTTP ' + response.status + ': ' + detail);
+        // Return the HTTP status so callers can distinguish 429 (rate-limited) from real failures
+        throw Object.assign(new Error('HTTP ' + response.status + ': ' + detail), { statusCode: response.status });
       }
       return elapsed;
     }
@@ -3055,13 +3058,20 @@ print(response.choices[0].message.content)</div>
         const elapsed = await runProviderModelTest(modelId);
         providerModelTestResults[modelId] = { state: 'success', message: 'Passed in ' + elapsed + ' ms' };
       } catch (error) {
+        const statusCode = error && typeof error.statusCode === 'number' ? error.statusCode : 0;
         const reason = error instanceof Error ? error.message : 'Test failed';
-        try {
-          await disableFailedProviderModel(providerId, modelId);
-          providerModelTestResults[modelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
-          await refreshAllData();
-        } catch (disableError) {
-          providerModelTestResults[modelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+        if (error && error.name === 'TimeoutError') {
+          providerModelTestResults[modelId] = { state: 'error', message: 'Timeout (15s) — ' + reason };
+        } else if (statusCode === 429) {
+          providerModelTestResults[modelId] = { state: 'success', message: 'Rate-limited (still usable) — ' + reason };
+        } else {
+          try {
+            await disableFailedProviderModel(providerId, modelId);
+            providerModelTestResults[modelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
+            await refreshAllData();
+          } catch (disableError) {
+            providerModelTestResults[modelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+          }
         }
       }
       if (openProviderDetailsId) await openProviderDetails(openProviderDetailsId);
@@ -3082,19 +3092,28 @@ print(response.choices[0].message.content)</div>
           const elapsed = await runProviderModelTest(target.routeModelId);
           providerModelTestResults[target.routeModelId] = { state: 'success', message: 'Passed in ' + elapsed + ' ms' };
         } catch (error) {
-          failures += 1;
+          const statusCode = error && typeof error.statusCode === 'number' ? error.statusCode : 0;
           const reason = error instanceof Error ? error.message : 'Test failed';
-          try {
-            await disableFailedProviderModel(providerId, target.routeModelId);
-            providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
-          } catch (disableError) {
-            providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+          if (error && error.name === 'TimeoutError') {
+            providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Timeout (15s) — ' + reason };
+            failures += 1;
+          } else if (statusCode === 429) {
+            providerModelTestResults[target.routeModelId] = { state: 'success', message: 'Rate-limited (still usable) — ' + reason };
+          } else {
+            failures += 1;
+            try {
+              await disableFailedProviderModel(providerId, target.routeModelId);
+              providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed; disabled — ' + reason };
+            } catch (disableError) {
+              providerModelTestResults[target.routeModelId] = { state: 'error', message: 'Failed — ' + reason + ' (could not disable)' };
+            }
           }
         }
       }
       await refreshAllData();
       if (openProviderDetailsId === providerId) await openProviderDetails(providerId);
-      showToast('Model tests completed: ' + (targets.length - failures) + ' passed, ' + failures + ' failed' + (failures ? ' and disabled.' : '.'));
+      const disabledCount = failures;
+      showToast('Model tests completed: ' + (targets.length - disabledCount) + ' passed, ' + disabledCount + ' failed' + (disabledCount ? ' and disabled.' : '.'));
     }
 
     // UTILS: CLIPBOARD & PLAYGROUND SELECTION
@@ -4028,10 +4047,14 @@ print(response.choices[0].message.content)</div>
         const statusBadge = isImported
           ? \`<span class="badge badge-gray">\${t('syncStatusImported')}</span>\`
           : \`<span class="badge badge-green">\${t('syncStatusNew')}</span>\`;
+        // Rows are selected by connectionId so two accounts sharing one provider id
+        // stay independently selectable; fall back to providerId for older payloads.
+        const rowId = s.connectionId || s.providerId;
+        const label = s.displayName || s.customProviderId || s.name || s.providerId;
         html += \`
           <tr style="\${isImported ? 'opacity:0.6;' : ''}">
-            <td><input type="checkbox" class="sync-chk" value="\${s.providerId}" \${isImported ? '' : 'checked'}></td>
-            <td><strong>\${s.name || s.providerId}</strong></td>
+            <td><input type="checkbox" class="sync-chk" value="\${rowId}" \${isImported ? '' : 'checked'}></td>
+            <td><strong>\${label}</strong>\${s.customProviderId ? \` <span style="color:var(--text-dim); font-size:11px;">→ \${s.customProviderId}</span>\` : ''}</td>
             <td><span class="badge \${s.source === 'omniroute' ? 'badge-blue' : 'badge-purple'}">\${s.source}</span></td>
             <td><code>\${s.maskedKey}</code></td>
             <td>\${statusBadge}</td>
@@ -4085,7 +4108,7 @@ print(response.choices[0].message.content)</div>
         const res = await fetch('/v1/import/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerIds: selected })
+          body: JSON.stringify({ connectionIds: selected })
         });
         if (res.ok) {
           const data = await res.json();
