@@ -778,8 +778,8 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
               }
             }
             const secretValue: import('./storage/sqlite-credential-store.js').CredentialSecret = {
-              apiKey: target.apiKey,
-              authType: target.authType,
+              accessToken: target.apiKey,
+              refreshToken: (target.providerSpecificData as any)?.refreshToken || undefined,
               providerSpecificData: kiroPsD,
             };
             await options.credentials.put(providerId, credId, secretValue);

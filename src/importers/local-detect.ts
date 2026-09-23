@@ -230,8 +230,8 @@ export function detect9RouterCredentials(): DetectedCredential[] {
             providerSpecificData?: Record<string, unknown>;
           };
           
-          // Determine auth type from row
-          const authType: DetectedCredential['authType'] = (row.authType === 'cookie' || row.authType === 'access_token')
+          // Determine auth type from row — preserve oauth/cookie/access_token for proper import
+          const authType: DetectedCredential['authType'] = (row.authType === 'cookie' || row.authType === 'access_token' || row.authType === 'oauth')
             ? row.authType
             : 'apikey';
           
