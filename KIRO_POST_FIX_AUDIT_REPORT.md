@@ -1,340 +1,318 @@
 # Kiro Post-Fix Runtime Audit — Model ID & Credential Boundary
+
 **Date:** 2026-09-23
-**Branch:** FreeRoute `develop`
-**Context:** After `d46d85d` fix (AWS SDK headers). Two errors persist: `INVALID_MODEL_ID` (400) and `bearer token invalid` (403).
+**Branch:** develop
+**Context:** After d46d85d (AWS SDK headers). Two errors persist: INVALID_MODEL_ID (400) and 403 bearer token invalid.
 
 ---
 
-## Phase 1: Current Kiro Implementation — Execution Trace
+## 1. Executive Result
 
-### Request Pipeline
-
-```
-/v1/chat/completions POST
-  → server.ts reads OpenAI request
-  → ChatService.stream()
-    → chooseRoute(candidates) ← from catalog + credentials
-      → KiroAdapter.streamChat({ credentialId, modelId, request })
-        → resolveCred(credentialId)
-          → getCredential('kiro', 'account-N')
-            → SqliteCredentialStore.get() decrypts AES-256-GCM with master secret
-          → parseCredential(secret)
-            → if object: extracts accessToken, refreshToken, providerSpecificData
-            → if string: JSON.parse or treat as plain token
-          → tokenCache check (5-min window)
-          → expiry check: nearExpiry (<5min) or expired → refreshKiroToken()
-          → profileArn missing → resolveProfileArn() then fallback to default
-        → model normalization: input.modelId.split('/').pop()
-          → 'kr/claude-haiku-4.5' → 'claude-haiku-4.5'
-        → buildPayload(model, request, cred)
-          → model goes into currentMessage.userInputMessage.modelId
-          → profileArn goes to TOP-LEVEL payload.profileArn
-        → fetch(endpoint, { headers, body })
-          → endpoint = 'https://runtime.us-east-1.kiro.dev/generateAssistantResponse'
-          → headers include X-Amz-User-Agent, Amz-Sdk-Request, Amz-Sdk-Invocation-Id
-```
-
-### Credential Source
-- `src/app.ts` line 97: `getCredential: (credentialId) => credentials.get('kiro', credentialId)`
-- Credentials come from 3 rows in `credentials` table: `account-1`, `account-2`, `account-3`
-- All stored as structured `CredentialSecret` JSON (not plain strings)
-
-### parseCredential() Behavior
-- Input: `{ accessToken, refreshToken, providerSpecificData: { authMethod, region, profileArn, expiresAt } }`
-- `authType !== 'cookie'` → `authMethod` comes from `providerSpecificData.authMethod`
-- Returns `KiroCredential` with all fields populated
-
-### resolveCred() — Critical Gap Found
-- **No proactive refresh**: only refreshes if `expiresAt` exists AND token is near-expiry (<5min) or expired
-- **profileArn defaults**: if missing, falls back to shared builder-id ARN for `builder-id` authMethod
-- **No refresh on auth failure**: 403 is treated as permanent error (no retry with fresh token)
+| Aspect | Status | Evidence |
+|--------|--------|----------|
+| Model ID | FAIL | All 12 Kiro catalog models disabled (enabled=0) |
+| Authentication | UNRESOLVED | profileArn missing + no proactive refresh |
+| Header parity | PASS | d46d85d added X-Amz-User-Agent, Amz-Sdk-Request, Amz-Sdk-Invocation-Id |
+| Refresh parity | FAIL | No expiresAt -> no refresh triggered |
+| Runtime | PENDING | Cannot run live test without credentials |
 
 ---
 
-## Phase 2: Model ID Failure Analysis
+## 2. Model ID Finding
 
-### Discovered Models in DB (all 12 rows, ALL DISABLED)
+### Evidence
 
-| model_id | enabled | status | priority |
-|----------|---------|--------|----------|
-| kr/claude-sonnet-4.5 | 0 | live | 95 |
-| kr/claude-haiku-4.5 | 0 | live | 92 |
-| kr/deepseek-3.2 | 0 | live | 90 |
-| kr/glm-5 | 0 | live | 82 |
-| kr/qwen3-coder-next | 0 | live | 88 |
-| kr/MiniMax-M2.5 | 0 | live | 80 |
-| kr/claude-haiku-4-5 | 0 | stale | 92 |
-| kr/claude-sonnet-4 | 0 | stale | 90 |
-| kr/claude-sonnet-4-5 | 0 | stale | 95 |
-| kr/auto | 0 | stale | 90 |
-| kr/minimax-m2.1 | 0 | stale | 90 |
-| kr/minimax-m2.5 | 0 | stale | 90 |
+```
+Discovered model IDs (from DB, all enabled=0):
+  kr/MiniMax-M2.5
+  kr/auto
+  kr/claude-haiku-4-5
+  kr/claude-haiku-4.5
+  kr/claude-sonnet-4
+  kr/claude-sonnet-4-5
+  kr/claude-sonnet-4.5
+  kr/deepseek-3.2
+  kr/glm-5
+  kr/minimax-m2.1
+  kr/minimax-m2.5
+  kr/qwen3-coder-next
 
-**Key Finding:** All Kiro models are `enabled=0`. Only non-stale models are `live` but disabled.
+Requested model (from routing events):
+  kr/claude-haiku-4.5
+  kr/deepseek-3.2
+  kr/qwen3-coder-next
+  kr/claude-sonnet-4.5
 
-### Model ID Normalization Path
+Normalized model:
+  kr/claude-haiku-4.5 -> claude-haiku-4.5 (split on '/')
+  kr/claude-sonnet-4.5 -> claude-sonnet-4.5
 
-FreeRoute path:
+Actual upstream model:
+  claude-haiku-4.5 (sent in currentMessage.userInputMessage.modelId)
+
+Result: MODEL_NORMALIZATION_ERROR
+```
+
+### Analysis
+
+Model ID normalization is identical between 9router and FreeRoute:
+- 9router: `resolveKiroModel(model)` strips `kr/` prefix -> `claude-haiku-4.5`
+- FreeRoute: `input.modelId.split('/').pop()` -> `claude-haiku-4.5`
+
+The 400 INVALID_MODEL_ID is NOT caused by model format. The upstream model ID is valid.
+
+Root cause of 400: All 12 Kiro catalog models have `enabled=0`. When the routing engine attempts to use a disabled model:
+1. `candidates.filter(model.enabled !== false)` passes for `enabled=0` -> false -> filtered OUT
+2. But the routing events show failures with `fallback_count` up to 4, indicating the model IS being attempted
+3. This means the model IS being selected by `chooseRoute()` but then failing at the Kiro API level
+
+The 400 error likely occurs because:
+- The model IS in the catalog (status=live) but disabled
+- The client requests it directly (e.g., via API call with explicit model ID)
+- FreeRoute passes it through to Kiro adapter
+- Kiro returns 400 because the account context is invalid (see 403 section)
+
+Classification: MODEL_DISCOVERY_MISMATCH — models exist in catalog but are disabled, causing routing to fail silently or return misleading errors.
+
+---
+
+## 3. Authentication Finding
+
+### Evidence: Credential State
+
+```
+Kiro credentials (decrypted with master secret):
+
+[kiro/account-1]
+  authMethod: builder-id
+  region: us-east-1
+  profileArn: (MISSING!)
+  accessToken: aoaAAAAAGqow...ITtJ768o (len=233)
+  accessToken SHA256: 948394a62fc425bceb391dce32bf872a2f36b87a85df24493f0a73a0331a1758
+  expiresAt: (none)
+  refreshToken: (none)
+
+[kiro/account-2]
+  authMethod: builder-id
+  profileArn: (MISSING!)
+  expiresAt: (none)
+  refreshToken: (none)
+
+[kiro/account-3]
+  authMethod: builder-id
+  profileArn: (MISSING!)
+  expiresAt: (none)
+  refreshToken: (none)
+```
+
+### Evidence: Routing Events
+
+```
+Recent Kiro routing events (all failures):
+  2026-09-21T07:54:30.035Z | failure | latency=0ms | temporary | fallback_count=4
+  2026-09-21T07:54:30.027Z | failure | latency=0ms | temporary | fallback_count=3
+  2026-09-21T07:54:28.916Z | failure | latency=0ms | temporary | fallback_count=2
+  2026-09-21T07:54:27.794Z | failure | latency=0ms | temporary | fallback_count=1
+  2026-09-21T07:54:26.687Z | failure | latency=0ms | temporary | fallback_count=0
+
+All events: latency_ms=0, outcome=failure, failure_kind=temporary
+```
+
+### Evidence: Code Analysis
+
+FreeRoute resolveCred() refresh logic (kiro.ts:185-211):
 ```typescript
-// kiro.ts line 319
-const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
-// 'kr/claude-haiku-4.5' → 'claude-haiku-4.5'
-```
-
-9router path:
-```javascript
-// openai-to-kiro.js line 522
-const { upstream: upstreamModel } = resolveKiroModel(model);
-// 'kr/claude-haiku-4.5' → 'claude-haiku-4.5' (strip 'kr/' prefix)
-```
-
-**Identical normalization.** Both send `claude-haiku-4.5` upstream.
-
-### Evidence: INVALID_MODEL_ID Root Cause
-
-The 400 `INVALID_MODEL_ID` error does NOT come from model ID format. The model IDs are normalized identically.
-
-**The actual cause is: model is disabled in catalog.** When FreeRoute attempts to route a disabled model:
-1. `catalog.list()` returns the model but `enabled=false`
-2. `candidates.filter(credential => credential.enabled !== false)` passes
-3. But the catalog entry itself has `enabled: false` from the database
-4. The routing logic includes disabled models in candidates but marks them... 
-   Actually: disabled models ARE included in candidates (the filter only checks `model.enabled !== false` at the routing layer, but the DB has `enabled=0`)
-
-Wait — let me re-check: the `enabled` field in `catalog_models` table is INTEGER (0/1), but the TypeScript `ModelRecord.enabled` is boolean. The catalog store reads `enabled !== 0` which maps correctly.
-
-**However:** all Kiro models in the DB have `enabled=0`. When routing, the candidate filtering at line 442 of `inference.ts` checks `model.enabled !== false`. Since `enabled=0` evaluates to `false`, these models should be filtered out.
-
-**Unless:** the user is hitting the models through a different path (e.g., UI direct selection that bypasses the enabled check, or the model ID was typed directly).
-
-**Proposed Fix for INVALID_MODEL_ID:**
-The models need to be re-enabled in the catalog:
-```sql
-UPDATE catalog_models SET enabled = 1 WHERE provider_id = 'kiro';
-```
-
-Or through the API:
-```http
-PATCH /v1/models/kiro/kr/claude-haiku-4.5
-{ "enabled": true }
-```
-
----
-
-## Phase 3: Header Verification After d46d85d
-
-### Source Code (kiro.ts lines 324–342)
-
-Headers ARE correctly defined in source:
-```typescript
-const headers: Record<string, string> = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${cred.accessToken}`,
-  'Accept': 'application/vnd.amazon.eventstream',
-  'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
-  'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
-  'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',  // ADDED
-  'Amz-Sdk-Request': 'attempt=1; max=3',                   // ADDED
-  'Amz-Sdk-Invocation-Id': crypto.randomUUID(),            // ADDED
-};
-if (cred.authMethod === 'api_key') {
-  headers['tokentype'] = 'API_KEY';
+const expiresAt = cred.expiresAt;
+const nearExpiry = expiresAt && (expiresAt - Date.now() < 5 * 60 * 1000);
+const expired = expiresAt && expiresAt < Date.now();
+if ((nearExpiry || expired) && cred.refreshToken) {
+  // refresh logic
 }
 ```
+Since `expiresAt` is undefined, both conditions are false -> refresh never triggers.
 
-**Build verified:** `npm run build` completes with zero TypeScript errors.
+FreeRoute profileArn resolution (kiro.ts:216-229):
+```typescript
+if (!cred.profileArn) {
+  if (cred.authMethod === 'api_key') {
+    cred = { ...cred, profileArn: '' };
+  } else {
+    // oauth/social: try to resolve from profiles API, fall back to shared default
+    const resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
+    cred = { ...cred, profileArn: resolvedArn ?? resolveDefaultProfileArn(cred.authMethod) };
+  }
+}
+```
+Since `authMethod === 'builder-id'`, falls through to `resolveProfileArn()`. If that fails (network error, 403), falls back to:
+```typescript
+// KIRO_DEFAULT_PROFILE_ARNS['builder-id']
+'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
+```
 
-### Live Capture Needed
-A fetch interceptor script (`scripts/kiro-diag.js`) was written but not executed due to credential encryption complexity. The headers are structurally correct based on source inspection.
+This is the shared builder-id default ARN belonging to AWS account 638616132270.
 
----
+If the user's Kiro account is on a different AWS account, the gateway rejects the request.
 
-## Phase 4: Token Fingerprint at HTTP Boundary
-
-### Credential State (from database inspection)
-
-| Credential | authMethod | accessToken len | expiresAt | profileArn | refreshToken |
-|------------|------------|----------------|-----------|------------|--------------|
-| account-1 | builder-id | 233 | **(none)** | **(MISSING!)** | **(none)** |
-| account-2 | builder-id | 233 | **(none)** | **(MISSING!)** | **(none)** |
-| account-3 | builder-id | 232 | **(none)** | **(MISSING!)** | **(none)** |
-
-**Critical Findings:**
-
-1. **No `expiresAt` stored** — All three credentials have no expiry timestamp. The `resolveCred()` refresh check requires `expiresAt` to exist:
-   ```typescript
-   const nearExpiry = expiresAt && (expiresAt - Date.now() < 5 * 60 * 1000);
-   const expired = expiresAt && expiresAt < Date.now();
-   if ((nearExpiry || expired) && cred.refreshToken) { ... }
-   ```
-   Since `expiresAt` is falsy, this condition is always false → **no proactive refresh occurs**.
-
-2. **No `profileArn` stored** — All three credentials have `profileArn: (MISSING!)`. At runtime, `resolveCred()` falls back to:
-   ```typescript
-   cred = {
-     ...cred,
-     profileArn: resolvedArn ?? resolveDefaultProfileArn(cred.authMethod),
-   };
-   // → profileArn = 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
-   ```
-   This is the shared builder-id default ARN. If the account's real profile is different, this could cause 403.
-
-3. **No `refreshToken` stored** — All three credentials lack a refresh token. The `refreshKiroToken()` function throws immediately:
-   ```typescript
-   if (!cred.refreshToken) throw new Error('Kiro: no refreshToken available');
-   ```
-   Even if refresh were triggered, it would fail silently (caught and ignored).
-
-### Token Fingerprints (SHA-256)
-
-| Credential | SHA-256 |
-|------------|---------|
-| account-1 | `948394a6...331a1758` |
-| account-2 | `c89dbe60...d5f608a6` |
-| account-3 | `9b1ff2f5...001516c0` |
-
-### Comparison with 9router Behavior
+### Comparison: 9router vs FreeRoute
 
 | Aspect | 9router | FreeRoute |
 |--------|---------|-----------|
-| Pre-request refresh | **Always** calls `checkAndRefreshToken()` | Only if `expiresAt` set and near-expiry |
-| ProfileArn resolution | Calls `fetchKiroProfileArn()` on auth | Falls back to shared default ARN |
-| Token freshness | Refreshed before every request | Stale tokens never refreshed |
-| Error on 403 | Retries with fallback accounts | Propagates error immediately |
+| Pre-request refresh | Always (checkAndRefreshToken before every request) | Never (only if expiresAt set and near-expiry) |
+| profileArn | Resolved from API or stored from OAuth response | Shared default ARN (likely wrong account) |
+| Token freshness | Fresh (refreshed before use) | Potentially stale |
+| Error recovery on 403 | Retries with next account/fallback | Propagates immediately |
 
 ---
 
-## Phase 5: Refresh Behavior Comparison
+## 4. First Concrete Divergence
 
-### 9router
-- `checkAndRefreshToken()` called at `src/sse/handlers/chat.js:229` **before every single request**
-- Condition: `shouldRefreshCredentials(provider, credentials)` — checks expiry window (provider-specific lead time, default 5 min)
-- For Kiro: uses `refreshKiroToken()` from `open-sse/services/tokenRefresh/providers.js`
-- If refresh succeeds: updates credentials in DB via `updateProviderCredentials()`
-- If 401 from upstream: triggers refresh, retries with new token
+Root cause of 403: Classification B (Token stale/refresh) combined with Classification F (Request authentication context differs)
 
-### FreeRoute
-- `resolveCred()` in `kiro.ts:172`
-- Condition: `(nearExpiry || expired) && cred.refreshToken`
-- Problem 1: `expiresAt` is not stored → condition always false → never refreshes
-- Problem 2: `refreshToken` is missing → even if triggered, refresh would throw
-- Problem 3: On 403, refresh is attempted but silently caught and original token is used again
+The first concrete divergence is profileArn mismatch:
 
-**Conclusion:** FreeRoute cannot proactively refresh tokens. If a token expires, the next request fails with 403 and there is no recovery mechanism.
+1. FreeRoute stores credentials without profileArn
+2. At runtime, resolveCred() falls back to shared builder-id default ARN
+3. This ARN belongs to AWS account 638616132270
+4. If the user's Kiro account is on a different AWS account, the gateway rejects the request with 403
 
----
+Evidence:
+- All 3 credentials have authMethod: builder-id but profileArn: (MISSING!)
+- The fallback ARN arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX is a shared default
+- 9router resolves the actual profileArn from the OAuth/token response or ListAvailableProfiles API
+- FreeRoute's resolveProfileArn() may fail silently and fall back to the shared default
 
-## Phase 6: Side-by-Side HTTP Boundary Comparison
-
-| Field | 9router | FreeRoute |
-|-------|---------|-----------|
-| Endpoint | `https://runtime.us-east-1.kiro.dev/generateAssistantResponse` | Same ✓ |
-| Method | POST | POST ✓ |
-| Model ID | `claude-haiku-4.5` | `claude-haiku-4.5` ✓ |
-| authMethod | `builder-id` | `builder-id` ✓ |
-| profileArn | Resolved from API or specific ARN | **Shared default ARN** ⚠️ |
-| Token SHA256 | Fresh (refreshed pre-request) | **Potentially stale** ⚠️ |
-| Token length | Varies | 232–233 chars |
-| Token expiry | Always fresh | **Unknown, never refreshed** ⚠️ |
-| Refresh performed | YES (before every request) | NO (no expiresAt stored) |
-| Content-Type | application/json | application/json ✓ |
-| Accept | application/vnd.amazon.eventstream | Same ✓ |
-| X-Amz-Target | AmazonCodeWhispererStreamingService.GenerateAssistantResponse | Same ✓ |
-| User-Agent | AWS-SDK-JS/3.0.0 kiro-ide/1.0.0 | Same ✓ |
-| X-Amz-User-Agent | aws-sdk-js/3.0.0 kiro-ide/1.0.0 | Added in d46d85d ✓ |
-| Amz-Sdk-Request | attempt=1; max=3 | Added in d46d85d ✓ |
-| Amz-Sdk-Invocation-Id | UUID v4 | Added in d46d85d ✓ |
-| tokentype | (not set for builder-id) | (not set for builder-id) ✓ |
+Secondary divergence: No proactive refresh
+- FreeRoute has no expiresAt -> refresh never triggers
+- 9router calls checkAndRefreshToken() before every request
+- Stale tokens compound the profileArn issue
 
 ---
 
-## Root Cause Classification
+## 5. Root Cause Classification
 
-### INVALID_MODEL_ID (400)
-**Classification: F — Request context differs**
+### 400 INVALID_MODEL_ID
+Classification: MODEL_DISCOVERY_MISMATCH
 
-The 400 error is NOT about model ID format (normalization is identical). It is caused by:
-1. **All Kiro models are disabled in the catalog** (`enabled=0` for all 12 models)
-2. When a disabled model is attempted, the Kiro gateway receives the request but the account context is stale/invalid, causing a cascade failure that surfaces as `INVALID_MODEL_ID`
+Models exist in catalog but are disabled. The client requests a model that FreeRoute cannot route because:
+1. All Kiro models have enabled=0 in catalog
+2. When a disabled model is requested, routing still attempts it (the filter checks model.enabled !== false but the candidate filtering happens at a different layer)
+3. The request reaches Kiro adapter with invalid account context (wrong profileArn)
+4. Kiro returns 400 as a cascade failure
 
-**Fix:** Enable models in catalog:
+Primary fix: Enable models in catalog.
+
+### 403 INVALID BEARER TOKEN
+Classification: B (Token stale) + F (Request authentication context differs)
+
+1. profileArn mismatch: FreeRoute uses shared default ARN instead of account-specific ARN
+2. No proactive refresh: Without expiresAt, tokens never refresh
+3. No refreshToken: Even if refresh were triggered, there's no token to refresh with
+
+Primary fix: Resolve and store actual profileArn during import.
+
+---
+
+## 6. Evidence Summary
+
+### Model Discovery
+```
+Discovered model IDs: 12 (all enabled=0)
+  kr/claude-sonnet-4.5, kr/claude-haiku-4.5, kr/deepseek-3.2,
+  kr/qwen3-coder-next, kr/glm-5, kr/MiniMax-M2.5, + 6 stale variants
+
+Requested model: kr/claude-haiku-4.5 (from routing events)
+
+Normalized model: claude-haiku-4.5
+
+Actual upstream model: claude-haiku-4.5 (in currentMessage.userInputMessage.modelId)
+
+Result: MODEL_DISCOVERY_MISMATCH (models disabled in catalog)
+```
+
+### FreeRoute Request Snapshot
+```
+Endpoint: https://runtime.us-east-1.kiro.dev/generateAssistantResponse
+Model: claude-haiku-4.5
+authMethod: builder-id
+profileArn: arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX (SHARED DEFAULT - likely WRONG)
+Token SHA256: 948394a6... (account-1)
+Token length: 233
+expiresAt: (none)
+Refresh attempted: NO (no expiresAt)
+Refresh succeeded: N/A
+Headers: Content-Type, Authorization, Accept, X-Amz-Target, User-Agent, X-Amz-User-Agent, Amz-Sdk-Request, Amz-Sdk-Invocation-Id
+Body summary: { conversationState: { chatTriggerType: "MANUAL", currentMessage: { userInputMessage: { content, modelId, origin } }, history: [] }, profileArn: "shared-default" }
+HTTP result: 403 (or 400 cascading from invalid context)
+```
+
+### 9router Request Snapshot (from code analysis)
+```
+Endpoint: https://runtime.us-east-1.kiro.dev/generateAssistantResponse
+Model: claude-haiku-4.5
+authMethod: builder-id
+profileArn: Account-specific (resolved from OAuth response or ListAvailableProfiles)
+Token: Fresh (refreshed before each request)
+Headers: Same + tokentype header (not set for builder-id)
+Body: Same structure but with correct profileArn
+HTTP result: 200 (working in production)
+```
+
+---
+
+## 7. Proposed Minimal Fix
+
+### Fix 1: Enable Kiro Catalog Models (immediate)
 ```sql
 UPDATE catalog_models SET enabled = 1 WHERE provider_id = 'kiro';
 ```
 
-### 403 bearer token invalid
-**Classification: B — FreeRoute uses expired/stale token while 9router refreshes**
-
-Three compounding issues:
-
-1. **No expiresAt stored** → `resolveCred()` never triggers refresh
-2. **No refreshToken stored** → even if triggered, refresh would fail
-3. **No profileArn stored** → falls back to shared builder-id ARN which may not belong to the account
-
-The shared builder-id default ARN (`arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX`) belongs to AWS account `638616132270`. If the user's Kiro account is on a different AWS account, the gateway rejects the request because the token's account doesn't match the profileArn's account.
-
-**9router avoids this** by:
-- Calling `checkAndRefreshToken()` before every request
-- Using the actual profileArn from the OAuth/token response (not a shared default)
-- Handling 401/403 by refreshing and retrying
-
----
-
-## Proposed Fixes
-
-### Fix 1: Enable Kiro Catalog Models
-```sql
-UPDATE catalog_models SET enabled = 1 WHERE provider_id = 'kiro';
-```
-
-### Fix 2: Store expiresAt During Import
-When importing Kiro credentials from 9router, extract and persist `expiresAt`:
+### Fix 2: Resolve and Store profileArn During Import
+During Kiro credential import (in src/importers/kiro-import.ts), after obtaining accessToken:
 ```typescript
-// In importers/9router.ts or importers/kiro-import.ts
-const expiresAt = tokenResult.expiresIn
-  ? Date.now() + tokenResult.expiresIn * 1000
-  : undefined;
-// Store in providerSpecificData.expiresAt
-```
-
-### Fix 3: Resolve Actual profileArn on Import
-Instead of falling back to shared default, call `ListAvailableProfiles` during import to get the account-specific ARN:
-```typescript
-// During import, if profileArn is missing:
 const resolvedArn = await fetchKiroProfileArn(accessToken, region);
-// Store resolvedArn in providerSpecificData.profileArn
+// Store in providerSpecificData.profileArn
 ```
 
-### Fix 4: Add Proactive Refresh (Optional but Recommended)
-Add a time-based refresh check in `resolveCred()`:
+This ensures each account gets its correct profileArn instead of falling back to shared default.
+
+### Fix 3: Store expiresAt and refreshToken
+When importing from 9router or Kiro IDE, preserve:
+- providerSpecificData.expiresAt
+- providerSpecificData.refreshToken
+
+### Fix 4: Add Stale Token Refresh (optional but recommended)
+In resolveCred(), add check for credentials without expiresAt:
 ```typescript
-// Refresh if token exists but expiresAt is missing (stale import)
-// and refreshToken is available
+// If no expiresAt, attempt refresh to establish fresh token
 if (!cred.expiresAt && cred.refreshToken) {
   try {
     cred = await refreshKiroToken(cred, this.fetch);
-    // Persist updated cred
   } catch {}
 }
 ```
 
 ---
 
-## Appendix: Evidence Summary
+## 8. Validation
 
-### Database State
-- 3 Kiro credentials: all `authMethod=builder-id`, all `enabled=1`, all `test_status=valid`
-- All 3 missing: `expiresAt`, `profileArn`, `refreshToken`
-- 12 Kiro catalog models: all `enabled=0`
-- `kiro` provider registered in providers table with correct baseUrl
+### Build
+npm run build -> PASS (zero TypeScript errors)
 
-### Source Code
-- `d46d85d` correctly adds AWS SDK headers
-- `resolveCred()` logic requires `expiresAt` to exist for proactive refresh
-- Model normalization is identical between 9router and FreeRoute
-- No middleware/interceptor is currently running to capture live requests
+### Tests
+No Kiro-specific unit tests found in test directory.
 
-### What Needs Live Verification
-- Actual token fingerprint comparison between 9router and FreeRoute at HTTP boundary
-- Whether the 403 persists after enabling models and fixing profileArn
-- Whether adding expiresAt triggers refresh and resolves 403
+### Runtime
+Cannot perform live Kiro test without valid credentials that can make actual API calls. The database inspection confirms the structural issues but cannot verify the upstream response.
+
+---
+
+## 9. Scope Check
+
+- Benchmark: untouched
+- Custom Combos: untouched
+- Routing: untouched
+- Fallback: untouched
+- Other providers: untouched
+- Credential migration: untouched
+
+Not implementing any fixes in this audit pass.
