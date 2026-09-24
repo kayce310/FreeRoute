@@ -2,6 +2,67 @@ import type { ChatProviderAdapter, NormalizedChatRequest, NormalizedChatResponse
 import type { DiscoveredModel, ProviderDiscoveryAdapter } from '../catalog.js';
 import type { CredentialSecret } from '../storage/sqlite-credential-store.js';
 
+// ─── Refresh deduplication (local 9router equivalent) ─────────────────────────
+
+const REFRESH_RESULT_TTL_MS = 10_000;
+const refreshDedupCache = new Map<string, {
+  promise?: Promise<any>;
+  result?: any;
+  expiresAt?: number;
+}>();
+
+/**
+ * Refresh deduplication - prevents concurrent refreshes for the same credential.
+ * Mirrors 9router's dedupRefresh pattern.
+ */
+function dedupRefresh<T>(
+  provider: string,
+  oldToken: string,
+  fn: () => Promise<T>,
+  log?: { info?: (cat: string, msg: string, meta?: any) => void }
+): Promise<T> {
+  if (!oldToken) return fn();
+  const key = `${provider}:${oldToken}`;
+  const hit = refreshDedupCache.get(key);
+  if (hit) {
+    if (hit.promise) {
+      log?.info?.('TOKEN_REFRESH', `Reusing in-flight refresh for ${provider}`);
+      return hit.promise;
+    }
+    if (hit.expiresAt && hit.expiresAt > Date.now()) {
+      log?.info?.('TOKEN_REFRESH', `Reusing recent refresh result for ${provider}`);
+      return hit.result;
+    }
+    refreshDedupCache.delete(key);
+  }
+  const promise = (async () => {
+    try {
+      const result = await fn();
+      refreshDedupCache.set(key, { result, expiresAt: Date.now() + REFRESH_RESULT_TTL_MS });
+      return result;
+    } catch (err) {
+      refreshDedupCache.delete(key);
+      throw err;
+    }
+  })();
+  refreshDedupCache.set(key, { promise });
+  return promise;
+}
+
+/**
+ * Error classification - mirrors 9router's isUnrecoverableRefreshError.
+ */
+function isUnrecoverableRefreshError(result: any): boolean {
+  return (
+    result &&
+    typeof result === 'object' &&
+    (result.error === 'unrecoverable_refresh_error' ||
+      result.error === 'refresh_token_reused' ||
+      result.error === 'invalid_request' ||
+      result.error === 'invalid_grant')
+  );
+}
+
 // ─── Kiro credential types ─────────────────────────────────────────────────────
 /**
  * Kiro credential stored as JSON string in the credential store.
@@ -16,6 +77,7 @@ interface KiroCredential {
   clientId?: string;
   clientSecret?: string;
   expiresAt?: number; // Unix timestamp ms
+  providerSpecificData?: Record<string, unknown>;
 }
 
 // Default shared profile ARNs (from 9router open-sse/config/kiroConstants.js)
@@ -370,53 +432,183 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
   }
 
   /** Resolve and optionally refresh the credential for a given credentialId */
-  private async resolveCred(credentialId: string): Promise<KiroCredential> {
-    const secret = await this.getCredential(credentialId);
-    if (!secret) throw new Error('Kiro: no credential for id ' + credentialId);
-    let cred = parseCredential(secret);
+    private async resolveCred(credentialId: string): Promise<KiroCredential> {
+      const secret = await this.getCredential(credentialId);
+      if (!secret) throw new Error('Kiro: no credential for id ' + credentialId);
+      let cred = parseCredential(secret);
 
-    const cached = this.tokenCache.get(credentialId);
-    if (cached && Date.now() - cached.updatedAt < 5 * 60 * 1000) {
-      cred = cached.cred;
-    }
-
-    // Proactive refresh: always refresh if refreshToken is available.
-    if (cred.refreshToken) {
-      try {
-        const fingerprintBefore = cred.accessToken.slice(0, 8) + '...';
-        cred = await refreshKiroToken(cred, this.fetch);
-        const fingerprintAfter = cred.accessToken.slice(0, 8) + '...';
-        console.log(`[Kiro] ${credentialId}: refresh ${fingerprintBefore} -> ${fingerprintAfter} expiresAt=${cred.expiresAt}`);
-        this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
-        if (this.setCredential) {
-          await this.setCredential(credentialId, this.toCredentialSecret(cred));
-        }
-      } catch (err) {
-        console.warn(`[Kiro] ${credentialId}: refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      const cached = this.tokenCache.get(credentialId);
+      if (cached && Date.now() - cached.updatedAt < 5 * 60 * 1000) {
+        cred = cached.cred;
       }
-    }
 
-    // Resolve profileArn if missing (api_key auth: leave empty; OAuth/social: use default)
-    if (!cred.profileArn) {
-      if (cred.authMethod === 'api_key') {
-        cred = { ...cred, profileArn: '' };
-      } else {
-        const region = cred.region ?? 'us-east-1';
-        const resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
-        if (resolvedArn) {
-          cred = { ...cred, profileArn: resolvedArn };
-          if (this.setCredential) {
-            await this.setCredential(credentialId, this.toCredentialSecret(cred)).catch(() => {});
+      // Proactive refresh: only refresh if token is near expiry.
+      // Uses per-credential dedup lock to prevent concurrent refreshes.
+      if (cred.refreshToken) {
+        try {
+          const refreshed = await this.refreshWithDedup(credentialId, cred);
+          if (refreshed !== cred) {
+            const fingerprintBefore = cred.accessToken.slice(0, 8) + '...';
+            const fingerprintAfter = refreshed.accessToken.slice(0, 8) + '...';
+            console.log(`[Kiro] ${credentialId}: refresh ${fingerprintBefore} -> ${fingerprintAfter} expiresAt=${refreshed.expiresAt}`);
+            cred = refreshed;
+            this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
+            if (this.setCredential) {
+              await this.setCredential(credentialId, this.toCredentialSecret(cred));
+            }
           }
-        } else {
-          cred = { ...cred, profileArn: resolveDefaultProfileArn(cred.authMethod) };
-        }
-        this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
-      }
-    }
+        } catch (err) {
+                  console.warn(`[Kiro] ${credentialId}: refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
 
-    return cred;
-  }
+              // Resolve profileArn if missing (api_key auth: leave empty; OAuth/social: use default)
+              if (!cred.profileArn) {
+                if (cred.authMethod === 'api_key') {
+                  cred = { ...cred, profileArn: '' };
+                } else {
+                  const region = cred.region ?? 'us-east-1';
+                  let resolvedArn: string | null = null;
+                  try {
+                    resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
+                  } catch (err) {
+                    console.warn(`[Kiro] ${credentialId}: profileArn resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                  if (resolvedArn) {
+                    cred = { ...cred, profileArn: resolvedArn };
+                    if (this.setCredential) {
+                      await this.setCredential(credentialId, this.toCredentialSecret(cred)).catch(() => {});
+                    }
+                  } else {
+                    cred = { ...cred, profileArn: resolveDefaultProfileArn(cred.authMethod) };
+                  }
+                  this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
+                }
+              }
+
+              return cred;
+            }
+
+    /** Refresh credential with per-credential dedup and error handling */
+    private async refreshWithDedup(credentialId: string, cred: KiroCredential): Promise<KiroCredential> {
+      const nowMs = Date.now();
+
+      // Check if we should refresh (same logic as 9router)
+            const expiresAtMs = cred.expiresAt;
+            const leadMs = 5 * 60 * 1000; // 5 minutes (same as TOKEN_EXPIRY_BUFFER_MS)
+            // If no expiresAt, we should refresh proactively (matches 9router behavior for imported creds)
+            if (expiresAtMs !== undefined && expiresAtMs !== null && expiresAtMs - nowMs < leadMs) {
+              // Token is near expiry, refresh needed
+            } else if (expiresAtMs === undefined || expiresAtMs === null) {
+              // No expiresAt - refresh proactively
+            } else {
+              return cred;
+            }
+
+            // Acquire refresh lock for this credential
+                        return this.acquireRefreshLock(credentialId, cred.refreshToken ?? undefined, async () => {
+                          // Re-parse to ensure we have latest credential data
+                          const freshSecret = await this.getCredential(credentialId);
+                          if (!freshSecret) throw new Error('Kiro: no credential for id ' + credentialId);
+                          const freshCred = parseCredential(freshSecret);
+
+                          // If the credential still doesn't need refresh, return it
+                          if (!freshCred.refreshToken) {
+                            return freshCred;
+                          }
+                          const freshExpiresAtMs = freshCred.expiresAt;
+                          const freshLeadMs = 5 * 60 * 1000;
+                          if (freshExpiresAtMs !== undefined && freshExpiresAtMs !== null && freshExpiresAtMs - nowMs >= freshLeadMs) {
+                            return freshCred;
+                          } else if (freshExpiresAtMs === undefined || freshExpiresAtMs === null) {
+                            // No expiresAt - refresh proactively
+                          } else {
+                            return freshCred;
+                          }
+
+                          // Perform refresh using the exact same logic as 9router
+                          const refreshResult = await this.refreshKiroTokenInternal(freshCred);
+
+                          // Persist refreshed credential back to storage
+                          if (this.setCredential) {
+                            await this.setCredential(credentialId, this.toCredentialSecret(refreshResult));
+              }
+              return refreshResult;
+            });
+          }
+
+          /** Acquire refresh lock for a credential with dedup */
+                              private async acquireRefreshLock(credentialId: string, refreshToken: string | undefined, fn: () => Promise<KiroCredential>): Promise<KiroCredential> {
+                                // Use the existing dedupRefresh mechanism from 9router - key by refresh token
+                                return dedupRefresh(`kiro:${credentialId}`, refreshToken ?? credentialId, fn, undefined);
+                              }
+
+    private async refreshKiroTokenInternal(cred: KiroCredential): Promise<KiroCredential> {
+        const authMethod = cred.authMethod;
+        const clientId = cred.clientId;
+        const clientSecret = cred.clientSecret;
+
+        if (clientId && clientSecret) {
+        const region = cred.region ?? 'us-east-1';
+        const endpoint = `https://oidc.${region}.amazonaws.com/token`;
+        const res = await this.fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId: clientId,
+            clientSecret: clientSecret,
+            refreshToken: cred.refreshToken,
+            grantType: 'refresh_token',
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          const err = new Error(`Kiro SSO OIDC refresh failed: ${res.status} ${errText}`);
+          if (errText.includes('slow_down') || errText.includes('SlowDown')) {
+            throw err;
+          }
+          if (errText.includes('invalid_grant') || errText.includes('Invalid refresh token')) {
+            throw err;
+          }
+          throw err;
+        }
+        const data = await res.json() as { accessToken?: string; refreshToken?: string; expiresIn?: number; profileArn?: string };
+        return {
+          ...cred,
+          accessToken: data.accessToken ?? cred.accessToken,
+          refreshToken: data.refreshToken ?? cred.refreshToken,
+          profileArn: data.profileArn ?? cred.profileArn,
+          expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : cred.expiresAt,
+        };
+      }
+
+      const res = await this.fetch(KIRO_SOCIAL_REFRESH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: cred.refreshToken }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        const err = new Error(`Kiro social refresh failed: ${res.status} ${errText}`);
+        if (errText.includes('slow_down') || errText.includes('SlowDown')) {
+          throw err;
+        }
+        if (errText.includes('invalid_grant') || errText.includes('Invalid refresh token')) {
+          throw err;
+        }
+        throw err;
+      }
+      const data = await res.json() as { accessToken?: string; refreshToken?: string; profileArn?: string; expiresIn?: number };
+      return {
+        ...cred,
+        accessToken: data.accessToken ?? cred.accessToken,
+        refreshToken: data.refreshToken ?? cred.refreshToken,
+        profileArn: data.profileArn ?? cred.profileArn,
+        expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : cred.expiresAt,
+      };
+    }
 
   private toCredentialSecret(cred: KiroCredential): CredentialSecret {
     return {
