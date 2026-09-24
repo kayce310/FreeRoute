@@ -36,20 +36,160 @@ const KIRO_RUNTIME_BASE = 'https://runtime.us-east-1.kiro.dev/generateAssistantR
 const KIRO_CW_BASE = 'https://codewhisperer.us-east-1.amazonaws.com';
 const KIRO_Q_BASE = 'https://q.us-east-1.amazonaws.com';
 
+// ─── Model suffix constants (from 9router open-sse/config/kiroConstants.js) ────
+const KIRO_AGENTIC_SUFFIX = '-agentic';
+const KIRO_THINKING_SUFFIX = '-thinking';
+const KIRO_THINKING_BUDGET_DEFAULT = 16000;
+
+/** Agentic chunked-write system prompt (from 9router). */
+const KIRO_AGENTIC_SYSTEM_PROMPT = `
+# CRITICAL: CHUNKED WRITE PROTOCOL (MANDATORY)
+
+You MUST follow these rules for ALL file operations. Violation causes server timeouts and task failure.
+
+## ABSOLUTE LIMITS
+- **MAXIMUM 350 LINES** per single write/edit operation - NO EXCEPTIONS
+- **RECOMMENDED 300 LINES** or less for optimal performance
+- **NEVER** write entire files in one operation if >300 lines
+
+## MANDATORY CHUNKED WRITE STRATEGY
+
+### For NEW FILES (>300 lines total):
+1. FIRST: Write initial chunk (first 250-300 lines) using write_to_file/fsWrite
+2. THEN: Append remaining content in 250-300 line chunks using file append operations
+3. REPEAT: Continue appending until complete
+
+### For EDITING EXISTING FILES:
+1. Use surgical edits (apply_diff/targeted edits) - change ONLY what's needed
+2. NEVER rewrite entire files - use incremental modifications
+3. Split large refactors into multiple small, focused edits
+
+### For LARGE CODE GENERATION:
+1. Generate in logical sections (imports, types, functions separately)
+2. Write each section as a separate operation
+3. Use append operations for subsequent sections
+
+## EXAMPLES OF CORRECT BEHAVIOR
+
+CORRECT: Writing a 600-line file
+- Operation 1: Write lines 1-300 (initial file creation)
+- Operation 2: Append lines 301-600
+
+CORRECT: Editing multiple functions
+- Operation 1: Edit function A
+- Operation 2: Edit function B
+- Operation 3: Edit function C
+
+WRONG: Writing 500 lines in single operation -> TIMEOUT
+WRONG: Rewriting entire file to change 5 lines -> TIMEOUT
+WRONG: Generating massive code blocks without chunking -> TIMEOUT
+
+REMEMBER: When in doubt, write LESS per operation. Multiple small operations > one large operation.
+`.trim();
+
+// ─── Model resolution helpers ──────────────────────────────────────────────────
+
+function isAgenticModel(model: string): boolean {
+  return typeof model === 'string' && model.endsWith(KIRO_AGENTIC_SUFFIX);
+}
+
+function stripAgenticSuffix(model: string): string {
+  return isAgenticModel(model) ? model.slice(0, -KIRO_AGENTIC_SUFFIX.length) : model;
+}
+
+function isThinkingModel(model: string): boolean {
+  return typeof model === 'string' && model.endsWith(KIRO_THINKING_SUFFIX);
+}
+
+function stripThinkingSuffix(model: string): string {
+  return isThinkingModel(model) ? model.slice(0, -KIRO_THINKING_SUFFIX.length) : model;
+}
+
+/** Resolve a 9router model id to the real upstream Kiro model id plus flags. */
+function resolveKiroModel(model: string) {
+  let upstream = model;
+  let agentic = false;
+  let thinking = false;
+  if (isAgenticModel(upstream)) {
+    agentic = true;
+    upstream = stripAgenticSuffix(upstream);
+  }
+  if (isThinkingModel(upstream)) {
+    thinking = true;
+    upstream = stripThinkingSuffix(upstream);
+  }
+  return { upstream, agentic, thinking };
+}
+
+/**
+ * Build the magic system-prompt prefix that turns Kiro reasoning on.
+ * Same shape as CLIProxyAPIPlus / 9router buildThinkingSystemPrefix().
+ */
+function buildThinkingSystemPrefix(budget = KIRO_THINKING_BUDGET_DEFAULT): string {
+  const safeBudget = Math.max(1, Math.min(32000, Number(budget) || KIRO_THINKING_BUDGET_DEFAULT));
+  return `<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${safeBudget}</max_thinking_length>`;
+}
+
+/**
+ * Detect whether a request body or headers implies thinking/reasoning.
+ * Mirrors resolveKiroThinkingBudget from 9router kiroConstants.js.
+ */
+function resolveThinkingBudget(body: NormalizedChatRequest, headers?: Record<string, string>, model?: string): number | null {
+  // Check for explicit thinking configuration
+  const req = body as any;
+  if (req.thinking) {
+    if (req.thinking.enabled === false || req.thinking.budget_tokens === 0) return null;
+    const budget = req.thinking.budget_tokens;
+    if (typeof budget === 'number' && budget > 0) return budget;
+    return KIRO_THINKING_BUDGET_DEFAULT;
+  }
+  if (req.reasoning_effort) {
+    const effort = req.reasoning_effort;
+    if (effort === 'none' || effort === 'off') return null;
+    return effort === 'high' ? 16000 : KIRO_THINKING_BUDGET_DEFAULT;
+  }
+  // Check Anthropic-Beta header for interleaved-thinking
+  if (headers) {
+    const beta = Object.entries(headers).find(([k]) => k.toLowerCase() === 'anthropic-beta');
+    if (beta && typeof beta[1] === 'string' && beta[1].toLowerCase().includes('interleaved-thinking')) {
+      return KIRO_THINKING_BUDGET_DEFAULT;
+    }
+  }
+  // Check for <thinking_mode> tag in messages
+  const messages = Array.isArray(req.messages) ? req.messages : [];
+  for (const msg of messages) {
+    if (!msg) continue;
+    if (msg.role !== 'system' && msg.role !== 'user') continue;
+    const content = msg.content;
+    if (typeof content === 'string' && content.includes('<thinking_mode>enabled</thinking_mode>')) return KIRO_THINKING_BUDGET_DEFAULT;
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        const text = (part as any)?.text;
+        if (typeof text === 'string' && text.includes('<thinking_mode>enabled</thinking_mode>')) return KIRO_THINKING_BUDGET_DEFAULT;
+      }
+    }
+  }
+  if (typeof req.system === 'string' && req.system.includes('<thinking_mode>enabled</thinking_mode>')) return KIRO_THINKING_BUDGET_DEFAULT;
+  if (typeof model === 'string' && model) {
+    const m = model.toLowerCase();
+    if (m.includes('thinking') || m.includes('-reason')) return KIRO_THINKING_BUDGET_DEFAULT;
+  }
+  return null;
+}
+
+// ─── Credential helpers ─────────────────────────────────────────────────────────
+
 /** Parse credential secret: JSON or plain accessToken string. Also merges with CredentialSecret providerSpecificData. */
 export function parseCredential(secret: string | CredentialSecret, psd?: Record<string, unknown>): KiroCredential {
   if (typeof secret === 'object' && secret !== null) {
-    // CredentialSecret from Phase A: extract token and merge providerSpecificData
     const accessToken = secret.accessToken ?? secret.apiKey;
     if (!accessToken) throw new Error('Kiro: no accessToken or apiKey in credential');
     const mergedPsD: Record<string, unknown> = { ...secret.providerSpecificData, ...psd };
     return {
       accessToken,
       refreshToken: secret.refreshToken ?? null,
-      // Support both top-level and providerSpecificData fields
       profileArn: (mergedPsD.profileArn as string | undefined) ?? (secret as any).profileArn ?? null,
       region: (mergedPsD.region as string | undefined) ?? (secret as any).region,
-      // Support both top-level authMethod (migrated creds) and providerSpecificData.authMethod
       authMethod: secret.authType === 'cookie' ? 'cookie' :
         ((mergedPsD.authMethod as KiroCredential['authMethod']) ?? (secret as any).authMethod),
       clientId: (mergedPsD.clientId as string | undefined) ?? (secret as any).clientId,
@@ -57,7 +197,6 @@ export function parseCredential(secret: string | CredentialSecret, psd?: Record<
       expiresAt: (mergedPsD.expiresAt as number | undefined) ?? (secret as any).expiresAt,
     };
   }
-  // Plain string (backward compat): parse JSON or treat as accessToken
   try {
     const parsed = JSON.parse(secret);
     if (typeof parsed === 'object' && parsed !== null && typeof parsed.accessToken === 'string') {
@@ -90,12 +229,13 @@ async function refreshKiroToken(
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`Kiro SSO OIDC refresh failed: ${res.status} ${await res.text()}`);
-    const data = await res.json() as { accessToken?: string; refreshToken?: string; expiresIn?: number };
+    const data = await res.json() as { accessToken?: string; refreshToken?: string; expiresIn?: number; profileArn?: string };
     return {
       ...cred,
       accessToken: data.accessToken ?? cred.accessToken,
       refreshToken: data.refreshToken ?? cred.refreshToken,
-      expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : undefined,
+      profileArn: data.profileArn ?? cred.profileArn,
+      expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : cred.expiresAt,
     };
   }
 
@@ -113,7 +253,7 @@ async function refreshKiroToken(
     accessToken: data.accessToken ?? cred.accessToken,
     refreshToken: data.refreshToken ?? cred.refreshToken,
     profileArn: data.profileArn ?? cred.profileArn,
-    expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : undefined,
+    expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : cred.expiresAt,
   };
 }
 
@@ -132,6 +272,7 @@ async function resolveProfileArn(
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
       },
+      body: JSON.stringify({ maxResults: 10 }),
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
@@ -144,6 +285,66 @@ async function resolveProfileArn(
     return null;
   }
 }
+
+// ─── AWS EventStream parser (from 9router open-sse/executors/kiro.js) ──────────
+
+interface EventFrame {
+  headers: Record<string, string>;
+  payload: any;
+}
+
+function parseEventFrame(data: Uint8Array): EventFrame | null {
+  try {
+    const view = new DataView(data.buffer, data.byteOffset);
+    const totalLength = view.getUint32(0, false);
+    if (totalLength < 16 || totalLength > data.length) return null;
+
+    const headersLength = view.getUint32(4, false);
+    const headers: Record<string, string> = {};
+    let offset = 12;
+    const headerEnd = 12 + headersLength;
+
+    while (offset < headerEnd && offset < data.length) {
+      const nameLen = data[offset];
+      offset++;
+      if (offset + nameLen > data.length) break;
+      const name = new TextDecoder().decode(data.slice(offset, offset + nameLen));
+      offset += nameLen;
+      const headerType = data[offset];
+      offset++;
+      if (headerType === 7) {
+        const valueLen = (data[offset] << 8) | data[offset + 1];
+        offset += 2;
+        if (offset + valueLen > data.length) break;
+        const value = new TextDecoder().decode(data.slice(offset, offset + valueLen));
+        offset += valueLen;
+        headers[name] = value;
+      } else {
+        break;
+      }
+    }
+
+    const payloadStart = 12 + headersLength;
+    const payloadEnd = data.length - 4;
+    let payload = null;
+    if (payloadEnd > payloadStart) {
+      const payloadStr = new TextDecoder().decode(data.slice(payloadStart, payloadEnd));
+      if (!payloadStr || !payloadStr.trim()) {
+        return { headers, payload: null };
+      }
+      try {
+        payload = JSON.parse(payloadStr);
+      } catch {
+        payload = { raw: payloadStr };
+      }
+    }
+    return { headers, payload };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Provider adapter ───────────────────────────────────────────────────────────
 
 export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapter {
   readonly providerId: string;
@@ -174,16 +375,12 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     if (!secret) throw new Error('Kiro: no credential for id ' + credentialId);
     let cred = parseCredential(secret);
 
-    // Check in-memory cache (valid for 5 minutes window before expiry)
     const cached = this.tokenCache.get(credentialId);
     if (cached && Date.now() - cached.updatedAt < 5 * 60 * 1000) {
       cred = cached.cred;
     }
 
     // Proactive refresh: always refresh if refreshToken is available.
-    // Matches 9router behavior (checkAndRefreshToken before every request).
-    // This is critical because many imported credentials lack expiresAt,
-    // making the previous near-expiry/expired check ineffective.
     if (cred.refreshToken) {
       try {
         const fingerprintBefore = cred.accessToken.slice(0, 8) + '...';
@@ -191,56 +388,25 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
         const fingerprintAfter = cred.accessToken.slice(0, 8) + '...';
         console.log(`[Kiro] ${credentialId}: refresh ${fingerprintBefore} -> ${fingerprintAfter} expiresAt=${cred.expiresAt}`);
         this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
-        // Persist refreshed credential back to storage
         if (this.setCredential) {
-          const secret: CredentialSecret = {
-            accessToken: cred.accessToken,
-            refreshToken: cred.refreshToken || undefined,
-            providerSpecificData: {
-              ...(cred.profileArn ? { profileArn: cred.profileArn } : {}),
-              ...(cred.region ? { region: cred.region } : {}),
-              ...(cred.authMethod ? { authMethod: cred.authMethod } : {}),
-              ...(cred.clientId ? { clientId: cred.clientId } : {}),
-              ...(cred.clientSecret ? { clientSecret: cred.clientSecret } : {}),
-              ...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
-            },
-          };
-          await this.setCredential(credentialId, secret);
+          await this.setCredential(credentialId, this.toCredentialSecret(cred));
         }
       } catch (err) {
         console.warn(`[Kiro] ${credentialId}: refresh failed: ${err instanceof Error ? err.message : String(err)}`);
-        // Use existing token even if refresh failed
       }
     }
 
-    // Resolve profileArn if missing
-    // Per 9router convention: api_key auth must NOT use default profileArn (gets 403)
-    // oauth/social auth falls back to shared default profileArn
+    // Resolve profileArn if missing (api_key auth: leave empty; OAuth/social: use default)
     if (!cred.profileArn) {
       if (cred.authMethod === 'api_key') {
-        // API key auth: no default profileArn allowed, leave empty
         cred = { ...cred, profileArn: '' };
       } else {
-        // OAuth/social: try to resolve from profiles API, fall back to shared default
         const region = cred.region ?? 'us-east-1';
         const resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
         if (resolvedArn) {
-          // Persist the resolved profileArn back to storage so future requests don't re-resolve
           cred = { ...cred, profileArn: resolvedArn };
           if (this.setCredential) {
-            const secret: CredentialSecret = {
-              accessToken: cred.accessToken,
-              refreshToken: cred.refreshToken || undefined,
-              providerSpecificData: {
-                ...(cred.profileArn ? { profileArn: cred.profileArn } : {}),
-                ...(cred.region ? { region: cred.region } : {}),
-                ...(cred.authMethod ? { authMethod: cred.authMethod } : {}),
-                ...(cred.clientId ? { clientId: cred.clientId } : {}),
-                ...(cred.clientSecret ? { clientSecret: cred.clientSecret } : {}),
-                ...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
-              },
-            };
-            await this.setCredential(credentialId, secret).catch(() => {});
+            await this.setCredential(credentialId, this.toCredentialSecret(cred)).catch(() => {});
           }
         } else {
           cred = { ...cred, profileArn: resolveDefaultProfileArn(cred.authMethod) };
@@ -252,6 +418,21 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     return cred;
   }
 
+  private toCredentialSecret(cred: KiroCredential): CredentialSecret {
+    return {
+      accessToken: cred.accessToken,
+      refreshToken: cred.refreshToken ?? undefined,
+      providerSpecificData: {
+        ...(cred.profileArn ? { profileArn: cred.profileArn } : {}),
+        ...(cred.region ? { region: cred.region } : {}),
+        ...(cred.authMethod ? { authMethod: cred.authMethod } : {}),
+        ...(cred.clientId ? { clientId: cred.clientId } : {}),
+        ...(cred.clientSecret ? { clientSecret: cred.clientSecret } : {}),
+        ...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
+      },
+    };
+  }
+
   async discoverModels(credentialId: string): Promise<DiscoveredModel[]> {
     try {
       const cred = await this.resolveCred(credentialId);
@@ -260,7 +441,6 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       const params = new URLSearchParams();
       params.set('origin', 'AI_EDITOR');
       if (profileArn) params.set('profileArn', profileArn);
-      // Use Q endpoint for ListAvailableModels (matches 9router implementation)
       const endpoint = `https://q.${region}.amazonaws.com/ListAvailableModels?${params.toString()}`;
 
       const res = await this.fetch(endpoint, {
@@ -286,7 +466,6 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       }
     } catch { /* fall through to static */ }
 
-    // Static fallback - matches 9router's static catalog
     return [
       { modelId: 'kr/claude-sonnet-4.5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 95 },
       { modelId: 'kr/claude-haiku-4.5', capabilities: ['chat', 'streaming', 'tools'], freeTier: 'free_verified', priority: 92 },
@@ -334,25 +513,21 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     request: NormalizedChatRequest;
   }): AsyncIterable<NormalizedChatStreamEvent> {
     const cred = await this.resolveCred(input.credentialId);
-    const id = `kiro-${Date.now()}`;
-    // Strip prefix like "kr/" from modelId
+    const id = `chatcmpl-${Date.now()}`;
     const model = input.modelId.includes('/') ? input.modelId.split('/').pop()! : input.modelId;
     const payload = this.buildPayload(model, input.request, cred);
 
-    // Use the correct Kiro runtime endpoint (matches 9router)
-    const endpoint = `${this.baseUrl}`;
+    const endpoint = this.baseUrl;
     const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cred.accessToken}`,
-        'Accept': 'application/vnd.amazon.eventstream',
-        'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
-        'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
-        // Parity with 9router: these AWS SDK headers are required by the Kiro gateway.
-        // Their absence causes HTTP 403 "bearer token included in the request is invalid".
-        'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
-        'Amz-Sdk-Request': 'attempt=1; max=3',
-        'Amz-Sdk-Invocation-Id': crypto.randomUUID(),
-      };
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cred.accessToken}`,
+      'Accept': 'application/vnd.amazon.eventstream',
+      'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+      'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
+      'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+      'Amz-Sdk-Request': 'attempt=1; max=3',
+      'Amz-Sdk-Invocation-Id': crypto.randomUUID(),
+    };
 
     // API-key auth requires a tokentype header so the gateway treats the token
     // as a long-lived API key rather than an OIDC/social access token.
@@ -369,7 +544,6 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       if (res.status === 401 || res.status === 403) {
-        // Try refresh once on auth failure
         if (cred.refreshToken) {
           this.tokenCache.delete(input.credentialId);
         }
@@ -378,112 +552,421 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       throw new Error(`Kiro ${res.status}: ${errText}`);
     }
 
-    const reader = res.body!.getReader();
+    if (!res.body) {
+      yield { id, model: input.modelId, delta: '', finishReason: 'stop' };
+      return;
+    }
+
+    yield* this.transformEventStreamToSSE(res.body, input.modelId, id);
+  }
+
+  // ─── AWS EventStream → SSE transform (port of 9router transformEventStreamToSSE) ──
+
+  private async *transformEventStreamToSSE(
+    body: ReadableStream<Uint8Array>,
+    model: string,
+    responseId: string,
+  ): AsyncGenerator<NormalizedChatStreamEvent> {
+    const reader = body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
-    let hadToolUse = false;
+    let buffer = new Uint8Array(0);
+    let chunkIndex = 0;
+    const created = Math.floor(Date.now() / 1000);
+    const state = {
+      endDetected: false,
+      finishEmitted: false,
+      hasToolCalls: false,
+      hasReasoningContent: false,
+      reasoningChunkCount: 0,
+      toolCallIndex: 0,
+      seenToolIds: new Map<string, number>(),
+      totalContentLength: 0,
+      contextUsagePercentage: 0,
+      usage: null as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null,
+      hasMeteringEvent: false,
+      hasContextUsage: false,
+    };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === 'content_block_start' && data.content_block?.type === 'text') {
-              // Start of content
-            } else if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
-              const delta = data.delta.text;
-              if (delta) yield { id, model: input.modelId, delta };
-            } else if (data.type === 'content_block_delta' && data.delta?.type === 'thinking_delta') {
-              const thought = data.delta.thinking;
-              if (thought) yield { id, model: input.modelId, thought };
-            } else if (data.type === 'tool_use') {
-              hadToolUse = true;
-              const toolCall: ToolCall = {
-                id: data.id ?? `call_${Date.now()}`,
-                type: 'function',
-                function: { name: data.name ?? '', arguments: JSON.stringify(data.input ?? {}) },
-              };
-              yield { id, model: input.modelId, toolCalls: [toolCall] };
-            } else if (data.type === 'message_stop') {
-              yield { id, model: input.modelId, finishReason: hadToolUse ? 'tool_calls' : 'stop' };
-              return;
-            } else if (data.type === 'usage') {
+        // Append to buffer
+        const newBuffer = new Uint8Array(buffer.length + value.length);
+        newBuffer.set(buffer);
+        newBuffer.set(value, buffer.length);
+        buffer = newBuffer;
+
+        // Parse events from buffer
+        while (buffer.length >= 16) {
+          const view = new DataView(buffer.buffer, buffer.byteOffset);
+          const totalLength = view.getUint32(0, false);
+
+          if (totalLength < 16 || totalLength > buffer.length) break;
+
+          const eventData = buffer.slice(0, totalLength);
+          buffer = buffer.slice(totalLength);
+
+          const event = parseEventFrame(eventData);
+          if (!event) continue;
+
+          const eventType = event.headers[':event-type'] || '';
+
+          // Track total content length for token estimation
+          if (!state.totalContentLength) state.totalContentLength = 0;
+          if (!state.contextUsagePercentage) state.contextUsagePercentage = 0;
+
+          // Handle assistantResponseEvent
+          if (eventType === 'assistantResponseEvent' && event.payload?.content) {
+            const content = event.payload.content;
+            state.totalContentLength += content.length;
+
+            const isFirst = chunkIndex === 0;
+            chunkIndex++;
+            yield {
+              id: responseId,
+              model,
+              delta: isFirst ? content : '',
+              ...(isFirst ? { _firstContent: content } : {}),
+            };
+          }
+
+          // Handle reasoningContentEvent
+          if (eventType === 'reasoningContentEvent') {
+            const reasoning = event.payload?.reasoningContentEvent || event.payload || {};
+            const reasoningText = typeof reasoning === 'string'
+              ? reasoning
+              : (reasoning.text || reasoning.content || '');
+            if (reasoningText) {
+              state.hasReasoningContent = true;
+              state.totalContentLength += reasoningText.length;
+
+              const isFirst = state.reasoningChunkCount === 0 && chunkIndex === 0;
+              chunkIndex++;
+              state.reasoningChunkCount++;
               yield {
-                id,
-                model: input.modelId,
-                usage: {
-                  promptTokens: data.usage?.input_tokens ?? 0,
-                  completionTokens: data.usage?.output_tokens ?? 0,
-                  totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
-                },
+                id: responseId,
+                model,
+                thought: isFirst ? reasoningText : reasoningText,
+                ...(isFirst ? { _firstContent: '' } : {}),
               };
             }
-          } catch {
-            // Skip malformed JSON
+          }
+
+          // Handle codeEvent
+          if (eventType === 'codeEvent' && event.payload?.content) {
+            chunkIndex++;
+            yield {
+              id: responseId,
+              model,
+              delta: event.payload.content,
+            };
+          }
+
+          // Handle toolUseEvent
+          if (eventType === 'toolUseEvent' && event.payload) {
+            state.hasToolCalls = true;
+            const toolUses = Array.isArray(event.payload) ? event.payload : [event.payload];
+
+            for (const singleToolUse of toolUses) {
+              const toolCallId = singleToolUse.toolUseId || `call_${Date.now()}`;
+              const toolName = singleToolUse.name || '';
+              const toolInput = singleToolUse.input;
+
+              let toolIndex;
+              const isNewTool = !state.seenToolIds.has(toolCallId);
+
+              if (isNewTool) {
+                toolIndex = state.toolCallIndex++;
+                state.seenToolIds.set(toolCallId, toolIndex);
+
+                yield {
+                  id: responseId,
+                  model,
+                  toolCalls: [{
+                    id: toolCallId,
+                    type: 'function',
+                    function: { name: toolName, arguments: '' },
+                  }],
+                };
+              } else {
+                toolIndex = state.seenToolIds.get(toolCallId);
+              }
+
+              if (toolInput !== undefined) {
+                let argumentsStr;
+                if (typeof toolInput === 'string') {
+                  argumentsStr = toolInput;
+                } else if (typeof toolInput === 'object') {
+                  argumentsStr = JSON.stringify(toolInput);
+                } else {
+                  continue;
+                }
+
+                yield {
+                  id: responseId,
+                  model,
+                  toolCalls: [{
+                    id: toolCallId,
+                    type: 'function',
+                    function: { name: toolName, arguments: argumentsStr },
+                  }],
+                };
+              }
+            }
+          }
+
+          // Handle messageStopEvent
+          if (eventType === 'messageStopEvent') {
+            state.finishEmitted = true;
+            yield {
+              id: responseId,
+              model,
+              finishReason: state.hasToolCalls ? 'tool_calls' : 'stop',
+            };
+          }
+
+          // Handle contextUsageEvent
+          if (eventType === 'contextUsageEvent' && event.payload?.contextUsagePercentage) {
+            state.contextUsagePercentage = event.payload.contextUsagePercentage;
+            state.hasContextUsage = true;
+          }
+
+          // Handle meteringEvent
+          if (eventType === 'meteringEvent') {
+            state.hasMeteringEvent = true;
+          }
+
+          // Handle metricsEvent for token usage
+          if (eventType === 'metricsEvent') {
+            const metrics = event.payload?.metricsEvent || event.payload;
+            if (metrics && typeof metrics === 'object') {
+              const inputTokens = (metrics as any).inputTokens || 0;
+              const outputTokens = (metrics as any).outputTokens || 0;
+              if (inputTokens > 0 || outputTokens > 0) {
+                state.usage = {
+                  prompt_tokens: inputTokens,
+                  completion_tokens: outputTokens,
+                  total_tokens: inputTokens + outputTokens,
+                };
+              }
+            }
           }
         }
       }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // Emit final finish chunk if not already sent
+    if (!state.finishEmitted) {
+      // Estimate tokens if not available from events
+      if (!state.usage) {
+        const estimatedOutputTokens = state.totalContentLength > 0
+          ? Math.max(1, Math.floor(state.totalContentLength / 4))
+          : 0;
+        const estimatedInputTokens = state.contextUsagePercentage > 0
+          ? Math.floor(state.contextUsagePercentage * 200000 / 100)
+          : 0;
+        state.usage = {
+          prompt_tokens: estimatedInputTokens,
+          completion_tokens: estimatedOutputTokens,
+          total_tokens: estimatedInputTokens + estimatedOutputTokens,
+        };
+      }
+
+      yield {
+        id: responseId,
+        model,
+        finishReason: state.hasToolCalls ? 'tool_calls' : 'stop',
+        ...(state.usage ? { usage: {
+          promptTokens: state.usage.prompt_tokens,
+          completionTokens: state.usage.completion_tokens,
+          totalTokens: state.usage.total_tokens,
+        }} : {}),
+      };
     }
   }
 
   private buildPayload(model: string, request: NormalizedChatRequest, cred: KiroCredential): Record<string, unknown> {
-    const history: unknown[] = [];
-    let currentMessage: any = null;
-    for (const msg of request.messages) {
-      if (msg.role === 'user' || msg.role === 'system') {
-        const content = typeof msg.content === 'string' ? msg.content
-          : (Array.isArray(msg.content) ? msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') : '');
-        currentMessage = { userInputMessage: { content, modelId: model, origin: 'AI_EDITOR' } };
-        history.push(currentMessage);
-      } else if (msg.role === 'assistant') {
-        const content = typeof msg.content === 'string' ? msg.content
-          : (Array.isArray(msg.content) ? msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') : '');
-        history.push({ assistantResponseMessage: { content } });
-      }
-    }
-    for (let i = history.length - 1; i >= 0; i--) {
-      const item = history[i] as any;
-      if (item.userInputMessage) { currentMessage = history.splice(i, 1)[0]; break; }
-    }
-    if (!currentMessage) currentMessage = { userInputMessage: { content: '', modelId: model, origin: 'AI_EDITOR' } };
+    const messages = request.messages || [];
+    const tools = request.tools || [];
+    const temperature = request.temperature;
+    const topP = (request as any).top_p;
+    const maxTokens = (request as any).maxTokens || 32000;
 
-    if (request.tools?.length) {
-      currentMessage.userInputMessage.userInputMessageContext = {
-        tools: request.tools.map((t: any) => ({
-          toolSpecification: { name: t.function?.name ?? t.name, description: t.function?.description ?? t.description ?? '', inputSchema: { json: t.function?.parameters ?? t.parameters ?? {} } },
-        })),
-      };
-    }
-    const conversationState: Record<string, unknown> = {
-      chatTriggerType: 'MANUAL',
-      conversationId: `kiro-${Date.now()}`,
-      currentMessage,
-      history,
+    const { upstream: upstreamModel, agentic, thinking } = resolveKiroModel(model);
+    const thinkingBudget = resolveThinkingBudget(request, undefined, model);
+
+    // Build history + currentMessage (mirrors 9router convertMessages)
+    const history: Array<any> = [];
+    let currentMessage: any = null;
+
+    let pendingUserContent: string[] = [];
+    let pendingAssistantContent: string[] = [];
+    let currentRole: string | null = null;
+    let toolsInjected = false;
+
+    const flushPending = () => {
+      if (currentRole === 'user') {
+        const content = pendingUserContent.join('\n\n').trim() || 'continue';
+        const userMsg: any = { userInputMessage: { content, modelId: '' } };
+        if (pendingUserContent.length === 0) userMsg.userInputMessage.content = 'continue';
+        if (tools.length > 0 && !toolsInjected) {
+          userMsg.userInputMessage.userInputMessageContext = {
+            tools: tools.map((t: any) => ({
+              toolSpecification: {
+                name: t.function?.name ?? t.name,
+                description: t.function?.description ?? t.description ?? '',
+                inputSchema: { json: t.function?.parameters ?? t.parameters ?? {} },
+              },
+            })),
+          };
+          toolsInjected = true;
+        }
+        history.push(userMsg);
+        currentMessage = userMsg;
+        pendingUserContent = [];
+      } else if (currentRole === 'assistant') {
+        const content = pendingAssistantContent.join('\n\n').trim() || '...';
+        history.push({ assistantResponseMessage: { content } });
+        pendingAssistantContent = [];
+      }
     };
 
-    const payload: Record<string, unknown> = { conversationState };
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      let role = msg.role;
 
-    // profileArn at TOP LEVEL (per 9router openai-to-kiro.js):
-    //   if (profileArn) payload.profileArn = profileArn;
-    // NOT inside conversationState!
-    if (cred.profileArn) {
-      payload.profileArn = cred.profileArn;
+      // Normalize: system/tool → user
+      if (role === 'system' || role === 'tool') role = 'user';
+
+      if (role !== currentRole && currentRole !== null) flushPending();
+      currentRole = role;
+
+      if (role === 'user') {
+        let content = '';
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          const textParts = msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text);
+          content = textParts.join('\n');
+        }
+        if (content) pendingUserContent.push(content);
+      } else if (role === 'assistant') {
+        let textContent = '';
+        if (typeof msg.content === 'string') {
+          textContent = msg.content.trim();
+        } else if (Array.isArray(msg.content)) {
+          textContent = msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim();
+        }
+        if (textContent) pendingAssistantContent.push(textContent);
+      }
     }
 
-    // inferenceConfig if present (9router adds it when maxTokens/temperature/topP specified)
-    if (request.temperature !== undefined || (request as any).maxTokens !== undefined) {
+    if (currentRole !== null) flushPending();
+
+    // Pop last userInputMessage as currentMessage
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].userInputMessage) {
+        currentMessage = history.splice(i, 1)[0];
+        break;
+      }
+    }
+
+    if (!currentMessage) {
+      currentMessage = { userInputMessage: { content: '', modelId: upstreamModel } };
+    }
+
+    // Set modelId on all history items
+    history.forEach((item: any) => {
+      if (item.userInputMessage && !item.userInputMessage.modelId) {
+        item.userInputMessage.modelId = upstreamModel;
+      }
+    });
+
+    // Merge consecutive user messages
+    const mergedHistory: any[] = [];
+    for (const item of history) {
+      if (item.userInputMessage && mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].userInputMessage) {
+        const prev = mergedHistory[mergedHistory.length - 1];
+        prev.userInputMessage.content += '\n\n' + item.userInputMessage.content;
+        if (item.userInputMessage.userInputMessageContext?.toolResults) {
+          if (!prev.userInputMessage.userInputMessageContext) {
+            prev.userInputMessage.userInputMessageContext = {};
+          }
+          prev.userInputMessage.userInputMessageContext.toolResults = [
+            ...(prev.userInputMessage.userInputMessageContext.toolResults || []),
+            ...item.userInputMessage.userInputMessageContext.toolResults,
+          ];
+        }
+      } else {
+        mergedHistory.push(item);
+      }
+    }
+
+    // ProfileArn placement: top-level payload (per 9router openai-to-kiro.js)
+    const authMethod = cred.authMethod;
+    const profileArn = authMethod === 'api_key'
+      ? (cred.profileArn || '')
+      : (cred.profileArn || resolveDefaultProfileArn(authMethod));
+
+    // Build final content with prefix (thinking_mode, timestamp, agentic prompt)
+    let finalContent = currentMessage?.userInputMessage?.content || '';
+
+    // Prepend system text if present
+    const req = request as any;
+    if (req.system) {
+      const systemText = typeof req.system === 'string'
+        ? req.system
+        : (Array.isArray(req.system)
+            ? req.system.map((s: any) => s.text || '').join('\n')
+            : '');
+      if (systemText) finalContent = `${systemText}\n\n${finalContent}`;
+    }
+
+    const timestamp = new Date().toISOString();
+    const prefixParts: string[] = [];
+    if (thinkingBudget !== null) {
+      prefixParts.push(buildThinkingSystemPrefix(thinkingBudget));
+    }
+    prefixParts.push(`[Context: Current time is ${timestamp}]`);
+    if (agentic) {
+      prefixParts.push(KIRO_AGENTIC_SYSTEM_PROMPT);
+    }
+    finalContent = `${prefixParts.join('\n\n')}\n\n${finalContent}`;
+
+    const payload: Record<string, unknown> = {
+      conversationState: {
+        chatTriggerType: 'MANUAL',
+        conversationId: `kiro-${Date.now()}`,
+        currentMessage: {
+          userInputMessage: {
+            content: finalContent,
+            modelId: upstreamModel,
+            origin: 'AI_EDITOR',
+          },
+        },
+        history: mergedHistory,
+      },
+    };
+
+    if (profileArn) payload.profileArn = profileArn;
+
+    if (maxTokens || temperature !== undefined || topP !== undefined) {
       const inferenceConfig: Record<string, unknown> = {};
-      const maxTokens = (request as any).maxTokens;
       if (maxTokens) inferenceConfig.maxTokens = maxTokens;
-      if (request.temperature !== undefined) inferenceConfig.temperature = request.temperature;
+      if (temperature !== undefined) inferenceConfig.temperature = temperature;
+      if (topP !== undefined) inferenceConfig.topP = topP;
       payload.inferenceConfig = inferenceConfig;
     }
+
+    // Tag payload so the executor can route the upstream model id correctly.
+    Object.defineProperty(payload, '_kiroUpstreamModel', {
+      value: upstreamModel,
+      enumerable: false,
+    });
 
     return payload;
   }
