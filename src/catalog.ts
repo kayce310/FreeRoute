@@ -93,7 +93,7 @@ export class CatalogService {
             checkedAt,
             expiresAt: model.expiresAt,
             priority: model.priority ?? presetModel?.priority ?? 0,
-            enabled: previous.find((item) => item.providerId === adapter.providerId && item.modelId === model.modelId)?.enabled ?? true,
+            enabled: true, // newly discovered models start enabled; stale models are handled below
             pricingStatus: model.pricingStatus ?? (model.freeTier === 'paid' ? 'paid' : model.freeTier === 'free_verified' ? 'free' : 'unknown'),
             catalogStatus: 'live',
           };

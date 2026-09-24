@@ -37,7 +37,7 @@ const KIRO_CW_BASE = 'https://codewhisperer.us-east-1.amazonaws.com';
 const KIRO_Q_BASE = 'https://q.us-east-1.amazonaws.com';
 
 /** Parse credential secret: JSON or plain accessToken string. Also merges with CredentialSecret providerSpecificData. */
-function parseCredential(secret: string | CredentialSecret, psd?: Record<string, unknown>): KiroCredential {
+export function parseCredential(secret: string | CredentialSecret, psd?: Record<string, unknown>): KiroCredential {
   if (typeof secret === 'object' && secret !== null) {
     // CredentialSecret from Phase A: extract token and merge providerSpecificData
     const accessToken = secret.accessToken ?? secret.apiKey;
@@ -180,14 +180,16 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
       cred = cached.cred;
     }
 
-    // Auto-refresh if token is near expiry (within 5 minutes) or already expired,
-    // and refreshToken available
-    const expiresAt = cred.expiresAt;
-    const nearExpiry = expiresAt && (expiresAt - Date.now() < 5 * 60 * 1000);
-    const expired = expiresAt && expiresAt < Date.now();
-    if ((nearExpiry || expired) && cred.refreshToken) {
+    // Proactive refresh: always refresh if refreshToken is available.
+    // Matches 9router behavior (checkAndRefreshToken before every request).
+    // This is critical because many imported credentials lack expiresAt,
+    // making the previous near-expiry/expired check ineffective.
+    if (cred.refreshToken) {
       try {
+        const fingerprintBefore = cred.accessToken.slice(0, 8) + '...';
         cred = await refreshKiroToken(cred, this.fetch);
+        const fingerprintAfter = cred.accessToken.slice(0, 8) + '...';
+        console.log(`[Kiro] ${credentialId}: refresh ${fingerprintBefore} -> ${fingerprintAfter} expiresAt=${cred.expiresAt}`);
         this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
         // Persist refreshed credential back to storage
         if (this.setCredential) {
@@ -205,7 +207,8 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
           };
           await this.setCredential(credentialId, secret);
         }
-      } catch {
+      } catch (err) {
+        console.warn(`[Kiro] ${credentialId}: refresh failed: ${err instanceof Error ? err.message : String(err)}`);
         // Use existing token even if refresh failed
       }
     }
@@ -221,10 +224,27 @@ export class KiroAdapter implements ChatProviderAdapter, ProviderDiscoveryAdapte
         // OAuth/social: try to resolve from profiles API, fall back to shared default
         const region = cred.region ?? 'us-east-1';
         const resolvedArn = await resolveProfileArn(cred.accessToken, region, this.fetch);
-        cred = {
-          ...cred,
-          profileArn: resolvedArn ?? resolveDefaultProfileArn(cred.authMethod),
-        };
+        if (resolvedArn) {
+          // Persist the resolved profileArn back to storage so future requests don't re-resolve
+          cred = { ...cred, profileArn: resolvedArn };
+          if (this.setCredential) {
+            const secret: CredentialSecret = {
+              accessToken: cred.accessToken,
+              refreshToken: cred.refreshToken || undefined,
+              providerSpecificData: {
+                ...(cred.profileArn ? { profileArn: cred.profileArn } : {}),
+                ...(cred.region ? { region: cred.region } : {}),
+                ...(cred.authMethod ? { authMethod: cred.authMethod } : {}),
+                ...(cred.clientId ? { clientId: cred.clientId } : {}),
+                ...(cred.clientSecret ? { clientSecret: cred.clientSecret } : {}),
+                ...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
+              },
+            };
+            await this.setCredential(credentialId, secret).catch(() => {});
+          }
+        } else {
+          cred = { ...cred, profileArn: resolveDefaultProfileArn(cred.authMethod) };
+        }
         this.tokenCache.set(credentialId, { cred, updatedAt: Date.now() });
       }
     }

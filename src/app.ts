@@ -95,6 +95,7 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     new KiroAdapter({
       providerId: 'kiro',
       getCredential: (credentialId) => credentials.get('kiro', credentialId),
+      setCredential: (credentialId, secret) => credentials.put('kiro', credentialId, secret),
       fetch: options.fetch,
     }),
   ];

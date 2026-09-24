@@ -246,8 +246,17 @@ export function detect9RouterCredentials(): DetectedCredential[] {
           }
           
           if (key && typeof key === 'string' && key.trim().length > 0) {
-            const psd = parsed.providerSpecificData;
-            
+            const psd = parsed.providerSpecificData || {};
+            // For Kiro (and other OAuth providers), preserve refreshToken at top level
+            // so server.ts can access it during import.
+            const enrichedPsD = { ...psd };
+            if (parsed.refreshToken) {
+              enrichedPsD.refreshToken = parsed.refreshToken;
+            }
+            if ((parsed as any).expiresAt) {
+              enrichedPsD.expiresAt = (parsed as any).expiresAt;
+            }
+
             detected.push({
               source: '9router',
               sourceLocation: dbPath,
@@ -258,7 +267,7 @@ export function detect9RouterCredentials(): DetectedCredential[] {
               apiKey: key.trim(),
               maskedKey: maskKey(key.trim()),
               isActive: Boolean(row.isActive),
-              providerSpecificData: psd && Object.keys(psd).length > 0 ? psd : undefined,
+              providerSpecificData: Object.keys(enrichedPsD).length > 0 ? enrichedPsD : undefined,
             });
           }
         } catch {
