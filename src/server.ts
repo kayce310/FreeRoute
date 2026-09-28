@@ -12,6 +12,10 @@ import type { SqliteComboStore } from './storage/sqlite-combo-store.js';
 import type { Preference, ModelRecord } from './contracts.js';
 import { dashboardHtml } from './dashboard.js';
 import { PROVIDER_PRESETS } from './presets.js';
+// Phase 4 imports
+import type { ExtendedCustomCombo, ComboProvenanceEntry, RankingPolicy, ConstructionContext } from './benchmarks/external/combo-types.js';
+import { constructAutoCombo, generateTargetsFromBenchmarkSource, buildCanonicalIndex } from './benchmarks/external/auto-combo-generator.js';
+import type { ExternalBenchmarkStorage } from './benchmarks/external/storage.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -23,6 +27,7 @@ export interface FreeRouteServerOptions {
   credentials?: SqliteCredentialStore;
   providerStore?: SqliteProviderStore;
   combos?: SqliteComboStore;
+  externalBenchmarks?: ExternalBenchmarkStorage;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
   onProviderChanged?: (providerId: string) => Promise<void> | void;
   onProviderRefresh?: (providerId: string, credentialId?: string) => Promise<unknown>;
@@ -661,6 +666,23 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         return;
       }
 
+      // Phase 4: GET /v1/combos/extended (before generic GET)
+      if (request.method === 'GET' && path === '/v1/combos/extended') {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const list = options.combos.listExtended();
+        sendJson(response, 200, { object: 'list', data: list });
+        return;
+      }
+
+      // Phase 4: GET /v1/combos/:id/provenance (before generic GET)
+      if (request.method === 'GET' && path.startsWith('/v1/combos/') && path.endsWith('/provenance')) {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const comboId = decodeURIComponent(path.slice('/v1/combos/'.length, -'/provenance'.length));
+        const provenance = options.combos.getProvenance(comboId);
+        sendJson(response, 200, { comboId, provenance });
+        return;
+      }
+
       if (request.method === 'GET' && path.startsWith('/v1/combos/')) {
         if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
         const comboId = decodeURIComponent(path.slice('/v1/combos/'.length));
@@ -687,6 +709,147 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
         }
         const deleted = options.combos.delete(comboId.trim());
         sendJson(response, 200, { status: 'ok', deleted, comboId: comboId.trim() });
+        return;
+      }
+
+      // Phase 4: POST /v1/combos/:id/regenerate
+      if (request.method === 'POST' && path.startsWith('/v1/combos/') && path.endsWith('/regenerate')) {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const comboId = decodeURIComponent(path.slice('/v1/combos/'.length, -'/regenerate'.length));
+        const combo = options.combos.getExtended(comboId);
+        if (!combo) { sendJson(response, 404, { error: { message: `Combo not found: ${comboId}`, type: 'invalid_request_error' } }); return; }
+        if (combo.type !== 'automatic') { sendJson(response, 400, { error: { message: 'Only automatic combos can be regenerated', type: 'invalid_request_error' } }); return; }
+        if (combo.locked) { sendJson(response, 409, { error: { message: 'Combo is locked by user', type: 'conflict_error' } }); return; }
+
+        // Build construction context
+        const catalog = options.catalog ? await options.catalog.list() : [];
+        const benchmarks = options.externalBenchmarks ? await options.externalBenchmarks.queryEntries({}) : { total: 0, entries: [] };
+        const snapshots = options.externalBenchmarks ? await options.externalBenchmarks.listSnapshots() : [];
+        const latestSnapshots = new Map(snapshots.map(s => [s.snapshotId, s]));
+
+        const context: ConstructionContext = {
+          catalog,
+          credentials: options.credentials ? await options.credentials.list().then(cs => cs.map(c => ({ providerId: c.providerId, credentialId: c.credentialId, enabled: c.enabled }))) : [],
+          benchmarks: benchmarks.entries,
+          latestSnapshots,
+          routingEvents: options.events ? await options.events.list().then(es => es.map(e => ({
+            providerId: e.providerId,
+            modelId: e.modelId,
+            success: e.outcome === 'success',
+            latencyMs: e.latencyMs ?? 0,
+            occurredAt: e.occurredAt,
+          }))) : [],
+        };
+
+        // Parse policy or use default
+        let policy: RankingPolicy = { primary: 'catalog_priority', direction: 'desc' };
+        if (combo.policy) {
+          try { policy = JSON.parse(combo.policy); } catch {}
+        }
+
+        // Generate new combo
+        const result = await constructAutoCombo(combo.models, policy, context);
+
+        // Update combo with new provenance
+        const provenanceEntry: ComboProvenanceEntry = {
+          version: combo.version + 1,
+          generatedAt: result.provenance.generatedAt,
+          snapshotId: result.provenance.snapshotId,
+          policyUsed: result.provenance.policyUsed,
+          candidateCount: result.provenance.candidateCount,
+          selectedCount: result.provenance.selectedCount,
+        };
+
+        const updated = options.combos.update(comboId, {
+          models: result.models,
+          provenance: JSON.stringify(result.provenance),
+        });
+
+        if (updated) {
+          options.combos.addProvenance(comboId, provenanceEntry);
+        }
+
+        sendJson(response, 200, { status: 'ok', combo: updated, provenance: provenanceEntry });
+        return;
+      }
+
+      // Phase 4: PATCH /v1/combos/:id
+      if (request.method === 'PATCH' && path.startsWith('/v1/combos/')) {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const comboId = decodeURIComponent(path.slice('/v1/combos/'.length));
+        const body = await readJsonBody(request) as { locked?: boolean; policy?: string; name?: string; description?: string };
+        const existing = options.combos.getExtended(comboId);
+        if (!existing) { sendJson(response, 404, { error: { message: `Combo not found: ${comboId}`, type: 'invalid_request_error' } }); return; }
+
+        const updates: any = {};
+        if (body.locked !== undefined) updates.locked = body.locked;
+        if (body.policy !== undefined) updates.policy = body.policy;
+        if (body.name !== undefined) updates.name = body.name;
+        if (body.description !== undefined) updates.description = body.description;
+
+        const updated = options.combos.update(comboId, updates);
+        sendJson(response, 200, { status: 'ok', combo: updated });
+        return;
+      }
+
+      // Phase 4: POST /v1/combos/autogenerate
+      if (request.method === 'POST' && path === '/v1/combos/autogenerate') {
+        if (!options.combos) { sendJson(response, 503, { error: { message: 'combo storage not configured', type: 'server_error' } }); return; }
+        const body = await readJsonBody(request) as { name: string; targetModels: string[]; policy?: RankingPolicy; snapshotId?: string };
+        if (!body.name || !Array.isArray(body.targetModels) || body.targetModels.length === 0) {
+          sendJson(response, 400, { error: { message: 'name and targetModels are required', type: 'invalid_request_error' } });
+          return;
+        }
+
+        // Generate combo ID from name
+        const comboId = body.name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+
+        // Build construction context
+        const catalog = options.catalog ? await options.catalog.list() : [];
+        const benchmarks = options.externalBenchmarks ? await options.externalBenchmarks.queryEntries({}) : { total: 0, entries: [] };
+        const snapshots = options.externalBenchmarks ? await options.externalBenchmarks.listSnapshots() : [];
+        const latestSnapshots = new Map(snapshots.map(s => [s.snapshotId, s]));
+
+        const context: ConstructionContext = {
+          catalog,
+          credentials: options.credentials ? await options.credentials.list().then(cs => cs.map(c => ({ providerId: c.providerId, credentialId: c.credentialId, enabled: c.enabled }))) : [],
+          benchmarks: benchmarks.entries,
+          latestSnapshots,
+          routingEvents: options.events ? await options.events.list().then(es => es.map(e => ({
+            providerId: e.providerId,
+            modelId: e.modelId,
+            success: e.outcome === 'success',
+            latencyMs: e.latencyMs ?? 0,
+            occurredAt: e.occurredAt,
+          }))) : [],
+        };
+
+        const policy = body.policy ?? { primary: 'catalog_priority', direction: 'desc' };
+        const result = await constructAutoCombo(body.targetModels, policy, context);
+
+        const saved = options.combos.put({
+          comboId,
+          name: body.name.trim(),
+          models: result.models,
+          type: 'automatic',
+          policy: JSON.stringify(policy),
+          provenance: JSON.stringify(result.provenance),
+          snapshotId: result.provenance.snapshotId,
+        });
+
+        // Record initial provenance entry
+        const provenanceEntry: ComboProvenanceEntry = {
+          version: 1,
+          generatedAt: result.provenance.generatedAt,
+          snapshotId: result.provenance.snapshotId,
+          policyUsed: result.provenance.policyUsed,
+          candidateCount: result.provenance.candidateCount,
+          selectedCount: result.provenance.selectedCount,
+        };
+        options.combos.addProvenance(comboId, provenanceEntry);
+
+        const extended = options.combos.getExtended(comboId);
+        sendJson(response, 200, { status: 'ok', combo: extended, provenance: result.provenance });
         return;
       }
 
