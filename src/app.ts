@@ -14,6 +14,10 @@ import { SqliteQuotaObservationStore } from './storage/sqlite-quota-observation-
 import { SqlitePreferenceStore } from './storage/sqlite-preference-store.js';
 import { createSqliteProviderStore, type ProviderDefinition } from './storage/sqlite-provider-store.js';
 import { createSqliteComboStore } from './storage/sqlite-combo-store.js';
+import { ExternalBenchmarkStorage } from './benchmarks/external/storage.js';
+import { RefreshCoordinator } from './benchmarks/external/refresh-coordinator.js';
+import { BUILTIN_EXTERNAL_SOURCES } from './benchmarks/external/sources.js';
+import { resolve as pathResolve } from 'node:path';
 
 export interface OpenRouterRuntimeOptions {
   databasePath: string;
@@ -24,7 +28,12 @@ export interface OpenRouterRuntimeOptions {
   geminiBaseUrl?: string;
   anthropicBaseUrl?: string;
   fetch?: typeof globalThis.fetch;
+  /** Optional: custom data directory for benchmark storage (defaults to same dir as databasePath) */
+  benchmarkDataDir?: string;
 }
+
+/** Public type of the runtime object returned by createOpenRouterRuntime */
+export type OpenRouterRuntime = ReturnType<typeof createOpenRouterRuntime>;
 
 /** Creates the local OpenRouter runtime without exposing provider credentials. */
 export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
@@ -35,6 +44,21 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   const quotas = new SqliteQuotaObservationStore(options.databasePath);
   const preferences = new SqlitePreferenceStore(options.databasePath);
   const comboStore = createSqliteComboStore(options.databasePath);
+
+  // Phase 5: Initialize ExternalBenchmarkStorage with graceful fallback
+  // If the benchmark DB fails (disk full, permission denied), core routing still works.
+  const benchmarkDataDir = options.benchmarkDataDir ?? pathResolve(options.databasePath, '..');
+  let externalBenchmarks: ExternalBenchmarkStorage | undefined;
+  let benchmarkCoordinator: RefreshCoordinator | undefined;
+  try {
+    externalBenchmarks = new ExternalBenchmarkStorage(benchmarkDataDir);
+    benchmarkCoordinator = new RefreshCoordinator(externalBenchmarks);
+    console.log(`[Storage] Initialized external benchmark storage at ${benchmarkDataDir}/benchmark-external.sqlite`);
+  } catch (err) {
+    console.warn(`[BenchmarkStorage] Failed to initialize external benchmark storage: ${(err as Error).message}. Benchmark features will be unavailable.`);
+    externalBenchmarks = undefined;
+    benchmarkCoordinator = undefined;
+  }
 
   // Seed default curated combos if none exist
   if (comboStore.list().length === 0) {
@@ -168,6 +192,8 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
     credentials,
     providerStore,
     combos: comboStore,
+    externalBenchmarks,
+    benchmarkCoordinator,
     onProviderChanged: syncProvider,
     onProviderRefresh: async (providerId, credentialId) => {
       const selected = credentialId ?? (await credentials.list()).find((credential) => credential.providerId === providerId)?.credentialId ?? '';
@@ -184,6 +210,10 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
   return {
     server,
     providerStore,
+    /** Access to ExternalBenchmarkStorage for tests and CLI refresh */
+    externalBenchmarks,
+    /** Access to RefreshCoordinator for tests and HTTP trigger */
+    benchmarkCoordinator,
     /** Refresh is safe to run after the server starts because cached catalog data remains available. */
     async refreshOpenRouter(): Promise<{ status: 'updated' | 'failed'; modelCount?: number; error?: string }> {
       const credential = (await credentials.list()).find((item) => item.providerId === 'openrouter');
@@ -194,7 +224,20 @@ export function createOpenRouterRuntime(options: OpenRouterRuntimeOptions) {
       const credentialIds = Object.fromEntries((await credentials.list()).map((credential) => [credential.providerId, credential.credentialId]));
       return discovery.refresh(credentialIds);
     },
+    /**
+     * Trigger a benchmark refresh (CLI and HTTP endpoint use this).
+     * Uses RefreshCoordinator to deduplicate concurrent calls.
+     * Returns RefreshResult or throws if coordinator is unavailable.
+     */
+    async refreshBenchmarks(scope: import('./benchmarks/external/interfaces.js').RefreshScope = 'openrouter') {
+      if (!benchmarkCoordinator || !externalBenchmarks) {
+        throw new Error('Benchmark storage is not available');
+      }
+      return benchmarkCoordinator.forceRefresh(scope, BUILTIN_EXTERNAL_SOURCES);
+    },
     close(): void {
+      benchmarkCoordinator?.close();
+      externalBenchmarks?.close();
       catalog.close();
       credentials.close();
       events.close();

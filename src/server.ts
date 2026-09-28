@@ -16,6 +16,8 @@ import { PROVIDER_PRESETS } from './presets.js';
 import type { ExtendedCustomCombo, ComboProvenanceEntry, RankingPolicy, ConstructionContext } from './benchmarks/external/combo-types.js';
 import { constructAutoCombo, generateTargetsFromBenchmarkSource, buildCanonicalIndex } from './benchmarks/external/auto-combo-generator.js';
 import type { ExternalBenchmarkStorage } from './benchmarks/external/storage.js';
+import type { RefreshCoordinator } from './benchmarks/external/refresh-coordinator.js';
+import { BUILTIN_EXTERNAL_SOURCES } from './benchmarks/external/sources.js';
 
 export interface FreeRouteServerOptions {
   catalog: CatalogStore;
@@ -28,6 +30,8 @@ export interface FreeRouteServerOptions {
   providerStore?: SqliteProviderStore;
   combos?: SqliteComboStore;
   externalBenchmarks?: ExternalBenchmarkStorage;
+  /** Optional: coordinator for deduplicating concurrent benchmark refresh requests */
+  benchmarkCoordinator?: RefreshCoordinator;
   onCredentialChanged?: (providerId: string, credentialId: string) => Promise<void> | void;
   onProviderChanged?: (providerId: string) => Promise<void> | void;
   onProviderRefresh?: (providerId: string, credentialId?: string) => Promise<unknown>;
@@ -850,6 +854,36 @@ export function createFreeRouteServer(options: FreeRouteServerOptions): Server {
 
         const extended = options.combos.getExtended(comboId);
         sendJson(response, 200, { status: 'ok', combo: extended, provenance: result.provenance });
+        return;
+      }
+
+      // Phase 5: POST /v1/benchmarks/refresh — trigger benchmark data ingestion
+      if (request.method === 'POST' && path === '/v1/benchmarks/refresh') {
+        if (!options.externalBenchmarks || !options.benchmarkCoordinator) {
+          sendJson(response, 503, { error: { message: 'Benchmark storage is not configured', type: 'server_error' } });
+          return;
+        }
+        let scope: import('./benchmarks/external/interfaces.js').RefreshScope = 'openrouter';
+        try {
+          const body = await readJsonBody(request).catch(() => ({})) as { source?: string };
+          if (body.source === 'all' || body.source === 'openrouter') {
+            scope = body.source;
+          }
+        } catch { /* ignore parse errors, use default scope */ }
+        try {
+          console.log(`[Benchmark] Refresh started for scope: ${scope} (trigger: http)`);
+          const result = await options.benchmarkCoordinator.forceRefresh(scope, BUILTIN_EXTERNAL_SOURCES);
+          if (result.status === 'success') {
+            console.log(`[Benchmark] Snapshot ${result.snapshotId ?? 'unknown'} created for ${scope}`);
+            sendJson(response, 200, { status: 'ok', scope, snapshotId: result.snapshotId });
+          } else {
+            console.warn(`[Benchmark] Failed to refresh source ${scope}: ${result.error?.message ?? 'unknown'}`);
+            sendJson(response, 502, { status: 'failed', scope, error: result.error?.message ?? 'refresh failed' });
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Benchmark refresh failed';
+          sendJson(response, 500, { error: { message, type: 'server_error' } });
+        }
         return;
       }
 

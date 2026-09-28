@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   else if (command === 'backup') await backup(args);
   else if (command === 'restore') await restore(args);
   else if (command === 'refresh') await refreshCatalog();
+  else if (command === 'benchmark-refresh') await benchmarkRefresh(args);
   else if (command === 'key-validate') await keyValidate(args);
   else if (command === 'provider-add') await providerAdd(args);
   else if (command === 'provider-list') await providerList();
@@ -169,6 +170,40 @@ async function refreshCatalog(): Promise<void> {
       else console.error(`${result.providerId}: ${result.error ?? 'no credential'}`);
     }
   } finally { runtime.close(); }
+}
+
+async function benchmarkRefresh(args: string[]): Promise<void> {
+  const rawScope = args[0] ?? 'openrouter';
+  if (rawScope !== 'openrouter' && rawScope !== 'all') {
+    console.error('usage: freeroute benchmark-refresh [openrouter|all]');
+    process.exitCode = 1;
+    return;
+  }
+  const scope = rawScope as 'openrouter' | 'all';
+  const runtime = createOpenRouterRuntime({
+    databasePath: await localDatabasePath(),
+    masterSecret: await getOrCreateMasterSecret(),
+  });
+  try {
+    if (!runtime.externalBenchmarks || !runtime.benchmarkCoordinator) {
+      console.error('[Benchmark] Benchmark storage is not available. Cannot refresh.');
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`[Benchmark] Refresh started for scope: ${scope} (trigger: cli)`);
+    const result = await runtime.refreshBenchmarks(scope);
+    if (result.status === 'success') {
+      console.log(`[Benchmark] OpenRouter: refreshed successfully (snapshot: ${result.snapshotId ?? 'unknown'}).`);
+    } else {
+      console.error(`[Benchmark] OpenRouter refresh failed: ${result.error?.message ?? 'unknown error'}. Previous snapshot preserved.`);
+      process.exitCode = 1;
+    }
+  } catch (err: unknown) {
+    console.error(`[Benchmark] Refresh error: ${(err as Error).message}`);
+    process.exitCode = 1;
+  } finally {
+    runtime.close();
+  }
 }
 
 async function keyValidate(args: string[]): Promise<void> {
@@ -369,6 +404,7 @@ Commands:
   freeroute backup <file>     Backup catalog, preferences and events
   freeroute restore <file>    Restore from backup
   freeroute refresh           Force-refresh model catalog from providers
+  freeroute benchmark-refresh [openrouter|all]  Refresh external benchmark data
   freeroute key-validate <provider> [credential-id]  Validate a stored API key
   freeroute provider-add <id> <openai-compatible|gemini> <url> [tier]  Add custom provider
   freeroute provider-list     List custom providers
